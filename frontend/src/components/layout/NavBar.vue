@@ -15,7 +15,11 @@ const links = computed(() => {
     ];
   }
   if (auth.role === "teacher") {
-    return [{ to: "/teacher", label: "Заявки" }];
+    return [
+      { to: "/teacher", label: "Заявки" },
+      { to: "/teacher/categories", label: "Мои категории" },
+      { to: "/teacher/homework", label: "Домашки" },
+    ];
   }
   if (auth.role === "admin") {
     return [{ to: "/admin", label: "Админ-панель" }];

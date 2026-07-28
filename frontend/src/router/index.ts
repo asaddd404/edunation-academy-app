@@ -38,9 +38,39 @@ const router = createRouter({
       meta: { roles: ["student"] as Role[] },
     },
     {
+      path: "/categories/:id",
+      name: "category-content",
+      component: () => import("@/views/student/CategoryContentView.vue"),
+      meta: { roles: ["student"] as Role[] },
+    },
+    {
+      path: "/lessons/:id",
+      name: "lesson",
+      component: () => import("@/views/student/LessonView.vue"),
+      meta: { roles: ["student"] as Role[] },
+    },
+    {
       path: "/teacher",
       name: "teacher",
       component: () => import("@/views/teacher/TeacherDashboardView.vue"),
+      meta: { roles: ["teacher"] as Role[] },
+    },
+    {
+      path: "/teacher/categories",
+      name: "teacher-categories",
+      component: () => import("@/views/teacher/TeacherCategoriesView.vue"),
+      meta: { roles: ["teacher"] as Role[] },
+    },
+    {
+      path: "/teacher/categories/:id",
+      name: "teacher-course-builder",
+      component: () => import("@/views/teacher/CourseBuilderView.vue"),
+      meta: { roles: ["teacher"] as Role[] },
+    },
+    {
+      path: "/teacher/homework",
+      name: "teacher-homework",
+      component: () => import("@/views/teacher/TeacherHomeworkView.vue"),
       meta: { roles: ["teacher"] as Role[] },
     },
     {

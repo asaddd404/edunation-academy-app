@@ -39,12 +39,16 @@ async function handleApply(categoryId: number) {
           <ApplicationStatusBadge :status="category.my_application_status" />
         </div>
         <p v-if="category.description" class="text-sm text-fg/60">{{ category.description }}</p>
+        <router-link v-if="category.my_application_status === 'approved'" :to="`/categories/${category.id}`" class="mt-auto">
+          <BaseButton class="w-full">Открыть</BaseButton>
+        </router-link>
         <BaseButton
+          v-else
           class="mt-auto"
-          :disabled="category.my_application_status === 'pending' || category.my_application_status === 'approved' || applyingId === category.id"
+          :disabled="category.my_application_status === 'pending' || applyingId === category.id"
           @click="handleApply(category.id)"
         >
-          {{ category.my_application_status === "approved" ? "Открыто" : "Подать заявку" }}
+          Подать заявку
         </BaseButton>
       </div>
     </div>

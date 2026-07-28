@@ -20,3 +20,7 @@ export function assignTeacher(categoryId: number, teacherId: number) {
 export function unassignTeacher(categoryId: number, teacherId: number) {
   return http.delete(`/admin/categories/${categoryId}/teachers/${teacherId}`);
 }
+
+export function listMyTeachingCategories() {
+  return http.get<Category[]>("/teacher/categories").then((r) => r.data);
+}
