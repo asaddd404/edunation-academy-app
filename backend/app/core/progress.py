@@ -63,3 +63,34 @@ async def get_lesson_progress(db: AsyncSession, student_id: int, category_id: in
     auto_passed = await get_lessons_without_questions(db, category_id)
     unlocked = compute_unlocked_ids(ordered, passed | auto_passed)
     return unlocked, passed
+
+
+async def get_lesson_ids_in_section(db: AsyncSession, section_id: int) -> list[int]:
+    result = await db.execute(select(Lesson.id).where(Lesson.section_id == section_id))
+    return [row[0] for row in result.all()]
+
+
+async def get_passed_section_ids(db: AsyncSession, student_id: int, category_id: int) -> set[int]:
+    result = await db.execute(
+        select(TestAttempt.section_id)
+        .join(Section, Section.id == TestAttempt.section_id)
+        .where(
+            TestAttempt.student_id == student_id,
+            Section.category_id == category_id,
+            TestAttempt.passed.is_(True),
+        )
+        .distinct()
+    )
+    return {row[0] for row in result.all()}
+
+
+async def is_section_test_unlocked(db: AsyncSession, student_id: int, section_id: int, category_id: int) -> bool:
+    """The section test opens once every lesson in that section has been
+    passed (or, per get_lessons_without_questions, has no mini-test yet)."""
+    lesson_ids = await get_lesson_ids_in_section(db, section_id)
+    if not lesson_ids:
+        return True
+    passed = await get_passed_lesson_ids(db, student_id, category_id)
+    auto_passed = await get_lessons_without_questions(db, category_id)
+    effectively_passed = passed | auto_passed
+    return all(lid in effectively_passed for lid in lesson_ids)

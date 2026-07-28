@@ -50,6 +50,22 @@ onMounted(async () => {
               <BaseBadge tone="neutral">Заблокирован</BaseBadge>
             </div>
           </li>
+          <li v-if="section.has_test">
+            <router-link
+              v-if="section.is_test_unlocked"
+              :to="`/sections/${section.id}/test`"
+              class="flex items-center justify-between rounded-lg border border-accent/40 px-4 py-3 hover:border-accent"
+            >
+              <span>Тест раздела</span>
+              <BaseBadge :tone="section.is_test_passed ? 'success' : 'neutral'">
+                {{ section.is_test_passed ? "Пройден" : "Открыт" }}
+              </BaseBadge>
+            </router-link>
+            <div v-else class="flex items-center justify-between rounded-lg border border-fg/10 px-4 py-3 opacity-50">
+              <span>Тест раздела</span>
+              <BaseBadge tone="neutral">Заблокирован</BaseBadge>
+            </div>
+          </li>
         </ul>
       </div>
     </div>

@@ -18,3 +18,6 @@ class Section(Base):
 
     category: Mapped["Category"] = relationship()
     lessons: Mapped[list["Lesson"]] = relationship(back_populates="section", order_by="Lesson.order_index")
+    test_questions: Mapped[list["Question"]] = relationship(
+        back_populates="section", order_by="Question.order_index"
+    )

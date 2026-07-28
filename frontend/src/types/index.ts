@@ -52,6 +52,9 @@ export interface Section {
   order_index: number;
   created_at: string;
   lessons: LessonSummary[];
+  has_test: boolean;
+  is_test_unlocked: boolean;
+  is_test_passed: boolean;
 }
 
 export interface Choice {
@@ -100,6 +103,13 @@ export interface TestAttemptResult {
   score: number;
   passed: boolean;
   attempt_number: number;
+}
+
+export interface SectionTest {
+  section_id: number;
+  is_unlocked: boolean;
+  is_passed: boolean;
+  questions: Question[];
 }
 
 export interface TokenPair {

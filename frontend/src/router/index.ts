@@ -50,6 +50,12 @@ const router = createRouter({
       meta: { roles: ["student"] as Role[] },
     },
     {
+      path: "/sections/:id/test",
+      name: "section-test",
+      component: () => import("@/views/student/SectionTestView.vue"),
+      meta: { roles: ["student"] as Role[] },
+    },
+    {
       path: "/teacher",
       name: "teacher",
       component: () => import("@/views/teacher/TeacherDashboardView.vue"),

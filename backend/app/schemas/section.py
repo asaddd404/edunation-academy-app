@@ -20,3 +20,6 @@ class SectionOut(BaseModel):
     order_index: int
     created_at: datetime
     lessons: list[LessonSummaryOut] = []
+    has_test: bool = False
+    is_test_unlocked: bool = False
+    is_test_passed: bool = False

@@ -4,7 +4,7 @@ import { onMounted } from "vue";
 import { useRoute } from "vue-router";
 
 import { createLesson, createQuestion } from "@/api/lessons";
-import { createSection, listTeacherSections } from "@/api/sections";
+import { createSection, createSectionQuestion, listTeacherSections } from "@/api/sections";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import type { Section } from "@/types";
@@ -20,6 +20,7 @@ const newSectionDescription = ref("");
 
 const lessonForms = reactive<Record<number, { title: string; description: string; videoUrl: string; homework: string; open: boolean }>>({});
 const questionForms = reactive<Record<number, { text: string; choices: { text: string; isCorrect: boolean }[]; open: boolean }>>({});
+const sectionTestForms = reactive<Record<number, { text: string; choices: { text: string; isCorrect: boolean }[]; open: boolean }>>({});
 
 async function load() {
   loading.value = true;
@@ -80,6 +81,33 @@ async function handleCreateQuestion(lessonId: number) {
   questionForms[lessonId] = { text: "", choices: [], open: false };
   await load();
 }
+
+function openSectionTestForm(sectionId: number) {
+  sectionTestForms[sectionId] = {
+    text: "",
+    choices: [
+      { text: "", isCorrect: true },
+      { text: "", isCorrect: false },
+    ],
+    open: true,
+  };
+}
+
+function addSectionTestChoice(sectionId: number) {
+  const form = sectionTestForms[sectionId];
+  if (form.choices.length < 6) form.choices.push({ text: "", isCorrect: false });
+}
+
+async function handleCreateSectionQuestion(sectionId: number) {
+  const form = sectionTestForms[sectionId];
+  if (!form?.text.trim() || form.choices.some((c) => !c.text.trim())) return;
+  await createSectionQuestion(sectionId, {
+    text: form.text,
+    choices: form.choices.map((c) => ({ text: c.text, is_correct: c.isCorrect })),
+  });
+  sectionTestForms[sectionId] = { text: "", choices: [], open: false };
+  await load();
+}
 </script>
 
 <template>
@@ -123,6 +151,28 @@ async function handleCreateQuestion(lessonId: number) {
           <BaseInput v-model="lessonForms[section.id].videoUrl" label="Ссылка на видео (заглушка)" />
           <BaseInput v-model="lessonForms[section.id].homework" label="Задание для домашней работы" />
           <BaseButton @click="handleCreateLesson(section.id)">Сохранить урок</BaseButton>
+        </div>
+
+        <div class="mt-4 border-t border-fg/10 pt-4">
+          <p class="mb-2 text-sm text-fg/60">Тест раздела (открывается после всех уроков)</p>
+          <BaseButton variant="secondary" @click="openSectionTestForm(section.id)">Добавить вопрос теста раздела</BaseButton>
+
+          <div v-if="sectionTestForms[section.id]?.open" class="mt-3 space-y-2 rounded-lg bg-fg/5 p-3">
+            <BaseInput v-model="sectionTestForms[section.id].text" label="Текст вопроса" />
+            <div v-for="(choice, i) in sectionTestForms[section.id].choices" :key="i" class="flex items-center gap-2">
+              <input
+                type="radio"
+                :name="`section-correct-${section.id}`"
+                :checked="choice.isCorrect"
+                @change="sectionTestForms[section.id].choices.forEach((c, ci) => (c.isCorrect = ci === i))"
+              />
+              <input v-model="choice.text" placeholder="Вариант ответа" class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm" />
+            </div>
+            <div class="flex gap-2">
+              <BaseButton variant="secondary" @click="addSectionTestChoice(section.id)">+ вариант</BaseButton>
+              <BaseButton @click="handleCreateSectionQuestion(section.id)">Сохранить вопрос</BaseButton>
+            </div>
+          </div>
         </div>
       </div>
     </div>

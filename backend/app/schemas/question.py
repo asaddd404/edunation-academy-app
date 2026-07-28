@@ -33,7 +33,8 @@ class QuestionTeacherOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    lesson_id: int
+    lesson_id: int | None
+    section_id: int | None
     text: str
     order_index: int
     choices: list[ChoiceTeacherOut]

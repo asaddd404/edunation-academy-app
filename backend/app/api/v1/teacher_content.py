@@ -121,3 +121,28 @@ async def create_question(
         select(Question).where(Question.id == question.id).options(selectinload(Question.choices))
     )
     return QuestionTeacherOut.model_validate(question)
+
+
+@router.post("/teacher/sections/{section_id}/questions", response_model=QuestionTeacherOut, status_code=status.HTTP_201_CREATED)
+async def create_section_question(
+    section_id: int,
+    payload: QuestionIn,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher)),
+) -> QuestionTeacherOut:
+    await assert_teacher_owns_section(db, teacher, section_id)
+
+    next_order = (
+        await db.scalar(select(func.coalesce(func.max(Question.order_index), -1) + 1).where(Question.section_id == section_id))
+    )
+    question = Question(section_id=section_id, text=payload.text, order_index=next_order)
+    question.choices = [
+        Choice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
+    ]
+    db.add(question)
+    await db.commit()
+
+    question = await db.scalar(
+        select(Question).where(Question.id == question.id).options(selectinload(Question.choices))
+    )
+    return QuestionTeacherOut.model_validate(question)
