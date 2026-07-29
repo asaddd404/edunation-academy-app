@@ -2,7 +2,13 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
-import { getTeacherCategory, updateTeacherCategory } from "@/api/categories";
+import {
+  deleteCategoryImage,
+  getCategoryImageUrl,
+  getTeacherCategory,
+  updateTeacherCategory,
+  uploadCategoryImage,
+} from "@/api/categories";
 import { createLesson, createQuestion, deleteLesson, updateLesson } from "@/api/lessons";
 import { createSection, createSectionQuestion, deleteSection, listTeacherSections, updateSection } from "@/api/sections";
 import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/video";
@@ -17,6 +23,9 @@ const categoryId = Number(route.params.id);
 const category = ref<Category | null>(null);
 const categoryDescEditing = ref(false);
 const categoryDescDraft = ref("");
+const categoryImageUploading = ref(false);
+const categoryImageError = ref("");
+const categoryImageCacheBust = ref(0);
 
 const sections = ref<Section[]>([]);
 const loading = ref(true);
@@ -67,6 +76,31 @@ function startEditCategoryDescription() {
 async function saveCategoryDescription() {
   category.value = await updateTeacherCategory(categoryId, { description: categoryDescDraft.value });
   categoryDescEditing.value = false;
+}
+
+function handleCategoryImageChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (file) uploadCategoryImageFile(file);
+}
+
+async function uploadCategoryImageFile(file: File) {
+  categoryImageUploading.value = true;
+  categoryImageError.value = "";
+  try {
+    category.value = await uploadCategoryImage(categoryId, file);
+    categoryImageCacheBust.value++;
+  } catch {
+    categoryImageError.value = "Не удалось загрузить изображение";
+  } finally {
+    categoryImageUploading.value = false;
+  }
+}
+
+async function handleDeleteCategoryImage() {
+  category.value = await deleteCategoryImage(categoryId);
+  categoryImageCacheBust.value++;
 }
 
 function startEditSection(section: Section) {
@@ -257,23 +291,49 @@ async function handleCreateSectionQuestion(sectionId: number) {
   <div>
     <h1 class="mb-6 text-2xl font-semibold">Конструктор курса</h1>
 
-    <div v-if="category" class="mb-6 rounded-xl border border-fg/10 p-4">
-      <h2 class="text-lg font-medium">{{ category.name }}</h2>
-      <div v-if="!categoryDescEditing">
-        <p class="mt-1 text-sm text-fg/60">{{ category.description || "Описание не задано" }}</p>
-        <button class="mt-2 text-sm text-accent underline" @click="startEditCategoryDescription">
-          Редактировать описание
-        </button>
-      </div>
-      <div v-else class="mt-2 space-y-2">
-        <textarea
-          v-model="categoryDescDraft"
-          rows="3"
-          class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm focus:border-accent focus:outline-none"
-        />
-        <div class="flex gap-2">
-          <BaseButton @click="saveCategoryDescription">Сохранить</BaseButton>
-          <BaseButton variant="secondary" @click="categoryDescEditing = false">Отмена</BaseButton>
+    <div v-if="category" class="mb-6 flex flex-col gap-4 rounded-xl border border-fg/10 p-4 sm:flex-row">
+      <img
+        v-if="category.has_image"
+        :src="`${getCategoryImageUrl(categoryId)}?v=${categoryImageCacheBust}`"
+        alt=""
+        class="h-28 w-28 shrink-0 rounded-lg object-cover"
+      />
+      <div class="flex-1">
+        <h2 class="text-lg font-medium">{{ category.name }}</h2>
+        <div v-if="!categoryDescEditing">
+          <p class="mt-1 text-sm text-fg/60">{{ category.description || "Описание не задано" }}</p>
+          <button class="mt-2 text-sm text-accent underline" @click="startEditCategoryDescription">
+            Редактировать описание
+          </button>
+        </div>
+        <div v-else class="mt-2 space-y-2">
+          <textarea
+            v-model="categoryDescDraft"
+            rows="3"
+            class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          />
+          <div class="flex gap-2">
+            <BaseButton @click="saveCategoryDescription">Сохранить</BaseButton>
+            <BaseButton variant="secondary" @click="categoryDescEditing = false">Отмена</BaseButton>
+          </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <label class="cursor-pointer text-sm text-accent underline">
+            {{ category.has_image ? "Заменить картинку" : "Загрузить картинку" }}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              class="hidden"
+              :disabled="categoryImageUploading"
+              @change="handleCategoryImageChange"
+            />
+          </label>
+          <BaseButton v-if="category.has_image" variant="secondary" @click="handleDeleteCategoryImage">
+            Удалить картинку
+          </BaseButton>
+          <span v-if="categoryImageUploading" class="text-sm text-fg/60">Загрузка…</span>
+          <span v-if="categoryImageError" class="text-sm text-red-500">{{ categoryImageError }}</span>
         </div>
       </div>
     </div>

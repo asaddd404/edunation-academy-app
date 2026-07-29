@@ -73,9 +73,16 @@ onMounted(load);
 
 async function handleCreateSubject() {
   if (!newSubjectName.value.trim()) return;
-  await createEntSubject({ name: newSubjectName.value });
+  const subject = await createEntSubject({ name: newSubjectName.value });
   newSubjectName.value = "";
   await load();
+  // Jump straight to the question form for the subject just created,
+  // instead of leaving the teacher to figure out that clicking its
+  // name is what reveals it.
+  openSubjectId.value = subject.id;
+  editingQuestionId.value = null;
+  if (!questionForms[subject.id]) questionForms[subject.id] = blankForm();
+  questionsBySubject[subject.id] = await listSubjectQuestions(subject.id);
 }
 
 async function handleToggleActive(subject: EntSubject) {
@@ -222,7 +229,11 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
 
 <template>
   <div>
-    <h1 class="mb-6 text-2xl font-semibold">Банк вопросов ЕНТ-симулятора</h1>
+    <h1 class="mb-2 text-2xl font-semibold">Банк вопросов ЕНТ-симулятора</h1>
+    <p class="mb-6 text-sm text-fg/60">
+      Сначала добавьте предмет, затем откройте его карточку кнопкой «Вопросы» — там же добавляются и редактируются
+      вопросы всех типов (один/несколько ответов, сопоставление, короткий ответ).
+    </p>
 
     <form
       class="mb-6 flex flex-col gap-3 rounded-xl border border-fg/10 p-4 sm:flex-row sm:items-end"
@@ -249,9 +260,7 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
               <BaseButton variant="secondary" @click="cancelRenameSubject">Отмена</BaseButton>
             </template>
             <template v-else>
-              <button class="text-lg font-medium hover:text-accent" @click="toggleSubject(subject.id)">
-                {{ subject.name }}
-              </button>
+              <span class="text-lg font-medium">{{ subject.name }}</span>
               <button class="text-sm text-fg/50 hover:text-fg" @click="startRenameSubject(subject)">
                 Переименовать
               </button>
@@ -261,6 +270,9 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
               </BaseBadge>
             </template>
           </div>
+          <BaseButton variant="secondary" @click="toggleSubject(subject.id)">
+            {{ openSubjectId === subject.id ? "Свернуть" : "Вопросы" }}
+          </BaseButton>
           <BaseButton variant="secondary" @click="handleToggleActive(subject)">
             {{ subject.is_active ? "Скрыть" : "Показать" }}
           </BaseButton>

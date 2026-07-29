@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_teacher_owns_category, assert_teacher_owns_lesson, assert_teacher_owns_section
+from app.core.storage import resolve_upload_path, save_category_image
 from app.core.video import VideoProcessingError, delete_video_assets, save_raw_video, transcode_to_hls
 from app.database import async_session_factory, get_db
 from app.deps import require_role
@@ -70,6 +71,46 @@ async def update_teacher_category(
 
     await db.commit()
     await db.refresh(category)
+    return CategoryOut.model_validate(category)
+
+
+@router.post("/teacher/categories/{category_id}/image", response_model=CategoryOut)
+async def upload_category_image(
+    category_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> CategoryOut:
+    await assert_teacher_owns_category(db, teacher, category_id)
+    category = await db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+
+    old_path = category.image_path
+    category.image_path = await save_category_image(file)
+    await db.commit()
+    await db.refresh(category)
+    if old_path:
+        resolve_upload_path(old_path).unlink(missing_ok=True)
+    return CategoryOut.model_validate(category)
+
+
+@router.delete("/teacher/categories/{category_id}/image", response_model=CategoryOut)
+async def delete_category_image(
+    category_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> CategoryOut:
+    await assert_teacher_owns_category(db, teacher, category_id)
+    category = await db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+
+    if category.image_path:
+        resolve_upload_path(category.image_path).unlink(missing_ok=True)
+        category.image_path = None
+        await db.commit()
+        await db.refresh(category)
     return CategoryOut.model_validate(category)
 
 

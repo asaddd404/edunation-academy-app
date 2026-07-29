@@ -148,7 +148,14 @@ async function handleDecideApplication(applicationId: number, decision: "approve
         <BaseButton type="submit">Создать</BaseButton>
       </form>
 
-      <div v-for="category in categories" :key="category.id" class="rounded-xl border border-fg/10 p-4">
+      <div v-for="category in categories" :key="category.id" class="flex gap-4 rounded-xl border border-fg/10 p-4">
+        <img
+          v-if="category.has_image"
+          :src="categoriesApi.getCategoryImageUrl(category.id)"
+          alt=""
+          class="h-16 w-16 shrink-0 rounded-lg object-cover"
+        />
+        <div class="flex-1">
         <p class="font-medium">{{ category.name }}</p>
         <p class="mb-3 text-sm text-fg/60">{{ category.description }}</p>
 
@@ -183,6 +190,7 @@ async function handleDecideApplication(applicationId: number, decision: "approve
           >
             Назначить
           </BaseButton>
+        </div>
         </div>
       </div>
     </section>

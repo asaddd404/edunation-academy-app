@@ -20,7 +20,12 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     slug: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     teachers: Mapped[list["User"]] = relationship(secondary=teacher_categories, back_populates="taught_categories")
+
+    @property
+    def has_image(self) -> bool:
+        return self.image_path is not None

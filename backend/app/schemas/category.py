@@ -32,6 +32,7 @@ class CategoryOut(BaseModel):
     name: str
     slug: str
     description: str | None
+    has_image: bool = False
     is_active: bool
     created_at: datetime
     my_application_status: ApplicationStatusEnum | None = None

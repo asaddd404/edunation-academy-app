@@ -32,3 +32,17 @@ export function getTeacherCategory(id: number) {
 export function updateTeacherCategory(id: number, payload: { description?: string }) {
   return http.patch<Category>(`/teacher/categories/${id}`, payload).then((r) => r.data);
 }
+
+export function uploadCategoryImage(id: number, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return http.post<Category>(`/teacher/categories/${id}/image`, formData).then((r) => r.data);
+}
+
+export function deleteCategoryImage(id: number) {
+  return http.delete<Category>(`/teacher/categories/${id}/image`).then((r) => r.data);
+}
+
+export function getCategoryImageUrl(id: number) {
+  return `${import.meta.env.VITE_API_BASE_URL}/categories/${id}/image`;
+}

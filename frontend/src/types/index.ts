@@ -16,6 +16,7 @@ export interface Category {
   name: string;
   slug: string;
   description: string | null;
+  has_image: boolean;
   is_active: boolean;
   created_at: string;
   my_application_status: ApplicationStatus | null;

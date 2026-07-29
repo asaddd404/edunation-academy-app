@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 
+import { getCategoryImageUrl } from "@/api/categories";
 import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import { useApplicationsStore } from "@/stores/applications";
@@ -34,6 +35,12 @@ async function handleApply(categoryId: number) {
         :key="category.id"
         class="flex flex-col gap-3 rounded-xl border border-fg/10 p-5"
       >
+        <img
+          v-if="category.has_image"
+          :src="getCategoryImageUrl(category.id)"
+          alt=""
+          class="-mx-5 -mt-5 mb-1 h-32 rounded-t-xl object-cover"
+        />
         <div class="flex items-start justify-between gap-2">
           <h2 class="text-lg font-medium">{{ category.name }}</h2>
           <ApplicationStatusBadge :status="category.my_application_status" />

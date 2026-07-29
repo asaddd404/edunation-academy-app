@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.storage import resolve_upload_path
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.application import Application
@@ -35,6 +37,24 @@ async def list_categories(
         out.my_application_status = status_by_category.get(category.id)
         result.append(out)
     return result
+
+
+@router.get("/{category_id}/image")
+async def get_category_image(
+    category_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    # Public and unauthenticated on purpose: it's a decorative cover image,
+    # and a plain <img src> can't attach the app's bearer token the way
+    # axios does for every other request.
+    category = await db.get(Category, category_id)
+    if category is None or not category.image_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
+
+    path = resolve_upload_path(category.image_path)
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
+    return FileResponse(path)
 
 
 @router.get("/{category_id}", response_model=CategoryOut)
