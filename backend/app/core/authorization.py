@@ -103,3 +103,20 @@ async def assert_student_has_category_access(db: AsyncSession, student: User, ca
     )
     if approved is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к этой категории")
+
+
+async def assert_student_has_any_course_access(db: AsyncSession, student: User) -> None:
+    """The ЕНТ simulator is a perk for enrolled students, not a standalone
+    product -- a student with zero approved applications shouldn't be able
+    to use it either."""
+    approved = await db.scalar(
+        select(Application.id).where(
+            Application.student_id == student.id,
+            Application.status == ApplicationStatusEnum.approved,
+        )
+    )
+    if approved is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "ЕНТ-тренажёр доступен только после одобрения хотя бы одной заявки на курс",
+        )

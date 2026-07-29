@@ -3,14 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --color-accent: 210 100% 55%;
-  --color-bg: 0 0% 100%;
-  --color-fg: 0 0% 7%;
+  /* Milk-white paper, near-black ink -- accent mirrors fg so buttons/links
+     stay strictly within the white/gray/black/milk palette (no hue). */
+  --color-bg: 40 30% 97%;
+  --color-fg: 20 9% 13%;
+  --color-accent: 20 9% 13%;
 }
 
 .dark {
-  --color-bg: 0 0% 7%;
-  --color-fg: 0 0% 96%;
+  /* Same palette inverted: near-black paper, milk-white ink. */
+  --color-bg: 20 8% 9%;
+  --color-fg: 40 20% 95%;
+  --color-accent: 40 20% 95%;
 }
 
 html,

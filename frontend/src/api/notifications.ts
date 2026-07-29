@@ -16,3 +16,11 @@ export function markNotificationRead(id: number) {
 export function markAllNotificationsRead() {
   return http.post("/notifications/read-all");
 }
+
+export function deleteNotification(id: number) {
+  return http.delete(`/notifications/${id}`);
+}
+
+export function clearAllNotifications() {
+  return http.delete("/notifications");
+}

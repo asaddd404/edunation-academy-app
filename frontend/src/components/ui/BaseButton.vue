@@ -15,7 +15,7 @@ withDefaults(
     :disabled="disabled"
     class="inline-flex items-center justify-center rounded-lg px-4 py-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
     :class="{
-      'bg-accent text-white hover:opacity-90': variant === 'primary',
+      'bg-accent text-bg hover:opacity-90': variant === 'primary',
       'border border-fg/20 bg-transparent text-fg hover:bg-fg/5': variant === 'secondary',
       'bg-red-600 text-white hover:bg-red-700': variant === 'danger',
     }"

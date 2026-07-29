@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.authorization import assert_student_has_any_course_access
 from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
 from app.database import get_db
@@ -31,7 +32,16 @@ from app.schemas.ent_simulation import (
 )
 from app.schemas.ent_subject import EntSubjectOut
 
-router = APIRouter(prefix="/ent", tags=["ent"], dependencies=[Depends(require_role(RoleEnum.student))])
+
+async def require_student_with_course_access(
+    db: AsyncSession = Depends(get_db),
+    student: User = Depends(require_role(RoleEnum.student)),
+) -> User:
+    await assert_student_has_any_course_access(db, student)
+    return student
+
+
+router = APIRouter(prefix="/ent", tags=["ent"], dependencies=[Depends(require_student_with_course_access)])
 
 _QUESTION_LOAD_OPTIONS = (
     selectinload(EntQuestion.subject),
@@ -93,7 +103,7 @@ async def list_subjects(db: AsyncSession = Depends(get_db)) -> list[EntSubjectOu
 async def start_simulation(
     payload: EntSimulationStartIn,
     db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
+    student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationOut:
     subjects = (
         await db.scalars(
@@ -166,7 +176,7 @@ async def _get_own_simulation(db: AsyncSession, student: User, simulation_id: in
 @router.get("/simulations", response_model=list[EntSimulationSummaryOut])
 async def list_simulations(
     db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
+    student: User = Depends(require_student_with_course_access),
 ) -> list[EntSimulationSummaryOut]:
     simulations = (
         await db.scalars(
@@ -182,7 +192,7 @@ async def list_simulations(
 async def get_simulation(
     simulation_id: int,
     db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
+    student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationOut:
     simulation = await _get_own_simulation(db, student, simulation_id)
     if simulation.status != EntSimulationStatus.in_progress:
@@ -240,7 +250,7 @@ async def submit_simulation(
     simulation_id: int,
     payload: EntSimulationSubmitIn,
     db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
+    student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationResultOut:
     simulation = await _get_own_simulation(db, student, simulation_id)
     if simulation.status != EntSimulationStatus.in_progress:
@@ -276,7 +286,7 @@ async def submit_simulation(
 async def get_simulation_result(
     simulation_id: int,
     db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
+    student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationResultOut:
     simulation = await _get_own_simulation(db, student, simulation_id)
     if simulation.status != EntSimulationStatus.submitted:
@@ -288,7 +298,7 @@ async def get_simulation_result(
 async def get_leaderboard(
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
+    student: User = Depends(require_student_with_course_access),
 ) -> EntLeaderboardOut:
     limit = max(1, min(limit, 100))
 

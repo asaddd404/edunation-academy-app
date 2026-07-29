@@ -10,6 +10,7 @@ from app.api.v1 import (
     ent_teacher,
     homework,
     notifications,
+    profile,
     teacher_content,
     tests,
     video,
@@ -28,3 +29,4 @@ api_router.include_router(ent_teacher.router)
 api_router.include_router(ent.router)
 api_router.include_router(video.router)
 api_router.include_router(notifications.router)
+api_router.include_router(profile.router)

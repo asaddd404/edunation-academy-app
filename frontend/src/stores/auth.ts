@@ -56,6 +56,10 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
+  function setUser(updated: User) {
+    user.value = updated;
+  }
+
   function logout() {
     const token = refreshToken.value;
     accessToken.value = null;
@@ -87,5 +91,6 @@ export const useAuthStore = defineStore("auth", () => {
     logout,
     refresh,
     initialize,
+    setUser,
   };
 });

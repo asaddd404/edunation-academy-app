@@ -203,8 +203,8 @@ function timingLabel(r: EntSimulationResult): string {
           <BaseBadge :tone="result.time_expired ? 'danger' : 'neutral'">{{ timingLabel(result) }}</BaseBadge>
           <BaseBadge tone="warning">+{{ result.xp_earned }} XP</BaseBadge>
         </div>
-        <router-link class="mt-2 inline-block text-sm text-accent hover:underline" to="/ent/leaderboard">
-          🏆 Смотреть рейтинг
+        <router-link class="mt-2 inline-block text-sm text-accent underline underline-offset-2 hover:opacity-70" to="/ent/leaderboard">
+          Смотреть рейтинг
         </router-link>
       </div>
 

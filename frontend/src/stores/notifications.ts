@@ -34,6 +34,21 @@ export const useNotificationsStore = defineStore("notifications", () => {
     unreadCount.value = 0;
   }
 
+  async function remove(id: number) {
+    const notification = items.value.find((n) => n.id === id);
+    await notificationsApi.deleteNotification(id);
+    items.value = items.value.filter((n) => n.id !== id);
+    if (notification && !notification.is_read) {
+      unreadCount.value = Math.max(0, unreadCount.value - 1);
+    }
+  }
+
+  async function clearAll() {
+    await notificationsApi.clearAllNotifications();
+    items.value = [];
+    unreadCount.value = 0;
+  }
+
   function startPolling() {
     if (pollTimer) return;
     fetchUnreadCount();
@@ -47,5 +62,16 @@ export const useNotificationsStore = defineStore("notifications", () => {
     unreadCount.value = 0;
   }
 
-  return { items, unreadCount, fetchUnreadCount, fetchList, markRead, markAllRead, startPolling, stopPolling };
+  return {
+    items,
+    unreadCount,
+    fetchUnreadCount,
+    fetchList,
+    markRead,
+    markAllRead,
+    remove,
+    clearAll,
+    startPolling,
+    stopPolling,
+  };
 });

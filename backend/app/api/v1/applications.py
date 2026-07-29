@@ -99,18 +99,18 @@ async def list_my_applications(
 @router.get("/pending", response_model=list[ApplicationOut])
 async def list_pending_for_teacher(
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> list[ApplicationOut]:
+    query = select(Application).where(Application.status == ApplicationStatusEnum.pending)
+    if teacher.role != RoleEnum.admin:
+        query = query.join(teacher_categories, teacher_categories.c.category_id == Application.category_id).where(
+            teacher_categories.c.teacher_id == teacher.id
+        )
     applications = (
         await db.scalars(
-            select(Application)
-            .join(teacher_categories, teacher_categories.c.category_id == Application.category_id)
-            .where(
-                teacher_categories.c.teacher_id == teacher.id,
-                Application.status == ApplicationStatusEnum.pending,
+            query.options(selectinload(Application.student), selectinload(Application.category)).order_by(
+                Application.created_at.asc()
             )
-            .options(selectinload(Application.student), selectinload(Application.category))
-            .order_by(Application.created_at.asc())
         )
     ).all()
     return [_serialize(a, with_student=True, with_category=True) for a in applications]

@@ -41,21 +41,23 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-sm">
-    <h1 class="mb-6 text-2xl font-semibold">Регистрация</h1>
-    <form class="space-y-4" @submit.prevent="handleSubmit">
-      <div class="grid grid-cols-2 gap-3">
-        <BaseInput v-model="firstName" label="Имя" />
-        <BaseInput v-model="lastName" label="Фамилия" />
-      </div>
-      <BaseInput v-model="phone" label="Телефон" placeholder="+7XXXXXXXXXX" />
-      <BaseInput v-model="password" label="Пароль" type="password" />
-      <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
-      <BaseButton type="submit" class="w-full" :disabled="submitting">Зарегистрироваться</BaseButton>
-    </form>
-    <p class="mt-4 text-sm text-fg/60">
-      Уже есть аккаунт?
-      <router-link to="/login" class="text-accent">Войти</router-link>
-    </p>
+  <div class="mx-auto flex max-w-sm flex-col justify-center py-8 sm:py-16">
+    <div class="rounded-2xl border border-fg/10 p-6 sm:p-8">
+      <h1 class="mb-6 text-2xl font-semibold">Регистрация</h1>
+      <form class="space-y-4" @submit.prevent="handleSubmit">
+        <div class="grid grid-cols-2 gap-3">
+          <BaseInput v-model="firstName" label="Имя" />
+          <BaseInput v-model="lastName" label="Фамилия" />
+        </div>
+        <BaseInput v-model="phone" label="Телефон" placeholder="+7XXXXXXXXXX" />
+        <BaseInput v-model="password" label="Пароль" type="password" />
+        <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
+        <BaseButton type="submit" class="w-full" :disabled="submitting">Зарегистрироваться</BaseButton>
+      </form>
+      <p class="mt-6 text-center text-sm text-fg/60">
+        Уже есть аккаунт?
+        <router-link to="/login" class="text-accent underline underline-offset-2">Войти</router-link>
+      </p>
+    </div>
   </div>
 </template>

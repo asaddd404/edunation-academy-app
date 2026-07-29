@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from "axios";
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
@@ -15,6 +16,7 @@ const myRating = ref<EntLeaderboardEntry | null>(null);
 const loading = ref(true);
 const starting = ref(false);
 const startError = ref("");
+const accessDenied = ref(false);
 
 const selectedSubjectIds = ref<number[]>([]);
 const questionsPerSubject = ref(10);
@@ -30,15 +32,25 @@ const canStart = computed(
 
 async function load() {
   loading.value = true;
-  const [subjectsRes, historyRes, leaderboard] = await Promise.all([
-    listEntSubjects(),
-    listEntSimulations(),
-    getEntLeaderboard(1),
-  ]);
-  subjects.value = subjectsRes;
-  history.value = historyRes;
-  myRating.value = leaderboard.me;
-  loading.value = false;
+  accessDenied.value = false;
+  try {
+    const [subjectsRes, historyRes, leaderboard] = await Promise.all([
+      listEntSubjects(),
+      listEntSimulations(),
+      getEntLeaderboard(1),
+    ]);
+    subjects.value = subjectsRes;
+    history.value = historyRes;
+    myRating.value = leaderboard.me;
+  } catch (e) {
+    if (isAxiosError(e) && e.response?.status === 403) {
+      accessDenied.value = true;
+    } else {
+      throw e;
+    }
+  } finally {
+    loading.value = false;
+  }
 }
 
 onMounted(load);
@@ -82,12 +94,21 @@ function statusLabel(s: EntSimulationSummary): string {
         <h1 class="mb-2 text-2xl font-semibold">ЕНТ-тренажёр</h1>
         <p class="text-sm text-fg/60">Выберите предметы и режим прохождения, чтобы начать пробную симуляцию.</p>
       </div>
-      <router-link class="shrink-0 text-sm text-accent hover:underline" to="/ent/leaderboard">
-        🏆 Топ студентов
+      <router-link class="shrink-0 text-sm text-accent underline underline-offset-2 hover:opacity-70" to="/ent/leaderboard">
+        Топ студентов
       </router-link>
     </div>
 
     <p v-if="loading" class="text-fg/60">Загрузка…</p>
+
+    <div v-else-if="accessDenied" class="rounded-xl border border-fg/10 p-4 text-sm">
+      <p class="text-fg/80">
+        ЕНТ-тренажёр доступен только после одобрения хотя бы одной заявки на курс.
+      </p>
+      <router-link class="mt-2 inline-block text-accent underline underline-offset-2 hover:opacity-70" to="/catalog">
+        Перейти в каталог курсов
+      </router-link>
+    </div>
 
     <template v-else>
       <div v-if="myRating" class="flex items-center justify-between rounded-xl border border-fg/10 p-4 text-sm">
@@ -161,7 +182,7 @@ function statusLabel(s: EntSimulationSummary): string {
             <span>{{ new Date(s.started_at).toLocaleString("ru-RU") }}</span>
             <div class="flex items-center gap-2">
               <BaseBadge :tone="s.status === 'in_progress' ? 'warning' : 'neutral'">{{ statusLabel(s) }}</BaseBadge>
-              <router-link class="text-accent hover:underline" :to="`/ent/${s.id}`">Открыть</router-link>
+              <router-link class="text-accent underline underline-offset-2 hover:opacity-70" :to="`/ent/${s.id}`">Открыть</router-link>
             </div>
           </li>
         </ul>

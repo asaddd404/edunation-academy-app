@@ -20,19 +20,13 @@ function fullName(entry: { first_name: string; last_name: string }): string {
   return `${entry.last_name} ${entry.first_name}`.trim();
 }
 
-function medal(rank: number): string | null {
-  if (rank === 1) return "🥇";
-  if (rank === 2) return "🥈";
-  if (rank === 3) return "🥉";
-  return null;
-}
 </script>
 
 <template>
   <div class="mx-auto max-w-2xl space-y-6">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold">Топ студентов</h1>
-      <router-link class="text-sm text-accent hover:underline" to="/ent">← К симулятору</router-link>
+      <router-link class="text-sm text-accent underline underline-offset-2 hover:opacity-70" to="/ent">← К симулятору</router-link>
     </div>
 
     <p v-if="loading" class="text-fg/60">Загрузка…</p>
@@ -57,7 +51,12 @@ function medal(rank: number): string | null {
           :class="entry.is_me ? 'border-accent/50 bg-accent/5' : 'border-fg/10'"
         >
           <div class="flex items-center gap-3">
-            <span class="w-8 text-center font-medium text-fg/60">{{ medal(entry.rank) ?? `#${entry.rank}` }}</span>
+            <span
+              class="w-8 shrink-0 text-center font-medium"
+              :class="entry.rank <= 3 ? 'text-fg' : 'text-fg/60'"
+            >
+              #{{ entry.rank }}
+            </span>
             <span>{{ fullName(entry) }}</span>
             <BaseBadge v-if="entry.is_me" tone="success">Это вы</BaseBadge>
           </div>

@@ -109,6 +109,12 @@ const router = createRouter({
       component: () => import("@/views/admin/AdminDashboardView.vue"),
       meta: { roles: ["admin"] as Role[] },
     },
+    {
+      path: "/profile",
+      name: "profile",
+      component: () => import("@/views/ProfileView.vue"),
+      meta: { roles: ["student", "teacher", "admin"] as Role[] },
+    },
   ],
 });
 

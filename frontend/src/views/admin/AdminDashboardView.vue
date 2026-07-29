@@ -107,7 +107,7 @@ async function handleDecideApplication(applicationId: number, decision: "approve
         v-for="t in (['users', 'categories', 'applications'] as Tab[])"
         :key="t"
         class="rounded-lg px-3 py-2 text-sm"
-        :class="tab === t ? 'bg-accent text-white' : 'text-fg/60 hover:bg-fg/5'"
+        :class="tab === t ? 'bg-accent text-bg' : 'text-fg/60 hover:bg-fg/5'"
         @click="tab = t"
       >
         {{ t === "users" ? "Пользователи" : t === "categories" ? "Категории" : "Заявки" }}
@@ -199,13 +199,13 @@ async function handleDecideApplication(applicationId: number, decision: "approve
       <div
         v-for="application in applications"
         :key="application.id"
-        class="flex items-center justify-between rounded-xl border border-fg/10 p-4"
+        class="flex flex-col gap-3 rounded-xl border border-fg/10 p-4 sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
           <p class="font-medium">{{ application.student_name }}</p>
           <p class="text-sm text-fg/60">{{ application.category_name }}</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <template v-if="application.status === 'pending'">
             <BaseButton
               variant="secondary"

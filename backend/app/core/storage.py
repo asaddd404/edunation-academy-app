@@ -6,12 +6,14 @@ from fastapi import HTTPException, UploadFile, status
 UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "uploads"
 HOMEWORK_DIR = UPLOAD_ROOT / "homework"
 CATEGORY_IMAGE_DIR = UPLOAD_ROOT / "categories"
+AVATAR_DIR = UPLOAD_ROOT / "avatars"
 
 ALLOWED_HOMEWORK_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".txt", ".doc", ".docx"}
 MAX_HOMEWORK_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_CATEGORY_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_AVATAR_SIZE = 3 * 1024 * 1024  # 3 MB
 
 
 async def save_homework_file(upload: UploadFile) -> tuple[str, str]:
@@ -55,6 +57,28 @@ async def save_category_image(upload: UploadFile) -> str:
     (CATEGORY_IMAGE_DIR / stored_name).write_bytes(contents)
 
     return f"categories/{stored_name}"
+
+
+async def save_avatar_image(upload: UploadFile) -> str:
+    """Validates and stores an uploaded profile avatar. Returns the relative
+    path; caller is responsible for deleting the user's previous avatar (if
+    any) once the new one is safely written."""
+    original_name = upload.filename or "avatar"
+    extension = Path(original_name).suffix.lower()
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Недопустимый формат изображения (jpg, png, webp)")
+
+    contents = await upload.read(MAX_AVATAR_SIZE + 1)
+    if len(contents) > MAX_AVATAR_SIZE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 3 МБ)")
+    if not contents:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{extension}"
+    (AVATAR_DIR / stored_name).write_bytes(contents)
+
+    return f"avatars/{stored_name}"
 
 
 def resolve_upload_path(relative_path: str) -> Path:

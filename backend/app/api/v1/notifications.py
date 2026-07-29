@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -66,4 +66,27 @@ async def mark_all_notifications_read(
         .where(Notification.user_id == user.id, Notification.is_read.is_(False))
         .values(is_read=True)
     )
+    await db.commit()
+
+
+@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notification(
+    notification_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
+
+    await db.delete(notification)
+    await db.commit()
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_notifications(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    await db.execute(delete(Notification).where(Notification.user_id == user.id))
     await db.commit()
