@@ -12,6 +12,7 @@ const links = computed(() => {
     return [
       { to: "/catalog", label: "Каталог" },
       { to: "/my-applications", label: "Мои заявки" },
+      { to: "/ent", label: "ЕНТ-тренажёр" },
     ];
   }
   if (auth.role === "teacher") {
@@ -19,10 +20,14 @@ const links = computed(() => {
       { to: "/teacher", label: "Заявки" },
       { to: "/teacher/categories", label: "Мои категории" },
       { to: "/teacher/homework", label: "Домашки" },
+      { to: "/teacher/ent", label: "Банк ЕНТ" },
     ];
   }
   if (auth.role === "admin") {
-    return [{ to: "/admin", label: "Админ-панель" }];
+    return [
+      { to: "/admin", label: "Админ-панель" },
+      { to: "/teacher/ent", label: "Банк ЕНТ" },
+    ];
   }
   return [];
 });

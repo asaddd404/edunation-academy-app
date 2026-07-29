@@ -112,6 +112,148 @@ export interface SectionTest {
   questions: Question[];
 }
 
+export type EntQuestionType = "single" | "multiple" | "matching" | "short_answer";
+export type EntSimulationStatus = "in_progress" | "submitted";
+
+export interface EntSubject {
+  id: number;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  created_at: string;
+  question_count: number;
+}
+
+export interface EntChoiceTeacher {
+  id: number;
+  text: string;
+  is_correct: boolean;
+  order_index: number;
+}
+
+export interface EntMatchPairTeacher {
+  id: number;
+  prompt_text: string;
+  answer_text: string;
+  order_index: number;
+}
+
+export interface EntAnswerVariant {
+  id: number;
+  text: string;
+}
+
+export interface EntQuestionTeacher {
+  id: number;
+  subject_id: number;
+  qtype: EntQuestionType;
+  text: string;
+  max_score: number;
+  order_index: number;
+  choices: EntChoiceTeacher[];
+  match_pairs: EntMatchPairTeacher[];
+  answer_variants: EntAnswerVariant[];
+}
+
+export interface EntChoiceOption {
+  id: number;
+  text: string;
+}
+
+export interface EntMatchItem {
+  id: number;
+  text: string;
+}
+
+export interface EntQuestionStudent {
+  id: number;
+  subject_id: number;
+  subject_name: string;
+  qtype: EntQuestionType;
+  text: string;
+  max_score: number;
+  choices: EntChoiceOption[];
+  match_prompts: EntMatchItem[];
+  match_answers: EntMatchItem[];
+}
+
+export interface EntSimulation {
+  id: number;
+  is_timed: boolean;
+  duration_minutes: number | null;
+  status: EntSimulationStatus;
+  started_at: string;
+  expires_at: string | null;
+  remaining_seconds: number | null;
+  questions: EntQuestionStudent[];
+}
+
+export interface EntSimulationAnswerPayload {
+  question_id: number;
+  choice_id?: number;
+  choice_ids?: number[];
+  pairs?: Record<string, number>;
+  text?: string;
+}
+
+export interface EntSimulationResultAnswer {
+  question_id: number;
+  subject_id: number;
+  subject_name: string;
+  qtype: EntQuestionType;
+  text: string;
+  max_score: number;
+  score_awarded: number;
+  is_correct: boolean;
+  given_answer: EntSimulationAnswerPayload | null;
+  choices: EntChoiceTeacher[];
+  match_pairs: EntMatchPairTeacher[];
+  answer_variants: EntAnswerVariant[];
+}
+
+export interface EntSimulationResult {
+  id: number;
+  is_timed: boolean;
+  duration_minutes: number | null;
+  time_expired: boolean;
+  status: EntSimulationStatus;
+  started_at: string;
+  submitted_at: string | null;
+  total_score: number;
+  max_score: number;
+  xp_earned: number;
+  answers: EntSimulationResultAnswer[];
+}
+
+export interface EntSimulationSummary {
+  id: number;
+  is_timed: boolean;
+  duration_minutes: number | null;
+  time_expired: boolean;
+  status: EntSimulationStatus;
+  started_at: string;
+  submitted_at: string | null;
+  total_score: number | null;
+  max_score: number | null;
+  xp_earned: number | null;
+}
+
+export interface EntLeaderboardEntry {
+  rank: number;
+  student_id: number;
+  first_name: string;
+  last_name: string;
+  total_xp: number;
+  simulations_completed: number;
+  best_score: number;
+  is_me: boolean;
+}
+
+export interface EntLeaderboard {
+  entries: EntLeaderboardEntry[];
+  me: EntLeaderboardEntry | null;
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;

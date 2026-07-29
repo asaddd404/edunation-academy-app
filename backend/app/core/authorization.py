@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.application import Application, ApplicationStatusEnum
 from app.models.category import teacher_categories
+from app.models.ent_question import EntQuestion
+from app.models.ent_subject import EntSubject
 from app.models.lesson import Lesson
 from app.models.section import Section
-from app.models.user import User
+from app.models.user import RoleEnum, User
 
 
 async def assert_teacher_owns_category(db: AsyncSession, teacher: User, category_id: int) -> None:
@@ -52,6 +54,29 @@ async def assert_teacher_owns_lesson(db: AsyncSession, teacher: User, lesson_id:
     category_id = await get_category_id_for_lesson(db, lesson_id)
     await assert_teacher_owns_category(db, teacher, category_id)
     return category_id
+
+
+async def assert_owns_ent_subject(db: AsyncSession, teacher: User, subject_id: int) -> EntSubject:
+    """Admins may manage any ЕНТ subject; teachers only the ones they created."""
+    subject = await db.get(EntSubject, subject_id)
+    if subject is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Предмет не найден")
+    if teacher.role != RoleEnum.admin and subject.created_by_id != teacher.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Вы не создавали этот предмет")
+    return subject
+
+
+async def get_subject_id_for_ent_question(db: AsyncSession, question_id: int) -> int:
+    subject_id = await db.scalar(select(EntQuestion.subject_id).where(EntQuestion.id == question_id))
+    if subject_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Вопрос не найден")
+    return subject_id
+
+
+async def assert_owns_ent_question(db: AsyncSession, teacher: User, question_id: int) -> int:
+    subject_id = await get_subject_id_for_ent_question(db, question_id)
+    await assert_owns_ent_subject(db, teacher, subject_id)
+    return subject_id
 
 
 async def assert_student_has_category_access(db: AsyncSession, student: User, category_id: int) -> None:

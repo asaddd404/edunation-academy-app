@@ -56,6 +56,24 @@ const router = createRouter({
       meta: { roles: ["student"] as Role[] },
     },
     {
+      path: "/ent",
+      name: "ent-start",
+      component: () => import("@/views/student/EntStartView.vue"),
+      meta: { roles: ["student"] as Role[] },
+    },
+    {
+      path: "/ent/leaderboard",
+      name: "ent-leaderboard",
+      component: () => import("@/views/student/EntLeaderboardView.vue"),
+      meta: { roles: ["student"] as Role[] },
+    },
+    {
+      path: "/ent/:id",
+      name: "ent-simulation",
+      component: () => import("@/views/student/EntSimulationView.vue"),
+      meta: { roles: ["student"] as Role[] },
+    },
+    {
       path: "/teacher",
       name: "teacher",
       component: () => import("@/views/teacher/TeacherDashboardView.vue"),
@@ -78,6 +96,12 @@ const router = createRouter({
       name: "teacher-homework",
       component: () => import("@/views/teacher/TeacherHomeworkView.vue"),
       meta: { roles: ["teacher"] as Role[] },
+    },
+    {
+      path: "/teacher/ent",
+      name: "teacher-ent-bank",
+      component: () => import("@/views/teacher/TeacherEntBankView.vue"),
+      meta: { roles: ["teacher", "admin"] as Role[] },
     },
     {
       path: "/admin",
