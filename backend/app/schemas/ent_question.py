@@ -93,6 +93,7 @@ class EntQuestionTeacherOut(BaseModel):
     subject_id: int
     qtype: EntQuestionType
     text: str
+    has_image: bool = False
     max_score: int
     order_index: int
     choices: list[EntChoiceTeacherOut] = []

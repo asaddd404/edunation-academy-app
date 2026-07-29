@@ -7,6 +7,7 @@ UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "uploads"
 HOMEWORK_DIR = UPLOAD_ROOT / "homework"
 CATEGORY_IMAGE_DIR = UPLOAD_ROOT / "categories"
 AVATAR_DIR = UPLOAD_ROOT / "avatars"
+ENT_QUESTION_IMAGE_DIR = UPLOAD_ROOT / "ent-questions"
 
 ALLOWED_HOMEWORK_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".txt", ".doc", ".docx"}
 MAX_HOMEWORK_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -14,6 +15,7 @@ MAX_HOMEWORK_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_CATEGORY_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_AVATAR_SIZE = 3 * 1024 * 1024  # 3 MB
+MAX_ENT_QUESTION_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 async def save_homework_file(upload: UploadFile) -> tuple[str, str]:
@@ -81,5 +83,34 @@ async def save_avatar_image(upload: UploadFile) -> str:
     return f"avatars/{stored_name}"
 
 
+async def save_ent_question_image(upload: UploadFile) -> str:
+    """Validates and stores an illustration for a ЕНТ question (graph, map,
+    diagram). Returns the relative path; caller deletes the question's
+    previous image once the new one is safely written."""
+    original_name = upload.filename or "image"
+    extension = Path(original_name).suffix.lower()
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Недопустимый формат изображения (jpg, png, webp)")
+
+    contents = await upload.read(MAX_ENT_QUESTION_IMAGE_SIZE + 1)
+    if len(contents) > MAX_ENT_QUESTION_IMAGE_SIZE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 5 МБ)")
+    if not contents:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+
+    ENT_QUESTION_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{extension}"
+    (ENT_QUESTION_IMAGE_DIR / stored_name).write_bytes(contents)
+
+    return f"ent-questions/{stored_name}"
+
+
 def resolve_upload_path(relative_path: str) -> Path:
     return UPLOAD_ROOT / relative_path
+
+
+def delete_upload(relative_path: str | None) -> None:
+    """Best-effort removal of a stored upload. Missing files are fine -- the
+    goal is only to stop rows from leaving orphaned bytes on disk."""
+    if relative_path:
+        resolve_upload_path(relative_path).unlink(missing_ok=True)

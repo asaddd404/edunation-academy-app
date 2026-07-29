@@ -251,6 +251,7 @@ export interface EntQuestionTeacher {
   subject_id: number;
   qtype: EntQuestionType;
   text: string;
+  has_image: boolean;
   max_score: number;
   order_index: number;
   choices: EntChoiceTeacher[];
@@ -274,6 +275,7 @@ export interface EntQuestionStudent {
   subject_name: string;
   qtype: EntQuestionType;
   text: string;
+  has_image: boolean;
   max_score: number;
   choices: EntChoiceOption[];
   match_prompts: EntMatchItem[];
@@ -305,6 +307,7 @@ export interface EntSimulationResultAnswer {
   subject_name: string;
   qtype: EntQuestionType;
   text: string;
+  has_image: boolean;
   max_score: number;
   score_awarded: number;
   is_correct: boolean;

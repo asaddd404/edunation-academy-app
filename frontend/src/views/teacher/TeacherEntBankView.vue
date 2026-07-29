@@ -6,10 +6,13 @@ import {
   createEntSubject,
   createSubjectQuestion,
   deleteEntQuestion,
+  deleteEntQuestionImage,
+  getEntQuestionImageUrl,
   listSubjectQuestions,
   listTeacherEntSubjects,
   updateEntSubject,
   updateSubjectQuestion,
+  uploadEntQuestionImage,
 } from "@/api/ent";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
@@ -39,9 +42,23 @@ interface QuestionForm {
   qtype: EntQuestionType;
   text: string;
   maxScore: number;
+  /** Newly picked file, uploaded only after the question row itself is saved. */
+  imageFile: File | null;
+  /** Whether the question being edited already has an image on the server. */
+  hasImage: boolean;
   choices: { text: string; isCorrect: boolean }[];
   matchPairs: { promptText: string; answerText: string }[];
   answerVariants: string[];
+}
+
+// The image URL is stable per question, so the browser would keep showing the
+// old file after a re-upload -- bump this to bust the cache.
+const imageVersion = ref(0);
+// Bumped to force a fresh <input type="file">, which can't be cleared via v-model.
+const fileInputKey = ref(0);
+
+function questionImageUrl(questionId: number): string {
+  return `${getEntQuestionImageUrl(questionId)}?v=${imageVersion.value}`;
 }
 
 function blankForm(): QuestionForm {
@@ -49,6 +66,8 @@ function blankForm(): QuestionForm {
     qtype: "single",
     text: "",
     maxScore: 1,
+    imageFile: null,
+    hasImage: false,
     choices: [
       { text: "", isCorrect: true },
       { text: "", isCorrect: false },
@@ -128,6 +147,8 @@ function startEditQuestion(subjectId: number, question: EntQuestionTeacher) {
     qtype: question.qtype,
     text: question.text,
     maxScore: question.max_score,
+    imageFile: null,
+    hasImage: question.has_image,
     choices: question.choices.length
       ? question.choices.map((c) => ({ text: c.text, isCorrect: c.is_correct }))
       : fallback.choices,
@@ -141,6 +162,27 @@ function startEditQuestion(subjectId: number, question: EntQuestionTeacher) {
 function cancelEditQuestion(subjectId: number) {
   editingQuestionId.value = null;
   questionForms[subjectId] = blankForm();
+  fileInputKey.value += 1;
+}
+
+function onImagePicked(subjectId: number, event: Event) {
+  const input = event.target as HTMLInputElement;
+  questionForms[subjectId].imageFile = input.files?.[0] ?? null;
+}
+
+async function handleRemoveImage(subjectId: number) {
+  const form = questionForms[subjectId];
+  form.imageFile = null;
+  fileInputKey.value += 1;
+
+  // A not-yet-saved pick is dropped locally; an image already on the server
+  // needs the question to exist, which only holds while editing.
+  if (editingQuestionId.value !== null && form.hasImage) {
+    await deleteEntQuestionImage(editingQuestionId.value);
+    form.hasImage = false;
+    imageVersion.value += 1;
+    questionsBySubject[subjectId] = await listSubjectQuestions(subjectId);
+  }
 }
 
 function onQtypeChange(subjectId: number) {
@@ -207,14 +249,21 @@ async function handleSaveQuestion(subjectId: number) {
       form.qtype === "short_answer" ? form.answerVariants.filter((v) => v.trim()) : undefined,
   };
 
-  if (editingQuestionId.value !== null) {
-    await updateSubjectQuestion(editingQuestionId.value, payload);
-  } else {
-    await createSubjectQuestion(subjectId, payload);
+  // The image rides on the question row, so a brand-new question has to exist
+  // before its file can be attached.
+  const saved =
+    editingQuestionId.value !== null
+      ? await updateSubjectQuestion(editingQuestionId.value, payload)
+      : await createSubjectQuestion(subjectId, payload);
+
+  if (form.imageFile) {
+    await uploadEntQuestionImage(saved.id, form.imageFile);
+    imageVersion.value += 1;
   }
 
   editingQuestionId.value = null;
   questionForms[subjectId] = blankForm();
+  fileInputKey.value += 1;
   questionsBySubject[subjectId] = await listSubjectQuestions(subjectId);
   await load();
 }
@@ -286,10 +335,18 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
               :key="q.id"
               class="flex items-start justify-between gap-3 rounded-lg border border-fg/10 p-3 text-sm"
             >
-              <div>
-                <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
-                <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
-                <p class="mt-1">{{ q.text }}</p>
+              <div class="flex min-w-0 gap-3">
+                <img
+                  v-if="q.has_image"
+                  :src="questionImageUrl(q.id)"
+                  alt=""
+                  class="h-16 w-24 shrink-0 rounded-lg border border-fg/10 object-cover"
+                />
+                <div class="min-w-0">
+                  <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
+                  <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
+                  <p class="mt-1">{{ q.text }}</p>
+                </div>
               </div>
               <div class="flex shrink-0 gap-2">
                 <BaseButton variant="secondary" @click="startEditQuestion(subject.id, q)">Редактировать</BaseButton>
@@ -316,6 +373,36 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
             </label>
 
             <BaseInput v-model="questionForms[subject.id].text" label="Текст вопроса" />
+
+            <div class="text-sm">
+              <span class="mb-1.5 block font-medium text-fg/80">Изображение к вопросу (необязательно)</span>
+              <div class="flex flex-wrap items-center gap-3">
+                <img
+                  v-if="questionForms[subject.id].hasImage && editingQuestionId !== null"
+                  :src="questionImageUrl(editingQuestionId)"
+                  alt=""
+                  class="h-20 w-28 rounded-lg border border-fg/10 object-cover"
+                />
+                <input
+                  :key="fileInputKey"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  class="text-sm text-fg/70 file:mr-3 file:rounded-lg file:border-0 file:bg-fg/10 file:px-3 file:py-2 file:text-sm file:text-fg hover:file:bg-fg/15"
+                  @change="onImagePicked(subject.id, $event)"
+                />
+                <BaseButton
+                  v-if="questionForms[subject.id].imageFile || questionForms[subject.id].hasImage"
+                  variant="secondary"
+                  @click="handleRemoveImage(subject.id)"
+                >
+                  Убрать изображение
+                </BaseButton>
+              </div>
+              <p v-if="questionForms[subject.id].imageFile" class="mt-1.5 text-xs text-fg/50">
+                Выбрано: {{ questionForms[subject.id].imageFile?.name }} — загрузится при сохранении вопроса.
+              </p>
+              <p class="mt-1.5 text-xs text-fg/50">jpg, png или webp, до 5 МБ.</p>
+            </div>
 
             <label class="block text-sm" v-if="questionForms[subject.id].qtype !== 'multiple' && questionForms[subject.id].qtype !== 'matching'">
               <span class="mb-1.5 block font-medium text-fg/80">Баллы за вопрос</span>

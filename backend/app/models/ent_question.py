@@ -23,6 +23,9 @@ class EntQuestion(Base):
         Enum(EntQuestionType, name="ent_question_type", native_enum=True), nullable=False
     )
     text: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # Optional illustration (graph, diagram, map, formula screenshot) -- some
+    # ЕНТ questions are unanswerable without one.
+    image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     max_score: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -41,6 +44,10 @@ class EntQuestion(Base):
     )
 
     __table_args__ = (CheckConstraint("max_score IN (1, 2)", name="ck_ent_question_max_score"),)
+
+    @property
+    def has_image(self) -> bool:
+        return self.image_path is not None
 
 
 class EntChoice(Base):

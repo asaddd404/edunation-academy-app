@@ -2,6 +2,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.core.authorization import assert_student_has_any_course_access
 from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
+from app.core.storage import resolve_upload_path
 from app.database import get_db
 from app.deps import require_role
 from app.models.ent_question import EntQuestion
@@ -43,6 +45,26 @@ async def require_student_with_course_access(
 
 router = APIRouter(prefix="/ent", tags=["ent"], dependencies=[Depends(require_student_with_course_access)])
 
+# Separate router so the image route escapes the student-only dependency above:
+# a plain <img src> can't attach the bearer token, and teachers need to preview
+# the same file from the question bank.
+public_router = APIRouter(prefix="/ent", tags=["ent"])
+
+
+@public_router.get("/questions/{question_id}/image")
+async def get_ent_question_image(
+    question_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    question = await db.get(EntQuestion, question_id)
+    if question is None or not question.image_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
+
+    path = resolve_upload_path(question.image_path)
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
+    return FileResponse(path)
+
 _QUESTION_LOAD_OPTIONS = (
     selectinload(EntQuestion.subject),
     selectinload(EntQuestion.choices),
@@ -66,6 +88,7 @@ def _build_student_question(question: EntQuestion) -> EntQuestionStudentOut:
         subject_name=question.subject.name,
         qtype=question.qtype,
         text=question.text,
+        has_image=question.has_image,
         max_score=question.max_score,
         choices=[EntChoiceOut(id=c.id, text=c.text) for c in question.choices],
         match_prompts=match_prompts,
@@ -221,6 +244,7 @@ def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
                 subject_name=question.subject.name,
                 qtype=question.qtype,
                 text=question.text,
+                has_image=question.has_image,
                 max_score=question.max_score,
                 score_awarded=item.score_awarded or 0,
                 is_correct=(item.score_awarded or 0) == question.max_score,

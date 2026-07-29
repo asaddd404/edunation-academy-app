@@ -83,3 +83,17 @@ export function updateSubjectQuestion(questionId: number, payload: EntQuestionCr
 export function deleteEntQuestion(questionId: number) {
   return http.delete(`/teacher/ent/questions/${questionId}`);
 }
+
+export function uploadEntQuestionImage(questionId: number, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return http.post<EntQuestionTeacher>(`/teacher/ent/questions/${questionId}/image`, formData).then((r) => r.data);
+}
+
+export function deleteEntQuestionImage(questionId: number) {
+  return http.delete<EntQuestionTeacher>(`/teacher/ent/questions/${questionId}/image`).then((r) => r.data);
+}
+
+export function getEntQuestionImageUrl(questionId: number) {
+  return `${import.meta.env.VITE_API_BASE_URL}/ent/questions/${questionId}/image`;
+}

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_owns_ent_question, assert_owns_ent_subject
 from app.core.slug import slugify
+from app.core.storage import delete_upload, save_ent_question_image
 from app.database import get_db
 from app.deps import require_role
 from app.models.ent_question import EntAnswerVariant, EntChoice, EntMatchPair, EntQuestion
@@ -203,5 +204,57 @@ async def delete_question(
 ) -> None:
     await assert_owns_ent_question(db, user, question_id)
     question = await db.get(EntQuestion, question_id)
+    image_path = question.image_path
     await db.delete(question)
     await db.commit()
+    # Only after the row is gone, so a failed commit can't leave a live
+    # question pointing at a deleted file.
+    delete_upload(image_path)
+
+
+async def _load_question_with_relations(db: AsyncSession, question_id: int) -> EntQuestion:
+    return await db.scalar(
+        select(EntQuestion)
+        .where(EntQuestion.id == question_id)
+        .options(
+            selectinload(EntQuestion.choices),
+            selectinload(EntQuestion.match_pairs),
+            selectinload(EntQuestion.answer_variants),
+        )
+    )
+
+
+@router.post("/questions/{question_id}/image", response_model=EntQuestionTeacherOut)
+async def upload_question_image(
+    question_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> EntQuestionTeacherOut:
+    await assert_owns_ent_question(db, user, question_id)
+
+    question = await _load_question_with_relations(db, question_id)
+    old_path = question.image_path
+    question.image_path = await save_ent_question_image(file)
+    await db.commit()
+    delete_upload(old_path)
+
+    return EntQuestionTeacherOut.model_validate(await _load_question_with_relations(db, question_id))
+
+
+@router.delete("/questions/{question_id}/image", response_model=EntQuestionTeacherOut)
+async def delete_question_image(
+    question_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> EntQuestionTeacherOut:
+    await assert_owns_ent_question(db, user, question_id)
+
+    question = await _load_question_with_relations(db, question_id)
+    old_path = question.image_path
+    if old_path:
+        question.image_path = None
+        await db.commit()
+        delete_upload(old_path)
+
+    return EntQuestionTeacherOut.model_validate(await _load_question_with_relations(db, question_id))

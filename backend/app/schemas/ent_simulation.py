@@ -45,6 +45,7 @@ class EntQuestionStudentOut(BaseModel):
     subject_name: str
     qtype: EntQuestionType
     text: str
+    has_image: bool = False
     max_score: int
     choices: list[EntChoiceOut] = []
     match_prompts: list[EntMatchItemOut] = []
@@ -80,6 +81,7 @@ class EntSimulationResultAnswerOut(BaseModel):
     subject_name: str
     qtype: EntQuestionType
     text: str
+    has_image: bool = False
     max_score: int
     score_awarded: int
     is_correct: bool
