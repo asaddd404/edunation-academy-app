@@ -2,10 +2,14 @@
   "version": "0.0.1",
   "configurations": [
     {
+      // The whole stack runs under Docker Compose: vite lives in the `frontend`
+      // container (publishing 5173) and nginx fronts both it and the API on :80.
+      // So this entry only *attaches* to the running stack -- starting a second
+      // vite on the host would just collide with the container's port.
+      // Start/stop the stack with `docker compose up -d` / `down`.
       "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
-      "port": 5173
+      "url": "http://localhost",
+      "port": 80
     }
   ]
 }

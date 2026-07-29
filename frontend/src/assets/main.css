@@ -54,3 +54,17 @@ body {
     background: radial-gradient(circle, hsl(262 83% 66% / 0.6), transparent 70%);
   }
 }
+
+/* Users who ask the OS for less motion get the layout without the movement:
+   animations still "run" (so `both`-filled fade-ups end up visible) but
+   instantly. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

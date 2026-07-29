@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
@@ -8,8 +8,19 @@ import { useThemeStore } from "@/stores/theme";
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 const notifications = useNotificationsStore();
 const theme = useThemeStore();
+
+// Match AppShell's container so the header lines up with the page content.
+const containerWidth = computed(() => (route.meta.layout === "full" ? "max-w-6xl" : "max-w-3xl"));
+
+const brandTarget = computed(() => {
+  if (!auth.isAuthenticated) return "/";
+  if (auth.role === "teacher") return "/teacher";
+  if (auth.role === "admin") return "/admin";
+  return "/catalog";
+});
 
 const links = computed(() => {
   if (auth.role === "student") {
@@ -96,8 +107,13 @@ function handleLogout() {
 
 <template>
   <header class="sticky top-0 z-20 border-b border-fg/10 bg-bg/95 backdrop-blur">
-    <div class="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
-      <span class="text-base font-semibold tracking-tight sm:text-lg">Edunation Academy</span>
+    <div class="mx-auto flex items-center justify-between gap-3 px-4 py-3" :class="containerWidth">
+      <router-link
+        :to="brandTarget"
+        class="text-base font-semibold tracking-tight transition-opacity hover:opacity-70 sm:text-lg"
+      >
+        Edunation Academy
+      </router-link>
 
       <div class="flex items-center gap-2">
         <nav v-if="auth.isAuthenticated" class="hidden items-center gap-4 text-sm md:flex">
@@ -143,6 +159,21 @@ function handleLogout() {
             />
           </svg>
         </button>
+
+        <div v-if="!auth.isAuthenticated" class="flex items-center gap-1.5 sm:gap-2">
+          <router-link
+            to="/login"
+            class="rounded-lg px-2.5 py-1.5 text-sm text-fg/70 transition-colors duration-200 hover:bg-fg/5 hover:text-fg sm:px-3"
+          >
+            Войти
+          </router-link>
+          <router-link
+            to="/register"
+            class="rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-indigo-500/20 transition-all duration-200 hover:scale-[1.03] hover:shadow-indigo-500/40 active:scale-95 sm:px-4"
+          >
+            Регистрация
+          </router-link>
+        </div>
 
         <button
           v-if="auth.isAuthenticated"
