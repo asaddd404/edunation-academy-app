@@ -17,6 +17,14 @@ class CategoryUpdateIn(BaseModel):
     is_active: bool | None = None
 
 
+class TeacherCategoryUpdateIn(BaseModel):
+    """Narrower than CategoryUpdateIn -- a teacher (or admin acting via this
+    same course-builder endpoint) may only touch the description, not the
+    name/slug/is_active, which stay admin-panel-only."""
+
+    description: str | None = None
+
+
 class CategoryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,3 +39,15 @@ class CategoryOut(BaseModel):
 
 class AssignTeacherIn(BaseModel):
     teacher_id: int
+
+
+class CategoryTeacherSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    first_name: str
+    last_name: str
+
+
+class CategoryAdminOut(CategoryOut):
+    teachers: list[CategoryTeacherSummary] = []

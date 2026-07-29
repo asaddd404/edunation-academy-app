@@ -12,6 +12,8 @@ from app.models.user import RoleEnum, User
 
 
 async def assert_teacher_owns_category(db: AsyncSession, teacher: User, category_id: int) -> None:
+    if teacher.role == RoleEnum.admin:
+        return
     result = await db.execute(
         select(teacher_categories.c.category_id).where(
             teacher_categories.c.teacher_id == teacher.id,

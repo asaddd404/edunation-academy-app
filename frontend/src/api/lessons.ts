@@ -12,6 +12,17 @@ export function createLesson(
   return http.post(`/teacher/sections/${sectionId}/lessons`, payload).then((r) => r.data);
 }
 
+export function updateLesson(
+  lessonId: number,
+  payload: { title?: string; description?: string; homework_assignment?: string },
+) {
+  return http.patch(`/teacher/lessons/${lessonId}`, payload).then((r) => r.data);
+}
+
+export function deleteLesson(lessonId: number) {
+  return http.delete(`/teacher/lessons/${lessonId}`);
+}
+
 export function createQuestion(
   lessonId: number,
   payload: { text: string; choices: { text: string; is_correct: boolean }[] },

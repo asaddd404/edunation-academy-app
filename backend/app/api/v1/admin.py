@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.slug import slugify
 from app.database import get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
 from app.models.user import RoleEnum, User
-from app.schemas.category import AssignTeacherIn, CategoryIn, CategoryOut, CategoryUpdateIn
+from app.schemas.category import AssignTeacherIn, CategoryAdminOut, CategoryIn, CategoryOut, CategoryUpdateIn
 from app.schemas.user import UserOut, UserUpdateIn
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_role(RoleEnum.admin))])
@@ -39,6 +40,16 @@ async def update_user(user_id: int, payload: UserUpdateIn, db: AsyncSession = De
     await db.commit()
     await db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@router.get("/categories", response_model=list[CategoryAdminOut])
+async def list_categories_for_admin(db: AsyncSession = Depends(get_db)) -> list[CategoryAdminOut]:
+    categories = (
+        await db.scalars(
+            select(Category).options(selectinload(Category.teachers)).order_by(Category.created_at.desc())
+        )
+    ).all()
+    return [CategoryAdminOut.model_validate(c) for c in categories]
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)

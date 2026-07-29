@@ -13,5 +13,11 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    watch: {
+      // Docker Desktop on Windows doesn't reliably forward inotify events
+      // for bind-mounted files edited from the host side -- poll instead.
+      usePolling: true,
+      interval: 300,
+    },
   },
 });

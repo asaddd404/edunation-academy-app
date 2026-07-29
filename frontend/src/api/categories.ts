@@ -24,3 +24,11 @@ export function unassignTeacher(categoryId: number, teacherId: number) {
 export function listMyTeachingCategories() {
   return http.get<Category[]>("/teacher/categories").then((r) => r.data);
 }
+
+export function getTeacherCategory(id: number) {
+  return http.get<Category>(`/teacher/categories/${id}`).then((r) => r.data);
+}
+
+export function updateTeacherCategory(id: number, payload: { description?: string }) {
+  return http.patch<Category>(`/teacher/categories/${id}`, payload).then((r) => r.data);
+}

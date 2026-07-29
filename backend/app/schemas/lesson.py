@@ -12,6 +12,12 @@ class LessonIn(BaseModel):
     homework_assignment: str | None = None
 
 
+class LessonUpdateIn(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    homework_assignment: str | None = None
+
+
 class LessonTeacherOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

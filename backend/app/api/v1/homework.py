@@ -111,20 +111,23 @@ async def get_my_homework(
 @router.get("/teacher/homework/pending", response_model=list[HomeworkSubmissionOut])
 async def list_pending_homework(
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> list[HomeworkSubmissionOut]:
+    query = (
+        select(HomeworkSubmission)
+        .join(Lesson, Lesson.id == HomeworkSubmission.lesson_id)
+        .join(Section, Section.id == Lesson.section_id)
+        .where(HomeworkSubmission.status == HomeworkStatusEnum.submitted)
+    )
+    if teacher.role != RoleEnum.admin:
+        query = query.join(teacher_categories, teacher_categories.c.category_id == Section.category_id).where(
+            teacher_categories.c.teacher_id == teacher.id
+        )
     submissions = (
         await db.scalars(
-            select(HomeworkSubmission)
-            .join(Lesson, Lesson.id == HomeworkSubmission.lesson_id)
-            .join(Section, Section.id == Lesson.section_id)
-            .join(teacher_categories, teacher_categories.c.category_id == Section.category_id)
-            .where(
-                teacher_categories.c.teacher_id == teacher.id,
-                HomeworkSubmission.status == HomeworkStatusEnum.submitted,
+            query.options(selectinload(HomeworkSubmission.student), selectinload(HomeworkSubmission.lesson)).order_by(
+                HomeworkSubmission.created_at.asc()
             )
-            .options(selectinload(HomeworkSubmission.student), selectinload(HomeworkSubmission.lesson))
-            .order_by(HomeworkSubmission.created_at.asc())
         )
     ).all()
     return [_serialize(s, with_student=True, with_lesson=True) for s in submissions]
@@ -135,7 +138,7 @@ async def review_homework(
     submission_id: int,
     payload: HomeworkReviewIn,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> HomeworkSubmissionOut:
     submission = await db.get(HomeworkSubmission, submission_id)
     if submission is None:

@@ -120,7 +120,7 @@ async def list_pending_for_teacher(
 async def approve_application(
     application_id: int,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> ApplicationOut:
     application = await _get_application_or_404(db, application_id)
     await assert_can_decide_application(db, teacher, application)
@@ -147,7 +147,7 @@ async def approve_application(
 async def reject_application(
     application_id: int,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> ApplicationOut:
     application = await _get_application_or_404(db, application_id)
     await assert_can_decide_application(db, teacher, application)

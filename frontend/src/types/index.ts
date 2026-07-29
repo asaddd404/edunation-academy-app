@@ -21,6 +21,16 @@ export interface Category {
   my_application_status: ApplicationStatus | null;
 }
 
+export interface CategoryTeacherSummary {
+  id: number;
+  first_name: string;
+  last_name: string;
+}
+
+export interface CategoryAdmin extends Category {
+  teachers: CategoryTeacherSummary[];
+}
+
 export interface Application {
   id: number;
   student_id: number;

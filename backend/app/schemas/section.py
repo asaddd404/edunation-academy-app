@@ -10,6 +10,11 @@ class SectionIn(BaseModel):
     description: str | None = None
 
 
+class SectionUpdateIn(BaseModel):
+    title: str | None = None
+    description: str | None = None
+
+
 class SectionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

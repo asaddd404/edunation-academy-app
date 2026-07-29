@@ -29,6 +29,10 @@ services:
   backend:
     build: ./backend
     env_file: .env
+    environment:
+      # Docker Desktop on Windows doesn't reliably forward inotify events for
+      # bind-mounted files edited from the host side -- force watchfiles to poll.
+      WATCHFILES_FORCE_POLLING: "true"
     depends_on:
       postgres:
         condition: service_healthy

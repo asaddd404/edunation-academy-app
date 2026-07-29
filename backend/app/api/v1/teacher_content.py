@@ -15,37 +15,69 @@ from app.models.lesson import Lesson, VideoStatusEnum
 from app.models.question import Choice, Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
-from app.schemas.category import CategoryOut
-from app.schemas.lesson import LessonIn, LessonTeacherOut, VideoTicketOut
+from app.schemas.category import CategoryOut, TeacherCategoryUpdateIn
+from app.schemas.lesson import LessonIn, LessonTeacherOut, LessonUpdateIn, VideoTicketOut
 from app.schemas.question import QuestionIn, QuestionTeacherOut
-from app.schemas.section import SectionIn, SectionOut
+from app.schemas.section import SectionIn, SectionOut, SectionUpdateIn
 from app.security import set_video_ticket_cookie
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["teacher-content"], dependencies=[Depends(require_role(RoleEnum.teacher))])
+router = APIRouter(tags=["teacher-content"], dependencies=[Depends(require_role(RoleEnum.teacher, RoleEnum.admin))])
 
 
 @router.get("/teacher/categories", response_model=list[CategoryOut])
 async def list_my_categories(
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> list[CategoryOut]:
-    categories = (
-        await db.scalars(
-            select(Category)
-            .join(teacher_categories, teacher_categories.c.category_id == Category.id)
-            .where(teacher_categories.c.teacher_id == teacher.id)
+    query = select(Category)
+    if teacher.role != RoleEnum.admin:
+        query = query.join(teacher_categories, teacher_categories.c.category_id == Category.id).where(
+            teacher_categories.c.teacher_id == teacher.id
         )
-    ).all()
+    categories = (await db.scalars(query)).all()
     return [CategoryOut.model_validate(c) for c in categories]
+
+
+@router.get("/teacher/categories/{category_id}", response_model=CategoryOut)
+async def get_teacher_category(
+    category_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> CategoryOut:
+    await assert_teacher_owns_category(db, teacher, category_id)
+    category = await db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+    return CategoryOut.model_validate(category)
+
+
+@router.patch("/teacher/categories/{category_id}", response_model=CategoryOut)
+async def update_teacher_category(
+    category_id: int,
+    payload: TeacherCategoryUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> CategoryOut:
+    await assert_teacher_owns_category(db, teacher, category_id)
+    category = await db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+
+    if payload.description is not None:
+        category.description = payload.description
+
+    await db.commit()
+    await db.refresh(category)
+    return CategoryOut.model_validate(category)
 
 
 @router.get("/teacher/categories/{category_id}/sections", response_model=list[SectionOut])
 async def list_category_sections(
     category_id: int,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> list[SectionOut]:
     await assert_teacher_owns_category(db, teacher, category_id)
 
@@ -65,7 +97,7 @@ async def create_section(
     category_id: int,
     payload: SectionIn,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> SectionOut:
     await assert_teacher_owns_category(db, teacher, category_id)
 
@@ -83,12 +115,59 @@ async def create_section(
     return SectionOut.model_validate(section)
 
 
+@router.patch("/teacher/sections/{section_id}", response_model=SectionOut)
+async def update_section(
+    section_id: int,
+    payload: SectionUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> SectionOut:
+    await assert_teacher_owns_section(db, teacher, section_id)
+    section = await db.get(Section, section_id)
+    if section is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
+
+    if payload.title is not None:
+        section.title = payload.title
+    if payload.description is not None:
+        section.description = payload.description
+    await db.commit()
+
+    # Re-fetch with lessons eager-loaded rather than db.refresh(), which
+    # would expire the relationship and force an unsafe lazy load in
+    # SectionOut.model_validate.
+    section = await db.scalar(
+        select(Section).where(Section.id == section_id).options(selectinload(Section.lessons))
+    )
+    return SectionOut.model_validate(section)
+
+
+@router.delete("/teacher/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_section(
+    section_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> None:
+    await assert_teacher_owns_section(db, teacher, section_id)
+    section = await db.get(Section, section_id)
+    if section is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
+
+    # The DB cascade-deletes lesson/question rows, but not the on-disk HLS
+    # files for any lesson videos -- clean those up ourselves afterward.
+    lesson_ids = (await db.scalars(select(Lesson.id).where(Lesson.section_id == section_id))).all()
+    await db.delete(section)
+    await db.commit()
+    for lesson_id in lesson_ids:
+        delete_video_assets(lesson_id)
+
+
 @router.post("/teacher/sections/{section_id}/lessons", response_model=LessonTeacherOut, status_code=status.HTTP_201_CREATED)
 async def create_lesson(
     section_id: int,
     payload: LessonIn,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> LessonTeacherOut:
     await assert_teacher_owns_section(db, teacher, section_id)
 
@@ -109,11 +188,50 @@ async def create_lesson(
     return LessonTeacherOut.model_validate(lesson)
 
 
+@router.patch("/teacher/lessons/{lesson_id}", response_model=LessonTeacherOut)
+async def update_lesson(
+    lesson_id: int,
+    payload: LessonUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> LessonTeacherOut:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+
+    if payload.title is not None:
+        lesson.title = payload.title
+    if payload.description is not None:
+        lesson.description = payload.description
+    if payload.homework_assignment is not None:
+        lesson.homework_assignment = payload.homework_assignment
+    await db.commit()
+    await db.refresh(lesson)
+    return LessonTeacherOut.model_validate(lesson)
+
+
+@router.delete("/teacher/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lesson(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> None:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+
+    await db.delete(lesson)
+    await db.commit()
+    delete_video_assets(lesson_id)
+
+
 @router.get("/teacher/lessons/{lesson_id}", response_model=LessonTeacherOut)
 async def get_teacher_lesson(
     lesson_id: int,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> LessonTeacherOut:
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await db.get(Lesson, lesson_id)
@@ -150,7 +268,7 @@ async def upload_lesson_video(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> LessonTeacherOut:
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await db.get(Lesson, lesson_id)
@@ -173,7 +291,7 @@ async def upload_lesson_video(
 async def delete_lesson_video(
     lesson_id: int,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> LessonTeacherOut:
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await db.get(Lesson, lesson_id)
@@ -194,7 +312,7 @@ async def get_teacher_video_ticket(
     lesson_id: int,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> VideoTicketOut:
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await db.get(Lesson, lesson_id)
@@ -210,7 +328,7 @@ async def create_question(
     lesson_id: int,
     payload: QuestionIn,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> QuestionTeacherOut:
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
 
@@ -235,7 +353,7 @@ async def create_section_question(
     section_id: int,
     payload: QuestionIn,
     db: AsyncSession = Depends(get_db),
-    teacher: User = Depends(require_role(RoleEnum.teacher)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> QuestionTeacherOut:
     await assert_teacher_owns_section(db, teacher, section_id)
 

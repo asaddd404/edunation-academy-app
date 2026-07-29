@@ -28,6 +28,9 @@ const links = computed(() => {
   if (auth.role === "admin") {
     return [
       { to: "/admin", label: "Админ-панель" },
+      { to: "/teacher", label: "Заявки" },
+      { to: "/teacher/categories", label: "Мои категории" },
+      { to: "/teacher/homework", label: "Домашки" },
       { to: "/teacher/ent", label: "Банк ЕНТ" },
     ];
   }

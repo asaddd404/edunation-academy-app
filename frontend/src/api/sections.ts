@@ -13,6 +13,14 @@ export function createSection(categoryId: number, payload: { title: string; desc
   return http.post<Section>(`/teacher/categories/${categoryId}/sections`, payload).then((r) => r.data);
 }
 
+export function updateSection(sectionId: number, payload: { title?: string; description?: string }) {
+  return http.patch<Section>(`/teacher/sections/${sectionId}`, payload).then((r) => r.data);
+}
+
+export function deleteSection(sectionId: number) {
+  return http.delete(`/teacher/sections/${sectionId}`);
+}
+
 export function createSectionQuestion(
   sectionId: number,
   payload: { text: string; choices: { text: string; is_correct: boolean }[] },
