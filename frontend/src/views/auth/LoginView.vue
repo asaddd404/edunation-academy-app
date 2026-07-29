@@ -5,7 +5,9 @@ import { useRoute, useRouter } from "vue-router";
 
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
+import { HOME_BY_ROLE } from "@/router";
 import { useAuthStore } from "@/stores/auth";
+import type { Role } from "@/types";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -22,7 +24,10 @@ async function handleSubmit() {
   try {
     await auth.login({ phone: phone.value, password: password.value });
     const redirect = (route.query.redirect as string) || undefined;
-    router.push(redirect ?? "/");
+    // "/" is public now (the navbar brand link needs it reachable while
+    // signed in too), so it no longer bounces a fresh login to the
+    // dashboard on its own -- send it there explicitly.
+    router.push(redirect ?? HOME_BY_ROLE[auth.role as Role]);
   } catch (e) {
     if (isAxiosError(e) && e.response?.status === 401) {
       error.value = "Неверный номер телефона или пароль";

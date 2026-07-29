@@ -14,7 +14,9 @@ declare module "vue-router" {
   }
 }
 
-const HOME_BY_ROLE: Record<Role, string> = {
+// Exported so views that need to send a signed-in user "home" (post-login
+// redirect, the 404 page's back link) share this one mapping.
+export const HOME_BY_ROLE: Record<Role, string> = {
   student: "/catalog",
   teacher: "/teacher",
   admin: "/admin",
@@ -24,10 +26,13 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      // Deliberately not guestOnly: the navbar brand link points here for
+      // every visitor, signed in or not, so it has to stay reachable
+      // instead of bouncing an authenticated user back to their dashboard.
       path: "/",
       name: "landing",
       component: () => import("@/views/public/LandingView.vue"),
-      meta: { guestOnly: true, layout: "full" },
+      meta: { layout: "full" },
     },
     {
       path: "/register",

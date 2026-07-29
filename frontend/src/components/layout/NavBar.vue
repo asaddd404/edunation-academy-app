@@ -15,13 +15,6 @@ const theme = useThemeStore();
 // Match AppShell's container so the header lines up with the page content.
 const containerWidth = computed(() => (route.meta.layout === "full" ? "max-w-6xl" : "max-w-3xl"));
 
-const brandTarget = computed(() => {
-  if (!auth.isAuthenticated) return "/";
-  if (auth.role === "teacher") return "/teacher";
-  if (auth.role === "admin") return "/admin";
-  return "/catalog";
-});
-
 const links = computed(() => {
   if (auth.role === "student") {
     return [
@@ -109,7 +102,7 @@ function handleLogout() {
   <header class="sticky top-0 z-20 border-b border-fg/10 bg-bg/95 backdrop-blur">
     <div class="mx-auto flex items-center justify-between gap-3 px-4 py-3" :class="containerWidth">
       <router-link
-        :to="brandTarget"
+        to="/"
         class="text-base font-semibold tracking-tight transition-opacity hover:opacity-70 sm:text-lg"
       >
         Edunation Academy
