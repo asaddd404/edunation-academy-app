@@ -1,20 +1,27 @@
-from fastapi import APIRouter, Depends, status
+import logging
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_teacher_owns_category, assert_teacher_owns_lesson, assert_teacher_owns_section
-from app.database import get_db
+from app.core.video import VideoProcessingError, delete_video_assets, save_raw_video, transcode_to_hls
+from app.database import async_session_factory, get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
-from app.models.lesson import Lesson
+from app.models.lesson import Lesson, VideoStatusEnum
 from app.models.question import Choice, Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.category import CategoryOut
-from app.schemas.lesson import LessonIn, LessonTeacherOut
+from app.schemas.lesson import LessonIn, LessonTeacherOut, VideoTicketOut
 from app.schemas.question import QuestionIn, QuestionTeacherOut
 from app.schemas.section import SectionIn, SectionOut
+from app.security import set_video_ticket_cookie
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["teacher-content"], dependencies=[Depends(require_role(RoleEnum.teacher))])
 
@@ -96,6 +103,102 @@ async def create_lesson(
     await db.commit()
     await db.refresh(lesson)
     return LessonTeacherOut.model_validate(lesson)
+
+
+@router.get("/teacher/lessons/{lesson_id}", response_model=LessonTeacherOut)
+async def get_teacher_lesson(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher)),
+) -> LessonTeacherOut:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+    return LessonTeacherOut.model_validate(lesson)
+
+
+async def _run_video_processing(lesson_id: int, raw_path: Path) -> None:
+    """Runs after the upload response has been sent. Owns its own DB session
+    since the request-scoped one is already closed by the time this fires."""
+    async with async_session_factory() as db:
+        lesson = await db.get(Lesson, lesson_id)
+        if lesson is None:
+            return
+        try:
+            duration = await transcode_to_hls(lesson_id, raw_path)
+        except VideoProcessingError as exc:
+            logger.warning("Video transcode failed for lesson %s: %s", lesson_id, exc)
+            lesson.video_status = VideoStatusEnum.failed
+            lesson.video_error = str(exc)[:2000]
+        else:
+            lesson.video_status = VideoStatusEnum.ready
+            lesson.video_duration_seconds = duration
+            lesson.video_error = None
+        finally:
+            raw_path.unlink(missing_ok=True)
+        await db.commit()
+
+
+@router.post("/teacher/lessons/{lesson_id}/video", response_model=LessonTeacherOut)
+async def upload_lesson_video(
+    lesson_id: int,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher)),
+) -> LessonTeacherOut:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+
+    raw_path = await save_raw_video(lesson_id, file)
+
+    lesson.video_status = VideoStatusEnum.processing
+    lesson.video_error = None
+    lesson.video_duration_seconds = None
+    await db.commit()
+    await db.refresh(lesson)
+
+    background_tasks.add_task(_run_video_processing, lesson_id, raw_path)
+    return LessonTeacherOut.model_validate(lesson)
+
+
+@router.delete("/teacher/lessons/{lesson_id}/video", response_model=LessonTeacherOut)
+async def delete_lesson_video(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher)),
+) -> LessonTeacherOut:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+
+    delete_video_assets(lesson_id)
+    lesson.video_status = VideoStatusEnum.none
+    lesson.video_duration_seconds = None
+    lesson.video_error = None
+    await db.commit()
+    await db.refresh(lesson)
+    return LessonTeacherOut.model_validate(lesson)
+
+
+@router.post("/teacher/lessons/{lesson_id}/video/ticket", response_model=VideoTicketOut)
+async def get_teacher_video_ticket(
+    lesson_id: int,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher)),
+) -> VideoTicketOut:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None or lesson.video_status != VideoStatusEnum.ready:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Видео ещё не готово")
+
+    set_video_ticket_cookie(response, lesson_id)
+    return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")
 
 
 @router.post("/teacher/lessons/{lesson_id}/questions", response_model=QuestionTeacherOut, status_code=status.HTTP_201_CREATED)

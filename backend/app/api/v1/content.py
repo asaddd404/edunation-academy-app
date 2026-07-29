@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,14 +17,15 @@ from app.core.progress import (
 from app.database import get_db
 from app.deps import require_role
 from app.models.homework import HomeworkSubmission
-from app.models.lesson import Lesson
+from app.models.lesson import Lesson, VideoStatusEnum
 from app.models.question import Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.lesson import LessonDetailOut
+from app.schemas.lesson import LessonDetailOut, VideoTicketOut
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
+from app.security import set_video_ticket_cookie
 
 router = APIRouter(tags=["content"], dependencies=[Depends(require_role(RoleEnum.student))])
 
@@ -128,3 +129,25 @@ async def get_lesson(
     out.is_passed = lesson_id in passed
     out.my_homework = HomeworkSubmissionOut.model_validate(submission) if submission else None
     return out
+
+
+@router.post("/lessons/{lesson_id}/video/ticket", response_model=VideoTicketOut)
+async def get_lesson_video_ticket(
+    lesson_id: int,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    student: User = Depends(require_role(RoleEnum.student)),
+) -> VideoTicketOut:
+    category_id = await get_category_id_for_lesson(db, lesson_id)
+    await assert_student_has_category_access(db, student, category_id)
+
+    unlocked, _ = await get_lesson_progress(db, student.id, category_id)
+    if lesson_id not in unlocked:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Урок ещё заблокирован")
+
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None or lesson.video_status != VideoStatusEnum.ready:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Видео ещё не готово")
+
+    set_video_ticket_cookie(response, lesson_id)
+    return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")

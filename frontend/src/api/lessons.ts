@@ -7,7 +7,7 @@ export function getLesson(lessonId: number) {
 
 export function createLesson(
   sectionId: number,
-  payload: { title: string; description?: string; video_url?: string; homework_assignment?: string },
+  payload: { title: string; description?: string; homework_assignment?: string },
 ) {
   return http.post(`/teacher/sections/${sectionId}/lessons`, payload).then((r) => r.data);
 }

@@ -23,6 +23,9 @@ class LessonTeacherOut(BaseModel):
     homework_assignment: str | None
     order_index: int
     created_at: datetime
+    video_status: str
+    video_duration_seconds: int | None
+    video_error: str | None
 
 
 class LessonSummaryOut(BaseModel):
@@ -33,6 +36,11 @@ class LessonSummaryOut(BaseModel):
     order_index: int
     is_unlocked: bool = False
     is_passed: bool = False
+    video_status: str = "none"
+
+
+class VideoTicketOut(BaseModel):
+    playback_path: str
 
 
 class ChoiceOut(BaseModel):
@@ -66,3 +74,5 @@ class LessonDetailOut(BaseModel):
     is_passed: bool = False
     questions: list[QuestionOut] = []
     my_homework: HomeworkSubmissionOut | None = None
+    video_status: str
+    video_duration_seconds: int | None

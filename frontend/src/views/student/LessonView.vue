@@ -4,6 +4,8 @@ import { useRoute } from "vue-router";
 
 import { submitHomework } from "@/api/homework";
 import { getLesson, submitTestAttempt } from "@/api/lessons";
+import { getStudentVideoTicket } from "@/api/video";
+import HlsPlayer from "@/components/media/HlsPlayer.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { LessonDetail, TestAttemptResult } from "@/types";
@@ -14,6 +16,9 @@ const lessonId = Number(route.params.id);
 const lesson = ref<LessonDetail | null>(null);
 const loading = ref(true);
 const loadError = ref("");
+
+const videoSrc = ref<string | null>(null);
+const videoError = ref("");
 
 const answers = ref<Record<number, number>>({});
 const testResult = ref<TestAttemptResult | null>(null);
@@ -36,6 +41,14 @@ async function load() {
   try {
     lesson.value = await getLesson(lessonId);
     homeworkText.value = lesson.value.my_homework?.text_answer ?? "";
+    if (lesson.value.video_status === "ready") {
+      try {
+        const ticket = await getStudentVideoTicket(lessonId);
+        videoSrc.value = `${import.meta.env.VITE_API_BASE_URL}${ticket.playback_path}`;
+      } catch {
+        videoError.value = "Не удалось загрузить видео.";
+      }
+    }
   } catch {
     loadError.value = "Урок недоступен — возможно, он ещё заблокирован.";
   } finally {
@@ -97,9 +110,14 @@ function handleFileChange(event: Event) {
         </BaseBadge>
       </div>
 
-      <div v-if="lesson.video_url" class="rounded-xl border border-fg/10 p-4 text-sm text-fg/60">
-        Видео появится здесь позже. Пока ссылка: {{ lesson.video_url }}
-      </div>
+      <HlsPlayer v-if="videoSrc" :src="videoSrc" />
+      <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-fg/10 p-4 text-sm text-fg/60">
+        Видео обрабатывается, зайдите чуть позже.
+      </p>
+      <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-fg/10 p-4 text-sm text-red-500">
+        Не удалось обработать видео. Сообщите учителю.
+      </p>
+      <p v-else-if="videoError" class="rounded-xl border border-fg/10 p-4 text-sm text-red-500">{{ videoError }}</p>
 
       <p v-if="lesson.description" class="whitespace-pre-line text-fg/80">{{ lesson.description }}</p>
 

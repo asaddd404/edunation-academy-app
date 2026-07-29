@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_access_ttl_minutes: int = 15
     jwt_refresh_ttl_days: int = 30
+    video_ticket_ttl_minutes: int = 180
 
     cors_origins: str = "http://localhost,http://localhost:5173"
 

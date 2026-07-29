@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
-import { onMounted } from "vue";
+import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { createLesson, createQuestion } from "@/api/lessons";
 import { createSection, createSectionQuestion, listTeacherSections } from "@/api/sections";
+import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/video";
+import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
-import type { Section } from "@/types";
+import type { Section, VideoStatus } from "@/types";
 
 const route = useRoute();
 const categoryId = Number(route.params.id);
@@ -18,9 +19,24 @@ const loading = ref(true);
 const newSectionTitle = ref("");
 const newSectionDescription = ref("");
 
-const lessonForms = reactive<Record<number, { title: string; description: string; videoUrl: string; homework: string; open: boolean }>>({});
+const lessonForms = reactive<Record<number, { title: string; description: string; homework: string; open: boolean }>>({});
 const questionForms = reactive<Record<number, { text: string; choices: { text: string; isCorrect: boolean }[]; open: boolean }>>({});
 const sectionTestForms = reactive<Record<number, { text: string; choices: { text: string; isCorrect: boolean }[]; open: boolean }>>({});
+const videoUploadState = reactive<Record<number, { uploading: boolean; progress: number; error: string }>>({});
+const pollTimers: Record<number, ReturnType<typeof setTimeout>> = {};
+
+const videoStatusTone: Record<VideoStatus, "neutral" | "success" | "warning" | "danger"> = {
+  none: "neutral",
+  processing: "warning",
+  ready: "success",
+  failed: "danger",
+};
+const videoStatusLabel: Record<VideoStatus, string> = {
+  none: "Видео не загружено",
+  processing: "Обрабатывается…",
+  ready: "Видео готово",
+  failed: "Ошибка обработки",
+};
 
 async function load() {
   loading.value = true;
@@ -29,6 +45,55 @@ async function load() {
 }
 
 onMounted(load);
+onBeforeUnmount(() => {
+  for (const timer of Object.values(pollTimers)) clearTimeout(timer);
+});
+
+function setLessonVideoStatus(lessonId: number, status: VideoStatus) {
+  for (const section of sections.value) {
+    const lesson = section.lessons.find((l) => l.id === lessonId);
+    if (lesson) lesson.video_status = status;
+  }
+}
+
+function pollVideoStatus(lessonId: number) {
+  pollTimers[lessonId] = setTimeout(async () => {
+    try {
+      const updated = await getTeacherLesson(lessonId);
+      setLessonVideoStatus(lessonId, updated.video_status);
+      if (updated.video_status === "processing") pollVideoStatus(lessonId);
+    } catch {
+      // Stop polling silently; the teacher can just re-open the page.
+    }
+  }, 4000);
+}
+
+function handleVideoFileChange(lessonId: number, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (file) uploadVideo(lessonId, file);
+}
+
+async function uploadVideo(lessonId: number, file: File) {
+  videoUploadState[lessonId] = { uploading: true, progress: 0, error: "" };
+  try {
+    const updated = await uploadLessonVideo(lessonId, file, (percent) => {
+      videoUploadState[lessonId].progress = percent;
+    });
+    setLessonVideoStatus(lessonId, updated.video_status);
+    pollVideoStatus(lessonId);
+  } catch {
+    videoUploadState[lessonId].error = "Не удалось загрузить видео";
+  } finally {
+    videoUploadState[lessonId].uploading = false;
+  }
+}
+
+async function handleDeleteVideo(lessonId: number) {
+  await deleteLessonVideo(lessonId);
+  setLessonVideoStatus(lessonId, "none");
+}
 
 async function handleCreateSection() {
   if (!newSectionTitle.value.trim()) return;
@@ -39,7 +104,7 @@ async function handleCreateSection() {
 }
 
 function openLessonForm(sectionId: number) {
-  lessonForms[sectionId] = { title: "", description: "", videoUrl: "", homework: "", open: true };
+  lessonForms[sectionId] = { title: "", description: "", homework: "", open: true };
 }
 
 async function handleCreateLesson(sectionId: number) {
@@ -48,10 +113,9 @@ async function handleCreateLesson(sectionId: number) {
   await createLesson(sectionId, {
     title: form.title,
     description: form.description || undefined,
-    video_url: form.videoUrl || undefined,
     homework_assignment: form.homework || undefined,
   });
-  lessonForms[sectionId] = { title: "", description: "", videoUrl: "", homework: "", open: false };
+  lessonForms[sectionId] = { title: "", description: "", homework: "", open: false };
   await load();
 }
 
@@ -127,6 +191,35 @@ async function handleCreateSectionQuestion(sectionId: number) {
         <ul class="mb-3 space-y-3">
           <li v-for="lesson in section.lessons" :key="lesson.id" class="rounded-lg border border-fg/10 p-3">
             <p class="mb-2 font-medium">{{ lesson.title }}</p>
+
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+              <BaseBadge :tone="videoStatusTone[lesson.video_status]">{{ videoStatusLabel[lesson.video_status] }}</BaseBadge>
+              <label class="cursor-pointer text-sm text-accent underline">
+                {{ lesson.video_status === "none" ? "Загрузить видео" : "Заменить видео" }}
+                <input
+                  type="file"
+                  accept="video/*"
+                  class="hidden"
+                  :disabled="videoUploadState[lesson.id]?.uploading"
+                  @change="handleVideoFileChange(lesson.id, $event)"
+                />
+              </label>
+              <BaseButton
+                v-if="lesson.video_status !== 'none'"
+                variant="secondary"
+                :disabled="videoUploadState[lesson.id]?.uploading"
+                @click="handleDeleteVideo(lesson.id)"
+              >
+                Удалить видео
+              </BaseButton>
+              <span v-if="videoUploadState[lesson.id]?.uploading" class="text-sm text-fg/60">
+                Загрузка: {{ videoUploadState[lesson.id].progress }}%
+              </span>
+              <span v-if="videoUploadState[lesson.id]?.error" class="text-sm text-red-500">
+                {{ videoUploadState[lesson.id].error }}
+              </span>
+            </div>
+
             <BaseButton variant="secondary" @click="openQuestionForm(lesson.id)">Добавить вопрос</BaseButton>
 
             <div v-if="questionForms[lesson.id]?.open" class="mt-3 space-y-2 rounded-lg bg-fg/5 p-3">
@@ -148,7 +241,6 @@ async function handleCreateSectionQuestion(sectionId: number) {
         <div v-if="lessonForms[section.id]?.open" class="mt-3 space-y-2 rounded-lg bg-fg/5 p-3">
           <BaseInput v-model="lessonForms[section.id].title" label="Название урока" />
           <BaseInput v-model="lessonForms[section.id].description" label="Описание/теория" />
-          <BaseInput v-model="lessonForms[section.id].videoUrl" label="Ссылка на видео (заглушка)" />
           <BaseInput v-model="lessonForms[section.id].homework" label="Задание для домашней работы" />
           <BaseButton @click="handleCreateLesson(section.id)">Сохранить урок</BaseButton>
         </div>

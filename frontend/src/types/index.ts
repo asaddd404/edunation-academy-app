@@ -36,12 +36,15 @@ export interface Application {
 
 export type HomeworkStatus = "submitted" | "accepted" | "revision_requested";
 
+export type VideoStatus = "none" | "processing" | "ready" | "failed";
+
 export interface LessonSummary {
   id: number;
   title: string;
   order_index: number;
   is_unlocked: boolean;
   is_passed: boolean;
+  video_status: VideoStatus;
 }
 
 export interface Section {
@@ -97,6 +100,22 @@ export interface LessonDetail {
   is_passed: boolean;
   questions: Question[];
   my_homework: HomeworkSubmission | null;
+  video_status: VideoStatus;
+  video_duration_seconds: number | null;
+}
+
+export interface LessonTeacher {
+  id: number;
+  section_id: number;
+  title: string;
+  description: string | null;
+  video_url: string | null;
+  homework_assignment: string | null;
+  order_index: number;
+  created_at: string;
+  video_status: VideoStatus;
+  video_duration_seconds: number | null;
+  video_error: string | null;
 }
 
 export interface TestAttemptResult {
