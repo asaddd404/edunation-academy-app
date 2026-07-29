@@ -17,6 +17,7 @@ import type {
   EntSimulationAnswerPayload,
   EntSimulationResult,
 } from "@/types";
+import { capitalize } from "@/utils/subjectTheme";
 
 const route = useRoute();
 const simulationId = Number(route.params.id);
@@ -78,6 +79,32 @@ function isAnswered(question: EntQuestionStudent): boolean {
 const answeredCount = computed(() => questions.value.filter(isAnswered).length);
 const unansweredCount = computed(() => questions.value.length - answeredCount.value);
 
+interface SubjectGroup {
+  subjectName: string;
+  answeredCount: number;
+  // {question, globalIndex} pairs, numbered 1..N within the subject rather
+  // than across the whole exam -- so "Математика 1..15" and "История 1..7"
+  // both start over at 1, matching how the student picked subjects at start.
+  entries: { question: EntQuestionStudent; globalIndex: number }[];
+}
+
+// Grouped by first appearance rather than assumed contiguity: the backend
+// currently lays questions out subject-by-subject, but grouping this way
+// stays correct even if that ordering ever changes.
+const subjectGroups = computed<SubjectGroup[]>(() => {
+  const bySubject = new Map<string, SubjectGroup>();
+  questions.value.forEach((question, globalIndex) => {
+    let group = bySubject.get(question.subject_name);
+    if (!group) {
+      group = { subjectName: question.subject_name, answeredCount: 0, entries: [] };
+      bySubject.set(question.subject_name, group);
+    }
+    group.entries.push({ question, globalIndex });
+    if (isAnswered(question)) group.answeredCount += 1;
+  });
+  return [...bySubject.values()];
+});
+
 function goTo(index: number) {
   if (index < 0 || index >= questions.value.length) return;
   currentIndex.value = index;
@@ -87,6 +114,18 @@ function goTo(index: number) {
 
 function goNext() {
   goTo(currentIndex.value + 1);
+}
+
+// Jumping to a subject lands on its first unanswered question -- picking up
+// where the student left off -- or its first question once every question
+// in that subject is already answered.
+function jumpToSubject(group: SubjectGroup) {
+  const target = group.entries.find((e) => !isAnswered(e.question)) ?? group.entries[0];
+  goTo(target.globalIndex);
+}
+
+function isCurrentSubject(group: SubjectGroup): boolean {
+  return group.entries.some((e) => e.globalIndex === currentIndex.value);
 }
 
 function goPrev() {
@@ -253,26 +292,40 @@ function timingLabel(r: EntSimulationResult): string {
 
         <!-- 35 numbers eat a lot of sticky height on a phone -- let the grid
              scroll instead of pushing the question off screen. -->
-        <div class="mt-3 max-h-[5.5rem] overflow-y-auto sm:max-h-none">
-          <div class="flex flex-wrap gap-1.5">
+        <div class="mt-3 max-h-[8.5rem] space-y-2 overflow-y-auto sm:max-h-none">
+          <div v-for="group in subjectGroups" :key="group.subjectName">
+            <!-- Only worth a label once there's more than one subject to tell
+                 apart -- a single-subject exam just numbers straight through. -->
             <button
-              v-for="(question, index) in questions"
-              :key="question.id"
+              v-if="subjectGroups.length > 1"
               type="button"
-              class="h-8 w-8 rounded-lg border text-xs font-medium transition-all duration-150"
-              :class="
-                index === currentIndex
-                  ? 'border-transparent bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : isAnswered(question)
-                    ? 'border-transparent bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500/30 dark:text-emerald-400'
-                    : 'border-border text-fg/50 hover:border-indigo-500/40 hover:text-fg'
-              "
-              :aria-label="`Вопрос ${index + 1}${isAnswered(question) ? ', отвечен' : ''}`"
-              :aria-current="index === currentIndex ? 'true' : undefined"
-              @click="goTo(index)"
+              class="mb-1 flex items-center gap-1.5 text-xs font-medium transition-colors duration-150"
+              :class="isCurrentSubject(group) ? 'text-fg' : 'text-fg/50 hover:text-fg'"
+              @click="jumpToSubject(group)"
             >
-              {{ index + 1 }}
+              {{ capitalize(group.subjectName) }}
+              <span class="text-fg/40">{{ group.answeredCount }}/{{ group.entries.length }}</span>
             </button>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="(entry, localIndex) in group.entries"
+                :key="entry.question.id"
+                type="button"
+                class="h-8 w-8 rounded-lg border text-xs font-medium transition-all duration-150"
+                :class="
+                  entry.globalIndex === currentIndex
+                    ? 'border-transparent bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                    : isAnswered(entry.question)
+                      ? 'border-transparent bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500/30 dark:text-emerald-400'
+                      : 'border-border text-fg/50 hover:border-indigo-500/40 hover:text-fg'
+                "
+                :aria-label="`${group.subjectName}, вопрос ${localIndex + 1}${isAnswered(entry.question) ? ', отвечен' : ''}`"
+                :aria-current="entry.globalIndex === currentIndex ? 'true' : undefined"
+                @click="goTo(entry.globalIndex)"
+              >
+                {{ localIndex + 1 }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
