@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_can_decide_application
+from app.core.notifications import notify
 from app.database import get_db
 from app.deps import require_role
 from app.models.application import Application, ApplicationStatusEnum
-from app.models.category import teacher_categories
+from app.models.category import Category, teacher_categories
 from app.models.user import RoleEnum, User
 from app.schemas.application import ApplicationCreateIn, ApplicationOut
 
@@ -53,8 +54,27 @@ async def create_application(
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Заявка на эту категорию уже подана и ожидает решения")
 
+    category = await db.get(Category, payload.category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+
     application = Application(student_id=student.id, category_id=payload.category_id)
     db.add(application)
+
+    teacher_ids = (
+        await db.scalars(
+            select(teacher_categories.c.teacher_id).where(teacher_categories.c.category_id == payload.category_id)
+        )
+    ).all()
+    for teacher_id in teacher_ids:
+        notify(
+            db,
+            teacher_id,
+            "new_application",
+            f"Новая заявка от {student.first_name} {student.last_name} на курс «{category.name}»",
+            link="/teacher",
+        )
+
     await db.commit()
     await db.refresh(application)
     return ApplicationOut.model_validate(application)
@@ -108,6 +128,16 @@ async def approve_application(
     application.status = ApplicationStatusEnum.approved
     application.decided_by = teacher.id
     application.decided_at = datetime.now(timezone.utc)
+
+    category_name = await db.scalar(select(Category.name).where(Category.id == application.category_id))
+    notify(
+        db,
+        application.student_id,
+        "application_approved",
+        f"Заявка на курс «{category_name}» одобрена",
+        link="/my-applications",
+    )
+
     await db.commit()
     await db.refresh(application)
     return ApplicationOut.model_validate(application)
@@ -125,6 +155,16 @@ async def reject_application(
     application.status = ApplicationStatusEnum.rejected
     application.decided_by = teacher.id
     application.decided_at = datetime.now(timezone.utc)
+
+    category_name = await db.scalar(select(Category.name).where(Category.id == application.category_id))
+    notify(
+        db,
+        application.student_id,
+        "application_rejected",
+        f"Заявка на курс «{category_name}» отклонена",
+        link="/my-applications",
+    )
+
     await db.commit()
     await db.refresh(application)
     return ApplicationOut.model_validate(application)

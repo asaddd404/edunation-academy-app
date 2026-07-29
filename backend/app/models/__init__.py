@@ -5,6 +5,7 @@ from app.models.ent_simulation import EntSimulation, EntSimulationQuestion, EntS
 from app.models.ent_subject import EntSubject
 from app.models.homework import HomeworkStatusEnum, HomeworkSubmission
 from app.models.lesson import Lesson
+from app.models.notification import Notification
 from app.models.question import Choice, Question
 from app.models.section import Section
 from app.models.student_rating import StudentRating
@@ -29,6 +30,7 @@ __all__ = [
     "HomeworkStatusEnum",
     "HomeworkSubmission",
     "Lesson",
+    "Notification",
     "Question",
     "RoleEnum",
     "Section",

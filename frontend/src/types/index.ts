@@ -118,6 +118,15 @@ export interface LessonTeacher {
   video_error: string | null;
 }
 
+export interface Notification {
+  id: number;
+  type: string;
+  message: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
 export interface TestAttemptResult {
   score: number;
   passed: boolean;

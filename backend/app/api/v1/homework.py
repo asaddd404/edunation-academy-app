@@ -11,6 +11,7 @@ from app.core.authorization import (
     assert_teacher_owns_category,
     get_category_id_for_lesson,
 )
+from app.core.notifications import notify
 from app.core.progress import get_lesson_progress
 from app.core.storage import resolve_upload_path, save_homework_file
 from app.database import get_db
@@ -73,6 +74,21 @@ async def submit_homework(
     submission.reviewed_by = None
     submission.reviewed_at = None
 
+    lesson_title = await db.scalar(select(Lesson.title).where(Lesson.id == lesson_id))
+    teacher_ids = (
+        await db.scalars(
+            select(teacher_categories.c.teacher_id).where(teacher_categories.c.category_id == category_id)
+        )
+    ).all()
+    for teacher_id in teacher_ids:
+        notify(
+            db,
+            teacher_id,
+            "new_homework",
+            f"{student.first_name} {student.last_name} сдал(а) домашнее задание по уроку «{lesson_title}»",
+            link="/teacher/homework",
+        )
+
     await db.commit()
     await db.refresh(submission)
     return HomeworkSubmissionOut.model_validate(submission)
@@ -134,6 +150,16 @@ async def review_homework(
     submission.teacher_feedback = payload.feedback
     submission.reviewed_by = teacher.id
     submission.reviewed_at = datetime.now(timezone.utc)
+
+    lesson_title = await db.scalar(select(Lesson.title).where(Lesson.id == submission.lesson_id))
+    status_label = "принята" if payload.status == HomeworkStatusEnum.accepted else "отправлена на доработку"
+    notify(
+        db,
+        submission.student_id,
+        "homework_reviewed",
+        f"Домашняя работа по уроку «{lesson_title}» {status_label}",
+        link=f"/lessons/{submission.lesson_id}",
+    )
 
     await db.commit()
     await db.refresh(submission)
