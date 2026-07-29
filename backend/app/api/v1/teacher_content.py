@@ -76,6 +76,10 @@ async def create_section(
     db.add(section)
     await db.commit()
     await db.refresh(section)
+    # A brand-new section has no lessons yet -- set this explicitly rather
+    # than letting SectionOut.model_validate touch the unloaded relationship,
+    # which would trigger a lazy load outside an awaited context.
+    section.lessons = []
     return SectionOut.model_validate(section)
 
 

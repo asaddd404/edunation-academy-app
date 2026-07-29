@@ -21,9 +21,9 @@ ent_simulation_status_enum = sa.Enum("in_progress", "submitted", name="ent_simul
 
 
 def upgrade() -> None:
-    ent_question_type_enum.create(op.get_bind(), checkfirst=True)
-    ent_simulation_status_enum.create(op.get_bind(), checkfirst=True)
-
+    # No explicit CREATE TYPE: the op.create_table() calls below for
+    # "ent_questions" and "ent_simulations" create these as part of their
+    # own DDL (see 0001 for why a separate explicit create collides).
     op.create_table(
         "ent_subjects",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -135,6 +135,5 @@ def downgrade() -> None:
     op.drop_index("ix_ent_subjects_slug", table_name="ent_subjects")
     op.drop_constraint("uq_ent_subjects_slug", "ent_subjects", type_="unique")
     op.drop_table("ent_subjects")
-
-    ent_simulation_status_enum.drop(op.get_bind(), checkfirst=True)
-    ent_question_type_enum.drop(op.get_bind(), checkfirst=True)
+    # "ent_simulations"/"ent_questions" were already dropped above, taking
+    # their enum columns' types with them.

@@ -20,9 +20,10 @@ application_status_enum = sa.Enum("pending", "approved", "rejected", name="appli
 
 
 def upgrade() -> None:
-    role_enum.create(op.get_bind(), checkfirst=True)
-    application_status_enum.create(op.get_bind(), checkfirst=True)
-
+    # No explicit CREATE TYPE here: op.create_table() below creates each
+    # embedded Enum column's type as part of the CREATE TABLE DDL. Doing it
+    # twice collides -- the implicit creation triggered by create_table
+    # doesn't check first for a type this migration already created.
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -89,6 +90,5 @@ def downgrade() -> None:
     op.drop_index("ix_users_phone", table_name="users")
     op.drop_constraint("uq_users_phone", "users", type_="unique")
     op.drop_table("users")
-
-    application_status_enum.drop(op.get_bind(), checkfirst=True)
-    role_enum.drop(op.get_bind(), checkfirst=True)
+    # Dropping "applications"/"users" above already drops their enum
+    # columns' types as part of the DROP TABLE DDL.

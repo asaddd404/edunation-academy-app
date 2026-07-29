@@ -19,8 +19,9 @@ homework_status_enum = sa.Enum("submitted", "accepted", "revision_requested", na
 
 
 def upgrade() -> None:
-    homework_status_enum.create(op.get_bind(), checkfirst=True)
-
+    # No explicit CREATE TYPE: op.create_table() below creates it as part of
+    # the "homework_submissions" table's DDL (see 0001 for why a separate
+    # explicit create collides with that).
     op.create_table(
         "sections",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -111,5 +112,5 @@ def downgrade() -> None:
     op.drop_table("lessons")
     op.drop_index("ix_sections_category_id", table_name="sections")
     op.drop_table("sections")
-
-    homework_status_enum.drop(op.get_bind(), checkfirst=True)
+    # "homework_submissions" was already dropped above, taking its enum
+    # column's type with it.
