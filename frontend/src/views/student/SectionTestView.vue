@@ -87,7 +87,7 @@ async function handleSubmit() {
 <template>
   <div class="mx-auto max-w-2xl space-y-6">
     <p v-if="loading" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="loadError" class="text-red-500">{{ loadError }}</p>
+    <p v-else-if="loadError" class="text-red-600 dark:text-red-500">{{ loadError }}</p>
     <template v-else-if="test">
       <div>
         <h1 class="mb-2 text-2xl font-semibold">Тест раздела</h1>
@@ -96,7 +96,7 @@ async function handleSubmit() {
         </BaseBadge>
       </div>
 
-      <section class="space-y-4 rounded-xl border border-fg/10 p-4">
+      <section class="space-y-4 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
         <div v-for="question in test.questions" :key="question.id" class="space-y-2">
           <p class="font-medium">{{ question.text }}</p>
 
@@ -152,15 +152,15 @@ async function handleSubmit() {
             />
           </template>
         </div>
-        <p v-if="result" class="text-sm" :class="result.passed ? 'text-green-500' : 'text-red-500'">
+        <p v-if="result" class="text-sm" :class="result.passed ? 'text-green-700 dark:text-green-500' : 'text-red-600 dark:text-red-500'">
           {{
             result.passed
               ? `Тест пройден, балл: ${result.score}%`
               : `Тест не пройден (балл: ${result.score}%). Правильные ответы не показываются — пересмотрите уроки раздела и попробуйте снова.`
           }}
         </p>
-        <p v-if="submitError" class="text-sm text-red-500">{{ submitError }}</p>
-        <BaseButton :disabled="!allQuestionsAnswered || submitting" @click="handleSubmit">
+        <p v-if="submitError" class="text-sm text-red-600 dark:text-red-500">{{ submitError }}</p>
+        <BaseButton variant="cta" :disabled="!allQuestionsAnswered || submitting" @click="handleSubmit">
           Отправить тест
         </BaseButton>
       </section>

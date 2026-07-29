@@ -34,12 +34,12 @@ function fullName(entry: { first_name: string; last_name: string }): string {
     <template v-else-if="board">
       <div
         v-if="board.me && !board.entries.some((e) => e.is_me)"
-        class="rounded-xl border border-accent/40 bg-accent/5 p-4"
+        class="rounded-2xl border border-accent/40 bg-accent/5 p-4 transition-all duration-200"
       >
         <p class="mb-1 text-xs uppercase tracking-wide text-fg/50">Ваша позиция</p>
         <div class="flex items-center justify-between text-sm">
           <span>#{{ board.me.rank }} · {{ fullName(board.me) }}</span>
-          <span class="font-medium">{{ board.me.total_xp }} XP</span>
+          <span class="rounded-full bg-pop px-2.5 py-1 text-xs font-semibold text-black">{{ board.me.total_xp }} XP</span>
         </div>
       </div>
 
@@ -47,8 +47,8 @@ function fullName(entry: { first_name: string; last_name: string }): string {
         <li
           v-for="entry in board.entries"
           :key="entry.student_id"
-          class="flex items-center justify-between rounded-lg border p-3 text-sm"
-          :class="entry.is_me ? 'border-accent/50 bg-accent/5' : 'border-fg/10'"
+          class="flex items-center justify-between rounded-2xl border p-3 text-sm transition-all duration-200 hover:scale-[1.01]"
+          :class="entry.is_me ? 'border-accent/50 bg-accent/5' : 'border-border bg-card'"
         >
           <div class="flex items-center gap-3">
             <span
@@ -63,7 +63,7 @@ function fullName(entry: { first_name: string; last_name: string }): string {
           <div class="flex items-center gap-3 text-fg/60">
             <span>{{ entry.simulations_completed }} попыток</span>
             <span>Лучший: {{ entry.best_score }}</span>
-            <span class="font-medium text-fg">{{ entry.total_xp }} XP</span>
+            <span class="rounded-full bg-pop px-2.5 py-1 text-xs font-semibold text-black">{{ entry.total_xp }} XP</span>
           </div>
         </li>
       </ul>

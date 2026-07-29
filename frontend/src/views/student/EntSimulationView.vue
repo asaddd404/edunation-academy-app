@@ -120,7 +120,7 @@ function timingLabel(r: EntSimulationResult): string {
 <template>
   <div class="mx-auto max-w-2xl space-y-6">
     <p v-if="phase === 'loading'" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="phase === 'error'" class="text-red-500">{{ errorMessage }}</p>
+    <p v-else-if="phase === 'error'" class="text-red-600 dark:text-red-500">{{ errorMessage }}</p>
 
     <template v-else-if="phase === 'exam' && exam">
       <div class="flex items-center justify-between">
@@ -131,7 +131,7 @@ function timingLabel(r: EntSimulationResult): string {
         <BaseBadge v-else tone="neutral">Без ограничения по времени</BaseBadge>
       </div>
 
-      <section v-for="question in exam.questions" :key="question.id" class="space-y-2 rounded-xl border border-fg/10 p-4">
+      <section v-for="question in exam.questions" :key="question.id" class="space-y-2 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
         <div class="flex items-center gap-2 text-xs text-fg/50">
           <BaseBadge tone="neutral">{{ question.subject_name }}</BaseBadge>
           <span>{{ question.max_score }} балл(а)</span>
@@ -191,8 +191,8 @@ function timingLabel(r: EntSimulationResult): string {
         </template>
       </section>
 
-      <p v-if="errorMessage" class="text-sm text-red-500">{{ errorMessage }}</p>
-      <BaseButton :disabled="submitting" @click="handleSubmit">Завершить и сдать</BaseButton>
+      <p v-if="errorMessage" class="text-sm text-red-600 dark:text-red-500">{{ errorMessage }}</p>
+      <BaseButton variant="cta" :disabled="submitting" @click="handleSubmit">Завершить и сдать</BaseButton>
     </template>
 
     <template v-else-if="phase === 'result' && result">
@@ -201,7 +201,7 @@ function timingLabel(r: EntSimulationResult): string {
         <div class="flex flex-wrap items-center gap-2">
           <BaseBadge tone="success">{{ result.total_score }} / {{ result.max_score }} баллов</BaseBadge>
           <BaseBadge :tone="result.time_expired ? 'danger' : 'neutral'">{{ timingLabel(result) }}</BaseBadge>
-          <BaseBadge tone="warning">+{{ result.xp_earned }} XP</BaseBadge>
+          <span class="rounded-full bg-pop px-2.5 py-1 text-xs font-semibold text-black">+{{ result.xp_earned }} XP</span>
         </div>
         <router-link class="mt-2 inline-block text-sm text-accent underline underline-offset-2 hover:opacity-70" to="/ent/leaderboard">
           Смотреть рейтинг
@@ -211,7 +211,7 @@ function timingLabel(r: EntSimulationResult): string {
       <section
         v-for="answer in result.answers"
         :key="answer.question_id"
-        class="space-y-2 rounded-xl border border-fg/10 p-4"
+        class="space-y-2 rounded-2xl border border-border bg-card p-4 transition-all duration-200"
       >
         <div class="flex items-center gap-2 text-xs text-fg/50">
           <BaseBadge tone="neutral">{{ answer.subject_name }}</BaseBadge>
@@ -225,7 +225,7 @@ function timingLabel(r: EntSimulationResult): string {
           <li
             v-for="choice in answer.choices"
             :key="choice.id"
-            :class="choice.is_correct ? 'text-green-500' : 'text-fg/70'"
+            :class="choice.is_correct ? 'text-green-700 dark:text-green-500' : 'text-fg/70'"
           >
             {{ choice.is_correct ? "✓" : "·" }} {{ choice.text }}
           </li>

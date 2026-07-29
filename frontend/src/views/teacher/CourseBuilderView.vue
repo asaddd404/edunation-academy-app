@@ -279,7 +279,7 @@ async function handleCreateLesson(sectionId: number) {
             Удалить картинку
           </BaseButton>
           <span v-if="categoryImageUploading" class="text-sm text-fg/60">Загрузка…</span>
-          <span v-if="categoryImageError" class="text-sm text-red-500">{{ categoryImageError }}</span>
+          <span v-if="categoryImageError" class="text-sm text-red-600 dark:text-red-500">{{ categoryImageError }}</span>
         </div>
       </div>
     </div>
@@ -300,7 +300,7 @@ async function handleCreateLesson(sectionId: number) {
           </div>
           <div class="flex shrink-0 gap-3">
             <button class="text-sm text-fg/50 hover:text-fg" @click="startEditSection(section)">Редактировать</button>
-            <button class="text-sm text-red-500 hover:text-red-600" @click="handleDeleteSection(section.id)">
+            <button class="text-sm text-red-600 hover:text-red-700 dark:text-red-500 dark:hover:text-red-400" @click="handleDeleteSection(section.id)">
               Удалить раздел
             </button>
           </div>
@@ -320,7 +320,7 @@ async function handleCreateLesson(sectionId: number) {
               <p class="font-medium">{{ lesson.title }}</p>
               <div class="flex shrink-0 gap-3">
                 <button class="text-sm text-fg/50 hover:text-fg" @click="startEditLesson(lesson.id)">Редактировать</button>
-                <button class="text-sm text-red-500 hover:text-red-600" @click="handleDeleteLesson(lesson.id)">
+                <button class="text-sm text-red-600 hover:text-red-700 dark:text-red-500 dark:hover:text-red-400" @click="handleDeleteLesson(lesson.id)">
                   Удалить
                 </button>
               </div>
@@ -362,7 +362,7 @@ async function handleCreateLesson(sectionId: number) {
                 <span v-if="videoUploadState[lesson.id]?.uploading" class="text-sm text-fg/60">
                   Загрузка: {{ videoUploadState[lesson.id].progress }}%
                 </span>
-                <span v-if="videoUploadState[lesson.id]?.error" class="text-sm text-red-500">
+                <span v-if="videoUploadState[lesson.id]?.error" class="text-sm text-red-600 dark:text-red-500">
                   {{ videoUploadState[lesson.id].error }}
                 </span>
               </div>

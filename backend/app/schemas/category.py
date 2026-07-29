@@ -36,6 +36,8 @@ class CategoryOut(BaseModel):
     is_active: bool
     created_at: datetime
     my_application_status: ApplicationStatusEnum | None = None
+    lesson_count: int = 0
+    total_duration_seconds: int = 0
 
 
 class AssignTeacherIn(BaseModel):

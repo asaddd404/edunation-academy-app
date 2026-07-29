@@ -21,6 +21,8 @@ export interface Category {
   is_active: boolean;
   created_at: string;
   my_application_status: ApplicationStatus | null;
+  lesson_count: number;
+  total_duration_seconds: number;
 }
 
 export interface CategoryTeacherSummary {

@@ -128,7 +128,7 @@ function handleFileChange(event: Event) {
 <template>
   <div class="mx-auto max-w-2xl space-y-8">
     <p v-if="loading" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="loadError" class="text-red-500">{{ loadError }}</p>
+    <p v-else-if="loadError" class="text-red-600 dark:text-red-500">{{ loadError }}</p>
     <template v-else-if="lesson">
       <div>
         <h1 class="mb-2 text-2xl font-semibold">{{ lesson.title }}</h1>
@@ -141,14 +141,14 @@ function handleFileChange(event: Event) {
       <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-fg/10 p-4 text-sm text-fg/60">
         Видео обрабатывается, зайдите чуть позже.
       </p>
-      <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-fg/10 p-4 text-sm text-red-500">
+      <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-fg/10 p-4 text-sm text-red-600 dark:text-red-500">
         Не удалось обработать видео. Сообщите учителю.
       </p>
-      <p v-else-if="videoError" class="rounded-xl border border-fg/10 p-4 text-sm text-red-500">{{ videoError }}</p>
+      <p v-else-if="videoError" class="rounded-xl border border-fg/10 p-4 text-sm text-red-600 dark:text-red-500">{{ videoError }}</p>
 
       <p v-if="lesson.description" class="whitespace-pre-line text-fg/80">{{ lesson.description }}</p>
 
-      <section v-if="lesson.questions.length" class="space-y-4 rounded-xl border border-fg/10 p-4">
+      <section v-if="lesson.questions.length" class="space-y-4 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
         <h2 class="text-lg font-medium">Мини-тест</h2>
         <div v-for="question in lesson.questions" :key="question.id" class="space-y-2">
           <p class="font-medium">{{ question.text }}</p>
@@ -205,20 +205,20 @@ function handleFileChange(event: Event) {
             />
           </template>
         </div>
-        <p v-if="testResult" class="text-sm" :class="testResult.passed ? 'text-green-500' : 'text-red-500'">
+        <p v-if="testResult" class="text-sm" :class="testResult.passed ? 'text-green-700 dark:text-green-500' : 'text-red-600 dark:text-red-500'">
           {{
             testResult.passed
               ? `Тест пройден, балл: ${testResult.score}%`
               : `Тест не пройден (балл: ${testResult.score}%). Правильные ответы не показываются — пересмотрите урок и попробуйте снова.`
           }}
         </p>
-        <p v-if="testError" class="text-sm text-red-500">{{ testError }}</p>
-        <BaseButton :disabled="!allQuestionsAnswered || testSubmitting" @click="handleSubmitTest">
+        <p v-if="testError" class="text-sm text-red-600 dark:text-red-500">{{ testError }}</p>
+        <BaseButton variant="cta" :disabled="!allQuestionsAnswered || testSubmitting" @click="handleSubmitTest">
           Отправить тест
         </BaseButton>
       </section>
 
-      <section v-if="lesson.homework_assignment" class="space-y-3 rounded-xl border border-fg/10 p-4">
+      <section v-if="lesson.homework_assignment" class="space-y-3 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
         <h2 class="text-lg font-medium">Домашнее задание</h2>
         <p class="text-fg/80">{{ lesson.homework_assignment }}</p>
 
@@ -255,8 +255,10 @@ function handleFileChange(event: Event) {
           class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-3 text-sm focus:border-accent focus:outline-none"
         />
         <input type="file" accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx" class="text-sm" @change="handleFileChange" />
-        <p v-if="homeworkError" class="text-sm text-red-500">{{ homeworkError }}</p>
-        <BaseButton :disabled="homeworkSubmitting" @click="handleSubmitHomework">Отправить домашку</BaseButton>
+        <p v-if="homeworkError" class="text-sm text-red-600 dark:text-red-500">{{ homeworkError }}</p>
+        <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
+          Отправить домашку
+        </BaseButton>
       </section>
     </template>
   </div>

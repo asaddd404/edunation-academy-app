@@ -42,7 +42,7 @@ async function handleSubmit() {
       <form class="space-y-4" @submit.prevent="handleSubmit">
         <BaseInput v-model="phone" label="Телефон" placeholder="+7XXXXXXXXXX" />
         <BaseInput v-model="password" label="Пароль" type="password" />
-        <p v-if="error" class="text-sm text-red-500">{{ error }}</p>
+        <p v-if="error" class="text-sm text-red-600 dark:text-red-500">{{ error }}</p>
         <BaseButton type="submit" class="w-full" :disabled="submitting">Войти</BaseButton>
       </form>
       <p class="mt-6 text-center text-sm text-fg/60">

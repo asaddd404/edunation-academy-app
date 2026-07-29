@@ -4,10 +4,12 @@ import { useRouter } from "vue-router";
 
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
+import { useThemeStore } from "@/stores/theme";
 
 const auth = useAuthStore();
 const router = useRouter();
 const notifications = useNotificationsStore();
+const theme = useThemeStore();
 
 const links = computed(() => {
   if (auth.role === "student") {
@@ -95,10 +97,10 @@ function handleLogout() {
 <template>
   <header class="sticky top-0 z-20 border-b border-fg/10 bg-bg/95 backdrop-blur">
     <div class="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
-      <span class="text-lg font-semibold tracking-tight">Edunation Academy</span>
+      <span class="text-base font-semibold tracking-tight sm:text-lg">Edunation Academy</span>
 
-      <div v-if="auth.isAuthenticated" class="flex items-center gap-2">
-        <nav class="hidden items-center gap-4 text-sm md:flex">
+      <div class="flex items-center gap-2">
+        <nav v-if="auth.isAuthenticated" class="hidden items-center gap-4 text-sm md:flex">
           <router-link
             v-for="link in links"
             :key="link.to"
@@ -111,6 +113,39 @@ function handleLogout() {
         </nav>
 
         <button
+          class="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-fg/70 hover:bg-fg/10 hover:text-fg"
+          :aria-label="theme.theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
+          @click="theme.toggle"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            class="absolute h-5 w-5 transition-all duration-300"
+            :class="theme.theme === 'dark' ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.4-6.4l-.7.7M6.3 17.7l-.7.7m12.8 0l-.7-.7M6.3 6.3l-.7-.7" />
+            <circle cx="12" cy="12" r="4" />
+          </svg>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            class="absolute h-5 w-5 transition-all duration-300"
+            :class="theme.theme === 'dark' ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"
+            />
+          </svg>
+        </button>
+
+        <button
+          v-if="auth.isAuthenticated"
           class="flex h-8 w-8 items-center justify-center rounded-lg text-fg/70 hover:bg-fg/10 md:hidden"
           aria-label="Меню"
           @click="mobileMenuOpen = !mobileMenuOpen"
@@ -123,7 +158,7 @@ function handleLogout() {
           </svg>
         </button>
 
-        <div ref="bellRoot" class="relative">
+        <div v-if="auth.isAuthenticated" ref="bellRoot" class="relative">
           <button
             class="relative flex h-8 w-8 items-center justify-center rounded-full text-fg/70 hover:bg-fg/10 hover:text-fg"
             aria-label="Уведомления"
@@ -190,7 +225,13 @@ function handleLogout() {
           </div>
         </div>
 
-        <button class="hidden text-sm text-fg/50 hover:text-fg md:inline-block" @click="handleLogout">Выйти</button>
+        <button
+          v-if="auth.isAuthenticated"
+          class="hidden text-sm text-fg/50 hover:text-fg md:inline-block"
+          @click="handleLogout"
+        >
+          Выйти
+        </button>
       </div>
     </div>
 
