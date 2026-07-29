@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.ent_question import EntQuestionType
 from app.schemas.homework import HomeworkSubmissionOut
 
 
@@ -50,19 +51,28 @@ class VideoTicketOut(BaseModel):
 
 
 class ChoiceOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    id: int
+    text: str
 
+
+class MatchItemOut(BaseModel):
     id: int
     text: str
 
 
 class QuestionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Student-facing view of a question -- never exposes which choice/pair
+    is correct. Built manually (see content.build_student_question), not via
+    model_validate, since matching requires shuffling the answer side."""
 
     id: int
+    qtype: EntQuestionType
     text: str
+    max_score: int
     order_index: int
-    choices: list[ChoiceOut]
+    choices: list[ChoiceOut] = []
+    match_prompts: list[MatchItemOut] = []
+    match_answers: list[MatchItemOut] = []
 
 
 class LessonDetailOut(BaseModel):

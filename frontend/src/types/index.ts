@@ -76,11 +76,72 @@ export interface Choice {
   text: string;
 }
 
+export type QuestionType = "single" | "multiple" | "matching" | "short_answer";
+
+// Student-facing: answering a question never reveals which choice/pair is
+// correct, and matching's answer side arrives pre-shuffled by the backend.
 export interface Question {
   id: number;
+  qtype: QuestionType;
   text: string;
+  max_score: number;
   order_index: number;
   choices: Choice[];
+  match_prompts: Choice[];
+  match_answers: Choice[];
+}
+
+export interface AnswerPayload {
+  question_id: number;
+  choice_id?: number;
+  choice_ids?: number[];
+  pairs?: Record<string, number>;
+  text?: string;
+}
+
+// Teacher-facing: the full authored question, correct answers included.
+export interface ChoiceTeacher {
+  id: number;
+  text: string;
+  is_correct: boolean;
+  order_index: number;
+}
+
+export interface MatchPairTeacher {
+  id: number;
+  prompt_text: string;
+  answer_text: string;
+  order_index: number;
+}
+
+export interface AnswerVariant {
+  id: number;
+  text: string;
+}
+
+export interface QuestionTeacher {
+  id: number;
+  lesson_id: number | null;
+  section_id: number | null;
+  qtype: QuestionType;
+  text: string;
+  max_score: number;
+  order_index: number;
+  choices: ChoiceTeacher[];
+  match_pairs: MatchPairTeacher[];
+  answer_variants: AnswerVariant[];
+}
+
+export interface QuestionSavePayload {
+  // qtype/max_score are optional here (backend defaults to single/1) so the
+  // legacy single-choice-only create call in CourseBuilderView keeps working
+  // until it's ported to the full QuestionBank editor.
+  qtype?: QuestionType;
+  text: string;
+  max_score?: number;
+  choices?: { text: string; is_correct: boolean }[];
+  match_pairs?: { prompt_text: string; answer_text: string }[];
+  answer_variants?: string[];
 }
 
 export interface HomeworkSubmission {

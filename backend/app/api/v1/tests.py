@@ -9,6 +9,7 @@ from app.core.authorization import (
     get_category_id_for_section,
 )
 from app.core.progress import get_lesson_progress, is_section_test_unlocked
+from app.core.question_scoring import grade_question
 from app.database import get_db
 from app.deps import require_role
 from app.models.lesson import Lesson
@@ -20,24 +21,24 @@ from app.schemas.test_attempt import TestAttemptIn, TestAttemptOut
 
 router = APIRouter(tags=["tests"], dependencies=[Depends(require_role(RoleEnum.student))])
 
+_QUESTION_LOAD_OPTIONS = (
+    selectinload(Question.choices),
+    selectinload(Question.match_pairs),
+    selectinload(Question.answer_variants),
+)
+
 
 def _grade(questions: list[Question], payload: TestAttemptIn) -> tuple[int, bool]:
-    submitted = {a.question_id: a.choice_id for a in payload.answers}
-    correct_count = 0
+    answers_by_question = {a.question_id: a for a in payload.answers}
+    total_earned = 0
+    total_max = 0
     for question in questions:
-        chosen_choice_id = submitted.get(question.id)
-        if chosen_choice_id is None:
-            continue
-        # Validates the choice actually belongs to this question — a
-        # spoofed choice_id from another question/lesson never matches.
-        correct_choice_ids = {c.id for c in question.choices if c.is_correct}
-        valid_choice_ids = {c.id for c in question.choices}
-        if chosen_choice_id not in valid_choice_ids:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Вариант ответа не принадлежит этому вопросу")
-        if chosen_choice_id in correct_choice_ids:
-            correct_count += 1
+        answer = answers_by_question.get(question.id)
+        answer_data = answer.model_dump(exclude_none=True, exclude={"question_id"}) if answer else None
+        total_earned += grade_question(question, answer_data)
+        total_max += question.max_score
 
-    score = round((correct_count / len(questions)) * 100)
+    score = round((total_earned / total_max) * 100) if total_max else 0
     return score, score >= 50
 
 
@@ -58,7 +59,7 @@ async def submit_test_attempt(
     lesson = await db.scalar(
         select(Lesson)
         .where(Lesson.id == lesson_id)
-        .options(selectinload(Lesson.questions).selectinload(Question.choices))
+        .options(selectinload(Lesson.questions).options(*_QUESTION_LOAD_OPTIONS))
     )
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
@@ -99,7 +100,7 @@ async def submit_section_test_attempt(
     section = await db.scalar(
         select(Section)
         .where(Section.id == section_id)
-        .options(selectinload(Section.test_questions).selectinload(Question.choices))
+        .options(selectinload(Section.test_questions).options(*_QUESTION_LOAD_OPTIONS))
     )
     if section is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")

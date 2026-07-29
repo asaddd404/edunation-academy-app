@@ -1,5 +1,5 @@
 import http from "@/api/http";
-import type { LessonDetail, TestAttemptResult } from "@/types";
+import type { AnswerPayload, LessonDetail, QuestionSavePayload, QuestionTeacher, TestAttemptResult } from "@/types";
 
 export function getLesson(lessonId: number) {
   return http.get<LessonDetail>(`/lessons/${lessonId}`).then((r) => r.data);
@@ -23,13 +23,14 @@ export function deleteLesson(lessonId: number) {
   return http.delete(`/teacher/lessons/${lessonId}`);
 }
 
-export function createQuestion(
-  lessonId: number,
-  payload: { text: string; choices: { text: string; is_correct: boolean }[] },
-) {
-  return http.post(`/teacher/lessons/${lessonId}/questions`, payload).then((r) => r.data);
+export function listLessonQuestions(lessonId: number) {
+  return http.get<QuestionTeacher[]>(`/teacher/lessons/${lessonId}/questions`).then((r) => r.data);
 }
 
-export function submitTestAttempt(lessonId: number, answers: { question_id: number; choice_id: number }[]) {
+export function createQuestion(lessonId: number, payload: QuestionSavePayload) {
+  return http.post<QuestionTeacher>(`/teacher/lessons/${lessonId}/questions`, payload).then((r) => r.data);
+}
+
+export function submitTestAttempt(lessonId: number, answers: AnswerPayload[]) {
   return http.post<TestAttemptResult>(`/lessons/${lessonId}/test/attempts`, { answers }).then((r) => r.data);
 }

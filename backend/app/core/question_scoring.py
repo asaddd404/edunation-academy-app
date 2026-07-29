@@ -1,4 +1,11 @@
 from app.models.ent_question import EntQuestion, EntQuestionType
+from app.models.question import Question
+
+# Shared by both the ЕНТ question bank and course lesson/section tests --
+# both models expose the same shape (qtype, max_score, choices, match_pairs,
+# answer_variants), reusing the same EntQuestionType enum, so one grader
+# serves both.
+GradeableQuestion = EntQuestion | Question
 
 # Answer payload shapes submitted by the student, per qtype:
 #   single:       {"choice_id": <int>}
@@ -19,7 +26,7 @@ def _normalize_text(text: str) -> str:
     return " ".join(text.strip().lower().split())
 
 
-def grade_single(question: EntQuestion, answer_data: dict | None) -> int:
+def grade_single(question: GradeableQuestion, answer_data: dict | None) -> int:
     if not answer_data:
         return 0
     choice_id = answer_data.get("choice_id")
@@ -32,7 +39,7 @@ def grade_single(question: EntQuestion, answer_data: dict | None) -> int:
     return question.max_score if choice_id in correct_ids else 0
 
 
-def grade_multiple(question: EntQuestion, answer_data: dict | None) -> int:
+def grade_multiple(question: GradeableQuestion, answer_data: dict | None) -> int:
     if not answer_data:
         return 0
     raw_ids = answer_data.get("choice_ids")
@@ -51,7 +58,7 @@ def grade_multiple(question: EntQuestion, answer_data: dict | None) -> int:
     return 0
 
 
-def grade_matching(question: EntQuestion, answer_data: dict | None) -> int:
+def grade_matching(question: GradeableQuestion, answer_data: dict | None) -> int:
     if not answer_data:
         return 0
     raw_pairs = answer_data.get("pairs")
@@ -85,7 +92,7 @@ def grade_matching(question: EntQuestion, answer_data: dict | None) -> int:
     return 0
 
 
-def grade_short_answer(question: EntQuestion, answer_data: dict | None) -> int:
+def grade_short_answer(question: GradeableQuestion, answer_data: dict | None) -> int:
     if not answer_data:
         return 0
     text = answer_data.get("text")
@@ -104,5 +111,5 @@ _GRADERS = {
 }
 
 
-def grade_question(question: EntQuestion, answer_data: dict | None) -> int:
+def grade_question(question: GradeableQuestion, answer_data: dict | None) -> int:
     return _GRADERS[question.qtype](question, answer_data)

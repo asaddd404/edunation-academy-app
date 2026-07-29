@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.ent_scoring import grade_question
+from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
 from app.database import get_db
 from app.deps import require_role

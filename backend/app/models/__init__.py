@@ -6,7 +6,7 @@ from app.models.ent_subject import EntSubject
 from app.models.homework import HomeworkStatusEnum, HomeworkSubmission
 from app.models.lesson import Lesson
 from app.models.notification import Notification
-from app.models.question import Choice, Question
+from app.models.question import AnswerVariant, Choice, MatchPair, Question
 from app.models.section import Section
 from app.models.student_rating import StudentRating
 from app.models.test_attempt import TestAttempt
@@ -15,6 +15,7 @@ from app.models.user import RoleEnum, User
 __all__ = [
     "Application",
     "ApplicationStatusEnum",
+    "AnswerVariant",
     "Category",
     "teacher_categories",
     "Choice",
@@ -30,6 +31,7 @@ __all__ = [
     "HomeworkStatusEnum",
     "HomeworkSubmission",
     "Lesson",
+    "MatchPair",
     "Notification",
     "Question",
     "RoleEnum",

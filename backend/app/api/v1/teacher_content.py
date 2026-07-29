@@ -6,14 +6,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.authorization import assert_teacher_owns_category, assert_teacher_owns_lesson, assert_teacher_owns_section
+from app.core.authorization import (
+    assert_teacher_owns_category,
+    assert_teacher_owns_lesson,
+    assert_teacher_owns_question,
+    assert_teacher_owns_section,
+)
 from app.core.storage import resolve_upload_path, save_category_image
 from app.core.video import VideoProcessingError, delete_video_assets, save_raw_video, transcode_to_hls
 from app.database import async_session_factory, get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
 from app.models.lesson import Lesson, VideoStatusEnum
-from app.models.question import Choice, Question
+from app.models.question import AnswerVariant, Choice, MatchPair, Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.category import CategoryOut, TeacherCategoryUpdateIn
@@ -364,6 +369,63 @@ async def get_teacher_video_ticket(
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")
 
 
+_QUESTION_LOAD_OPTIONS = (
+    selectinload(Question.choices),
+    selectinload(Question.match_pairs),
+    selectinload(Question.answer_variants),
+)
+
+
+def _apply_question_payload(question: Question, payload: QuestionIn) -> None:
+    question.qtype = payload.qtype
+    question.text = payload.text
+    question.max_score = payload.max_score
+    question.choices = [
+        Choice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
+    ]
+    question.match_pairs = [
+        MatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=i)
+        for i, p in enumerate(payload.match_pairs)
+    ]
+    question.answer_variants = [AnswerVariant(text=v.strip()) for v in payload.answer_variants if v.strip()]
+
+
+@router.get("/teacher/lessons/{lesson_id}/questions", response_model=list[QuestionTeacherOut])
+async def list_lesson_questions(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> list[QuestionTeacherOut]:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    questions = (
+        await db.scalars(
+            select(Question)
+            .where(Question.lesson_id == lesson_id)
+            .options(*_QUESTION_LOAD_OPTIONS)
+            .order_by(Question.order_index)
+        )
+    ).all()
+    return [QuestionTeacherOut.model_validate(q) for q in questions]
+
+
+@router.get("/teacher/sections/{section_id}/questions", response_model=list[QuestionTeacherOut])
+async def list_section_questions(
+    section_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> list[QuestionTeacherOut]:
+    await assert_teacher_owns_section(db, teacher, section_id)
+    questions = (
+        await db.scalars(
+            select(Question)
+            .where(Question.section_id == section_id)
+            .options(*_QUESTION_LOAD_OPTIONS)
+            .order_by(Question.order_index)
+        )
+    ).all()
+    return [QuestionTeacherOut.model_validate(q) for q in questions]
+
+
 @router.post("/teacher/lessons/{lesson_id}/questions", response_model=QuestionTeacherOut, status_code=status.HTTP_201_CREATED)
 async def create_question(
     lesson_id: int,
@@ -376,15 +438,13 @@ async def create_question(
     next_order = (
         await db.scalar(select(func.coalesce(func.max(Question.order_index), -1) + 1).where(Question.lesson_id == lesson_id))
     )
-    question = Question(lesson_id=lesson_id, text=payload.text, order_index=next_order)
-    question.choices = [
-        Choice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
-    ]
+    question = Question(lesson_id=lesson_id, order_index=next_order)
+    _apply_question_payload(question, payload)
     db.add(question)
     await db.commit()
 
     question = await db.scalar(
-        select(Question).where(Question.id == question.id).options(selectinload(Question.choices))
+        select(Question).where(Question.id == question.id).options(*_QUESTION_LOAD_OPTIONS)
     )
     return QuestionTeacherOut.model_validate(question)
 
@@ -401,14 +461,52 @@ async def create_section_question(
     next_order = (
         await db.scalar(select(func.coalesce(func.max(Question.order_index), -1) + 1).where(Question.section_id == section_id))
     )
-    question = Question(section_id=section_id, text=payload.text, order_index=next_order)
-    question.choices = [
-        Choice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
-    ]
+    question = Question(section_id=section_id, order_index=next_order)
+    _apply_question_payload(question, payload)
     db.add(question)
     await db.commit()
 
     question = await db.scalar(
-        select(Question).where(Question.id == question.id).options(selectinload(Question.choices))
+        select(Question).where(Question.id == question.id).options(*_QUESTION_LOAD_OPTIONS)
     )
     return QuestionTeacherOut.model_validate(question)
+
+
+@router.patch("/teacher/questions/{question_id}", response_model=QuestionTeacherOut)
+async def update_question(
+    question_id: int,
+    payload: QuestionIn,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> QuestionTeacherOut:
+    # Full replace, not a partial patch: choices/match_pairs/answer_variants
+    # are qtype-specific, so validating (and swapping) anything less than
+    # the whole set risks leaving mismatched leftovers from the old qtype.
+    await assert_teacher_owns_question(db, teacher, question_id)
+
+    question = await db.scalar(
+        select(Question).where(Question.id == question_id).options(*_QUESTION_LOAD_OPTIONS)
+    )
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Вопрос не найден")
+    _apply_question_payload(question, payload)
+    await db.commit()
+
+    question = await db.scalar(
+        select(Question).where(Question.id == question_id).options(*_QUESTION_LOAD_OPTIONS)
+    )
+    return QuestionTeacherOut.model_validate(question)
+
+
+@router.delete("/teacher/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_question(
+    question_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> None:
+    await assert_teacher_owns_question(db, teacher, question_id)
+    question = await db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Вопрос не найден")
+    await db.delete(question)
+    await db.commit()

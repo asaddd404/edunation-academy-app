@@ -1,3 +1,5 @@
+import random
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,12 +24,41 @@ from app.models.question import Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.lesson import LessonDetailOut, VideoTicketOut
+from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchItemOut, QuestionOut, VideoTicketOut
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
 from app.security import set_video_ticket_cookie
 
 router = APIRouter(tags=["content"], dependencies=[Depends(require_role(RoleEnum.student))])
+
+_QUESTION_LOAD_OPTIONS = (
+    selectinload(Question.choices),
+    selectinload(Question.match_pairs),
+    selectinload(Question.answer_variants),
+)
+
+
+def build_student_question(question: Question) -> QuestionOut:
+    """Never exposes which choice/pair is correct. For matching, the answer
+    side is shuffled so its order can't leak the pairing."""
+    match_prompts: list[MatchItemOut] = []
+    match_answers: list[MatchItemOut] = []
+    if question.match_pairs:
+        match_prompts = [MatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
+        shuffled = list(question.match_pairs)
+        random.shuffle(shuffled)
+        match_answers = [MatchItemOut(id=p.id, text=p.answer_text) for p in shuffled]
+
+    return QuestionOut(
+        id=question.id,
+        qtype=question.qtype,
+        text=question.text,
+        max_score=question.max_score,
+        order_index=question.order_index,
+        choices=[ChoiceOut(id=c.id, text=c.text) for c in question.choices],
+        match_prompts=match_prompts,
+        match_answers=match_answers,
+    )
 
 
 @router.get("/categories/{category_id}/sections", response_model=list[SectionOut])
@@ -78,7 +109,7 @@ async def get_section_test(
     section = await db.scalar(
         select(Section)
         .where(Section.id == section_id)
-        .options(selectinload(Section.test_questions).selectinload(Question.choices))
+        .options(selectinload(Section.test_questions).options(*_QUESTION_LOAD_OPTIONS))
     )
     if section is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
@@ -93,7 +124,7 @@ async def get_section_test(
         section_id=section_id,
         is_unlocked=True,
         is_passed=section_id in passed_sections,
-        questions=list(section.test_questions),
+        questions=[build_student_question(q) for q in section.test_questions],
     )
 
 
@@ -109,7 +140,7 @@ async def get_lesson(
     lesson = await db.scalar(
         select(Lesson)
         .where(Lesson.id == lesson_id)
-        .options(selectinload(Lesson.questions).selectinload(Question.choices))
+        .options(selectinload(Lesson.questions).options(*_QUESTION_LOAD_OPTIONS))
     )
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
@@ -124,11 +155,22 @@ async def get_lesson(
         )
     )
 
-    out = LessonDetailOut.model_validate(lesson)
-    out.is_unlocked = True
-    out.is_passed = lesson_id in passed
-    out.my_homework = HomeworkSubmissionOut.model_validate(submission) if submission else None
-    return out
+    return LessonDetailOut(
+        id=lesson.id,
+        section_id=lesson.section_id,
+        title=lesson.title,
+        description=lesson.description,
+        video_url=lesson.video_url,
+        homework_assignment=lesson.homework_assignment,
+        order_index=lesson.order_index,
+        created_at=lesson.created_at,
+        is_unlocked=True,
+        is_passed=lesson_id in passed,
+        questions=[build_student_question(q) for q in lesson.questions],
+        my_homework=HomeworkSubmissionOut.model_validate(submission) if submission else None,
+        video_status=lesson.video_status,
+        video_duration_seconds=lesson.video_duration_seconds,
+    )
 
 
 @router.post("/lessons/{lesson_id}/video/ticket", response_model=VideoTicketOut)

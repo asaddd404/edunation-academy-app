@@ -7,6 +7,7 @@ from app.models.category import teacher_categories
 from app.models.ent_question import EntQuestion
 from app.models.ent_subject import EntSubject
 from app.models.lesson import Lesson
+from app.models.question import Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 
@@ -79,6 +80,17 @@ async def assert_owns_ent_question(db: AsyncSession, teacher: User, question_id:
     subject_id = await get_subject_id_for_ent_question(db, question_id)
     await assert_owns_ent_subject(db, teacher, subject_id)
     return subject_id
+
+
+async def assert_teacher_owns_question(db: AsyncSession, teacher: User, question_id: int) -> int:
+    """A lesson mini-test or section-test question belongs to exactly one
+    lesson or section (never both), whose category determines ownership."""
+    question = await db.get(Question, question_id)
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Вопрос не найден")
+    if question.lesson_id is not None:
+        return await assert_teacher_owns_lesson(db, teacher, question.lesson_id)
+    return await assert_teacher_owns_section(db, teacher, question.section_id)
 
 
 async def assert_student_has_category_access(db: AsyncSession, student: User, category_id: int) -> None:

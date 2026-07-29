@@ -5,7 +5,10 @@ from app.schemas.lesson import QuestionOut
 
 class AnswerIn(BaseModel):
     question_id: int
-    choice_id: int
+    choice_id: int | None = None
+    choice_ids: list[int] | None = None
+    pairs: dict[str, int] | None = None
+    text: str | None = None
 
 
 class TestAttemptIn(BaseModel):
