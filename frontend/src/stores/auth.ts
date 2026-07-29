@@ -43,6 +43,14 @@ export const useAuthStore = defineStore("auth", () => {
     user.value = await authApi.fetchMe();
   }
 
+  async function changePassword(payload: { old_password: string; new_password: string }) {
+    // The server revoked every refresh token, so adopt the replacement pair
+    // it just issued -- otherwise the next refresh would sign this tab out.
+    const res = await authApi.changePassword(payload);
+    accessToken.value = res.access_token;
+    setRefreshToken(res.refresh_token);
+  }
+
   async function refresh(): Promise<string | null> {
     if (!refreshToken.value) return null;
     try {
@@ -92,5 +100,6 @@ export const useAuthStore = defineStore("auth", () => {
     refresh,
     initialize,
     setUser,
+    changePassword,
   };
 });

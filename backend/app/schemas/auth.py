@@ -33,6 +33,18 @@ class LoginIn(BaseModel):
         return validate_phone(v)
 
 
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Пароль должен быть не короче 8 символов")
+        return v
+
+
 class RefreshIn(BaseModel):
     refresh_token: str
 

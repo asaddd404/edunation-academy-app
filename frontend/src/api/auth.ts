@@ -22,6 +22,12 @@ export function logout(refresh_token: string) {
   return http.post("/auth/logout", { refresh_token });
 }
 
+export function changePassword(payload: { old_password: string; new_password: string }) {
+  // Returns a fresh pair: the server ends every session on password change,
+  // so the caller has to swap in the new refresh token to stay signed in.
+  return http.post<TokenPair>("/auth/change-password", payload).then((r) => r.data);
+}
+
 export function fetchMe() {
   return http.get<User>("/auth/me").then((r) => r.data);
 }

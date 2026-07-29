@@ -42,6 +42,11 @@ async function handleSubmit() {
       <form class="space-y-4" @submit.prevent="handleSubmit">
         <BaseInput v-model="phone" label="Телефон" placeholder="+7XXXXXXXXXX" />
         <BaseInput v-model="password" label="Пароль" type="password" />
+        <div class="flex justify-end">
+          <router-link to="/forgot-password" class="text-sm text-fg/60 underline underline-offset-2 hover:text-fg">
+            Забыли пароль?
+          </router-link>
+        </div>
         <p v-if="error" class="text-sm text-red-600 dark:text-red-500">{{ error }}</p>
         <BaseButton type="submit" class="w-full" :disabled="submitting">Войти</BaseButton>
       </form>

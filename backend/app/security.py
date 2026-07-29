@@ -35,10 +35,20 @@ def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
 
 
+def _user_sessions_key(user_id: int | str) -> str:
+    """Index of a user's live refresh tokens. Without it, `refresh:{token}`
+    can only be revoked one token at a time -- there is no way to end every
+    session at once when the password changes."""
+    return f"refresh_sessions:{user_id}"
+
+
 async def issue_refresh_token(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     ttl_seconds = settings.jwt_refresh_ttl_days * 24 * 60 * 60
     await redis_client.set(f"refresh:{token}", str(user_id), ex=ttl_seconds)
+    await redis_client.sadd(_user_sessions_key(user_id), token)
+    # Re-armed on every issue so the index outlives the tokens it points at.
+    await redis_client.expire(_user_sessions_key(user_id), ttl_seconds)
     return token
 
 
@@ -49,11 +59,24 @@ async def consume_refresh_token(token: str) -> int | None:
     if user_id is None:
         return None
     await redis_client.delete(key)
+    await redis_client.srem(_user_sessions_key(user_id), token)
     return int(user_id)
 
 
 async def revoke_refresh_token(token: str) -> None:
+    user_id = await redis_client.get(f"refresh:{token}")
     await redis_client.delete(f"refresh:{token}")
+    if user_id is not None:
+        await redis_client.srem(_user_sessions_key(user_id), token)
+
+
+async def revoke_all_refresh_tokens(user_id: int) -> None:
+    """Ends every session the user has, on every device."""
+    key = _user_sessions_key(user_id)
+    tokens = await redis_client.smembers(key)
+    if tokens:
+        await redis_client.delete(*(f"refresh:{token}" for token in tokens))
+    await redis_client.delete(key)
 
 
 def create_video_ticket(lesson_id: int) -> str:

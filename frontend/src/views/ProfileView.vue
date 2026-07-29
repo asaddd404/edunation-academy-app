@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isAxiosError } from "axios";
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 
 import { deleteAvatar, getAvatarUrl, updateProfile, uploadAvatar } from "@/api/auth";
 import { getEntLeaderboard } from "@/api/ent";
@@ -81,6 +81,55 @@ async function handleSave() {
     }
   } finally {
     saving.value = false;
+  }
+}
+
+const passwordForm = reactive({ current: "", next: "", confirm: "" });
+const passwordTouched = reactive({ next: false, confirm: false });
+const passwordSaving = ref(false);
+const passwordError = ref("");
+const passwordSuccess = ref(false);
+
+// Validated inline as the student types, rather than only after the server
+// rejects the request.
+const newPasswordError = computed(() => {
+  if (!passwordTouched.next || !passwordForm.next) return "";
+  if (passwordForm.next.length < 8) return "Минимум 8 символов";
+  if (passwordForm.next === passwordForm.current) return "Новый пароль совпадает с текущим";
+  return "";
+});
+
+const confirmPasswordError = computed(() => {
+  if (!passwordTouched.confirm || !passwordForm.confirm) return "";
+  return passwordForm.confirm === passwordForm.next ? "" : "Пароли не совпадают";
+});
+
+const canChangePassword = computed(
+  () =>
+    passwordForm.current.length > 0 &&
+    passwordForm.next.length >= 8 &&
+    passwordForm.next !== passwordForm.current &&
+    passwordForm.confirm === passwordForm.next,
+);
+
+async function handleChangePassword() {
+  if (!canChangePassword.value) return;
+  passwordSaving.value = true;
+  passwordError.value = "";
+  passwordSuccess.value = false;
+  try {
+    await auth.changePassword({ old_password: passwordForm.current, new_password: passwordForm.next });
+    passwordForm.current = "";
+    passwordForm.next = "";
+    passwordForm.confirm = "";
+    passwordTouched.next = false;
+    passwordTouched.confirm = false;
+    passwordSuccess.value = true;
+  } catch (e) {
+    const detail = isAxiosError(e) ? e.response?.data?.detail : null;
+    passwordError.value = typeof detail === "string" ? detail : "Не удалось сменить пароль.";
+  } finally {
+    passwordSaving.value = false;
   }
 }
 
@@ -214,6 +263,73 @@ async function handleDeleteAvatar() {
       <p v-if="saveSuccess" class="text-sm text-green-700 dark:text-green-500">Изменения сохранены.</p>
 
       <BaseButton type="submit" variant="cta" class="w-full" :disabled="saving">Сохранить</BaseButton>
+    </form>
+
+    <form class="glass-card space-y-4 p-4" @submit.prevent="handleChangePassword">
+      <div>
+        <h2 class="text-lg font-semibold">Смена пароля</h2>
+        <p class="mt-1 text-sm text-fg/60">
+          После смены пароля вы останетесь в системе на этом устройстве, а на остальных нужно будет войти заново.
+        </p>
+      </div>
+
+      <BaseInput v-model="passwordForm.current" label="Текущий пароль" type="password">
+        <template #icon>
+          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fill-rule="evenodd"
+              d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </template>
+      </BaseInput>
+
+      <div @input="passwordTouched.next = true">
+        <BaseInput
+          v-model="passwordForm.next"
+          label="Новый пароль"
+          type="password"
+          placeholder="Минимум 8 символов"
+          :error="newPasswordError"
+        >
+          <template #icon>
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fill-rule="evenodd"
+                d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </template>
+        </BaseInput>
+      </div>
+
+      <div @input="passwordTouched.confirm = true">
+        <BaseInput
+          v-model="passwordForm.confirm"
+          label="Повторите новый пароль"
+          type="password"
+          :error="confirmPasswordError"
+        >
+          <template #icon>
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fill-rule="evenodd"
+                d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </template>
+        </BaseInput>
+      </div>
+
+      <p v-if="passwordError" class="text-sm text-red-600 dark:text-red-500">{{ passwordError }}</p>
+      <p v-if="passwordSuccess" class="text-sm text-green-700 dark:text-green-500">Пароль изменён.</p>
+
+      <BaseButton type="submit" class="w-full" :disabled="passwordSaving || !canChangePassword">
+        Сменить пароль
+      </BaseButton>
     </form>
   </div>
 </template>
