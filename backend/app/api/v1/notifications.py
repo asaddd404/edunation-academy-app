@@ -2,29 +2,26 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import PageParams, fetch_page, page_params
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.notification import NotificationOut, UnreadCountOut
+from app.schemas.pagination import Page
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-@router.get("", response_model=list[NotificationOut])
+@router.get("", response_model=Page[NotificationOut])
 async def list_notifications(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[NotificationOut]:
-    notifications = (
-        await db.scalars(
-            select(Notification)
-            .where(Notification.user_id == user.id)
-            .order_by(Notification.created_at.desc())
-            .limit(50)
-        )
-    ).all()
-    return [NotificationOut.model_validate(n) for n in notifications]
+    params: PageParams = Depends(page_params),
+) -> Page[NotificationOut]:
+    query = select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc(), Notification.id.desc())
+    notifications, total = await fetch_page(db, query, params)
+    return Page.of([NotificationOut.model_validate(n) for n in notifications], total, params.page, params.per_page)
 
 
 @router.get("/unread-count", response_model=UnreadCountOut)

@@ -246,6 +246,15 @@ function handleLogout() {
                 </button>
               </li>
             </ul>
+            <div v-if="notifications.hasMore" class="border-t border-fg/10 p-2">
+              <button
+                class="w-full rounded-lg px-3 py-2 text-center text-xs font-medium text-fg/60 hover:bg-fg/5 hover:text-fg disabled:opacity-50"
+                :disabled="notifications.loadingMore"
+                @click="notifications.loadMore"
+              >
+                {{ notifications.loadingMore ? "Загрузка…" : "Показать ещё" }}
+              </button>
+            </div>
           </div>
         </div>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 
 import * as adminApi from "@/api/admin";
 import * as applicationsApi from "@/api/applications";
@@ -8,17 +8,36 @@ import ApplicationStatusBadge from "@/components/application/ApplicationStatusBa
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
+import PaginationControls from "@/components/ui/PaginationControls.vue";
 import type { Application, CategoryAdmin, Role, User } from "@/types";
 
 type Tab = "users" | "categories" | "applications";
 
 const tab = ref<Tab>("users");
 
-const users = ref<User[]>([]);
-const categories = ref<CategoryAdmin[]>([]);
-const applications = ref<Application[]>([]);
+interface PageState {
+  page: number;
+  total: number;
+  pages: number;
+}
 
-const teachers = computed(() => users.value.filter((u) => u.role === "teacher"));
+function freshPageState(): PageState {
+  return { page: 1, total: 0, pages: 0 };
+}
+
+const users = ref<User[]>([]);
+const usersPage = reactive(freshPageState());
+
+const categories = ref<CategoryAdmin[]>([]);
+const categoriesPage = reactive(freshPageState());
+
+const applications = ref<Application[]>([]);
+const applicationsPage = reactive(freshPageState());
+
+// Assigning a teacher to a category needs every teacher, not just whichever
+// page of /admin/users happens to be showing -- fetched once, separately
+// from the paginated "Пользователи" table below.
+const allTeachers = ref<User[]>([]);
 
 const newCategoryName = ref("");
 const newCategoryDescription = ref("");
@@ -26,30 +45,47 @@ const assignTeacherByCategory = reactive<Record<number, string>>({});
 const assigningCategoryId = ref<number | null>(null);
 const decidingApplicationId = ref<number | null>(null);
 
-async function loadUsers() {
-  users.value = await adminApi.listUsers();
+async function loadUsers(page = 1) {
+  const res = await adminApi.listUsers({ page });
+  users.value = res.items;
+  usersPage.page = res.page;
+  usersPage.total = res.total;
+  usersPage.pages = res.pages;
 }
 
-async function loadCategories() {
-  categories.value = await adminApi.listCategoriesForAdmin();
+async function loadAllTeachers() {
+  const res = await adminApi.listUsers({ role: "teacher", per_page: 100 });
+  allTeachers.value = res.items;
 }
 
-async function loadApplications() {
-  applications.value = await applicationsApi.listAllApplications();
+async function loadCategories(page = 1) {
+  const res = await adminApi.listCategoriesForAdmin({ page });
+  categories.value = res.items;
+  categoriesPage.page = res.page;
+  categoriesPage.total = res.total;
+  categoriesPage.pages = res.pages;
+}
+
+async function loadApplications(page = 1) {
+  const res = await applicationsApi.listAllApplications({ page });
+  applications.value = res.items;
+  applicationsPage.page = res.page;
+  applicationsPage.total = res.total;
+  applicationsPage.pages = res.pages;
 }
 
 onMounted(async () => {
-  await Promise.all([loadUsers(), loadCategories(), loadApplications()]);
+  await Promise.all([loadUsers(), loadAllTeachers(), loadCategories(), loadApplications()]);
 });
 
 async function handleRoleChange(user: User, role: Role) {
   await adminApi.updateUser(user.id, { role });
-  await loadUsers();
+  await Promise.all([loadUsers(usersPage.page), loadAllTeachers()]);
 }
 
 async function handleActiveToggle(user: User) {
   await adminApi.updateUser(user.id, { is_active: !user.is_active });
-  await loadUsers();
+  await loadUsers(usersPage.page);
 }
 
 async function handleCreateCategory() {
@@ -60,12 +96,12 @@ async function handleCreateCategory() {
   });
   newCategoryName.value = "";
   newCategoryDescription.value = "";
-  await loadCategories();
+  await loadCategories(1);
 }
 
 function availableTeachers(category: CategoryAdmin) {
   const assignedIds = new Set(category.teachers.map((t) => t.id));
-  return teachers.value.filter((t) => !assignedIds.has(t.id));
+  return allTeachers.value.filter((t) => !assignedIds.has(t.id));
 }
 
 async function handleAssignTeacher(categoryId: number) {
@@ -75,7 +111,7 @@ async function handleAssignTeacher(categoryId: number) {
   try {
     await categoriesApi.assignTeacher(categoryId, Number(teacherId));
     assignTeacherByCategory[categoryId] = "";
-    await loadCategories();
+    await loadCategories(categoriesPage.page);
   } finally {
     assigningCategoryId.value = null;
   }
@@ -83,7 +119,7 @@ async function handleAssignTeacher(categoryId: number) {
 
 async function handleUnassignTeacher(categoryId: number, teacherId: number) {
   await categoriesApi.unassignTeacher(categoryId, teacherId);
-  await loadCategories();
+  await loadCategories(categoriesPage.page);
 }
 
 async function handleDecideApplication(applicationId: number, decision: "approve" | "reject") {
@@ -91,7 +127,7 @@ async function handleDecideApplication(applicationId: number, decision: "approve
   try {
     if (decision === "approve") await applicationsApi.approveApplication(applicationId);
     else await applicationsApi.rejectApplication(applicationId);
-    await loadApplications();
+    await loadApplications(applicationsPage.page);
   } finally {
     decidingApplicationId.value = null;
   }
@@ -139,6 +175,13 @@ async function handleDecideApplication(applicationId: number, decision: "approve
           </BaseButton>
         </div>
       </div>
+
+      <PaginationControls
+        :page="usersPage.page"
+        :pages="usersPage.pages"
+        :total="usersPage.total"
+        @change="loadUsers"
+      />
     </section>
 
     <section v-else-if="tab === 'categories'" class="space-y-6">
@@ -193,6 +236,13 @@ async function handleDecideApplication(applicationId: number, decision: "approve
         </div>
         </div>
       </div>
+
+      <PaginationControls
+        :page="categoriesPage.page"
+        :pages="categoriesPage.pages"
+        :total="categoriesPage.total"
+        @change="loadCategories"
+      />
     </section>
 
     <section v-else class="space-y-3">
@@ -224,6 +274,13 @@ async function handleDecideApplication(applicationId: number, decision: "approve
           <ApplicationStatusBadge :status="application.status" />
         </div>
       </div>
+
+      <PaginationControls
+        :page="applicationsPage.page"
+        :pages="applicationsPage.pages"
+        :total="applicationsPage.total"
+        @change="loadApplications"
+      />
     </section>
   </div>
 </template>

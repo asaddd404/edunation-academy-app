@@ -1,6 +1,19 @@
 export type Role = "student" | "teacher" | "admin";
 export type ApplicationStatus = "pending" | "approved" | "rejected";
 
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}
+
+export interface PageParams {
+  page?: number;
+  per_page?: number;
+}
+
 export interface User {
   id: number;
   phone: string;

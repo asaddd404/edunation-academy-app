@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 
 import BaseButton from "@/components/ui/BaseButton.vue";
+import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useApplicationsStore } from "@/stores/applications";
 
 const applications = useApplicationsStore();
@@ -47,5 +48,13 @@ async function handleDecide(id: number, decision: "approve" | "reject") {
         </div>
       </li>
     </ul>
+
+    <PaginationControls
+      :page="applications.pendingPage.page"
+      :pages="applications.pendingPage.pages"
+      :total="applications.pendingPage.total"
+      class="mt-4"
+      @change="applications.fetchPending"
+    />
   </div>
 </template>

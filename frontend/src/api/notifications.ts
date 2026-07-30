@@ -1,8 +1,8 @@
 import http from "@/api/http";
-import type { Notification } from "@/types";
+import type { Notification, Page, PageParams } from "@/types";
 
-export function listNotifications() {
-  return http.get<Notification[]>("/notifications").then((r) => r.data);
+export function listNotifications(params?: PageParams) {
+  return http.get<Page<Notification>>("/notifications", { params }).then((r) => r.data);
 }
 
 export function getUnreadCount() {

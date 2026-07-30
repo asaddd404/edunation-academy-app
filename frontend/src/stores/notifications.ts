@@ -1,15 +1,21 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 
 import * as notificationsApi from "@/api/notifications";
 import type { Notification } from "@/types";
 
 const POLL_INTERVAL_MS = 30_000;
+const PAGE_SIZE = 20;
 
 export const useNotificationsStore = defineStore("notifications", () => {
   const items = ref<Notification[]>([]);
   const unreadCount = ref(0);
+  const page = ref(1);
+  const totalPages = ref(1);
+  const loadingMore = ref(false);
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  const hasMore = computed(() => page.value < totalPages.value);
 
   async function fetchUnreadCount() {
     const res = await notificationsApi.getUnreadCount();
@@ -17,7 +23,23 @@ export const useNotificationsStore = defineStore("notifications", () => {
   }
 
   async function fetchList() {
-    items.value = await notificationsApi.listNotifications();
+    const res = await notificationsApi.listNotifications({ page: 1, per_page: PAGE_SIZE });
+    items.value = res.items;
+    page.value = res.page;
+    totalPages.value = res.pages;
+  }
+
+  async function loadMore() {
+    if (!hasMore.value || loadingMore.value) return;
+    loadingMore.value = true;
+    try {
+      const res = await notificationsApi.listNotifications({ page: page.value + 1, per_page: PAGE_SIZE });
+      items.value = [...items.value, ...res.items];
+      page.value = res.page;
+      totalPages.value = res.pages;
+    } finally {
+      loadingMore.value = false;
+    }
   }
 
   async function markRead(id: number) {
@@ -47,6 +69,8 @@ export const useNotificationsStore = defineStore("notifications", () => {
     await notificationsApi.clearAllNotifications();
     items.value = [];
     unreadCount.value = 0;
+    page.value = 1;
+    totalPages.value = 1;
   }
 
   function startPolling() {
@@ -60,11 +84,16 @@ export const useNotificationsStore = defineStore("notifications", () => {
     pollTimer = null;
     items.value = [];
     unreadCount.value = 0;
+    page.value = 1;
+    totalPages.value = 1;
   }
 
   return {
     items,
     unreadCount,
+    hasMore,
+    loadingMore,
+    loadMore,
     fetchUnreadCount,
     fetchList,
     markRead,

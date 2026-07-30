@@ -1,8 +1,8 @@
 import http from "@/api/http";
-import type { Category } from "@/types";
+import type { Category, Page, PageParams } from "@/types";
 
-export function listCategories() {
-  return http.get<Category[]>("/categories").then((r) => r.data);
+export function listCategories(params?: PageParams) {
+  return http.get<Page<Category>>("/categories", { params }).then((r) => r.data);
 }
 
 export function getCategory(id: number) {

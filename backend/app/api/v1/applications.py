@@ -7,12 +7,14 @@ from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_can_decide_application
 from app.core.notifications import notify
+from app.core.pagination import PageParams, fetch_page, page_params
 from app.database import get_db
 from app.deps import require_role
 from app.models.application import Application, ApplicationStatusEnum
 from app.models.category import Category, teacher_categories
 from app.models.user import RoleEnum, User
 from app.schemas.application import ApplicationCreateIn, ApplicationOut
+from app.schemas.pagination import Page
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -80,40 +82,42 @@ async def create_application(
     return ApplicationOut.model_validate(application)
 
 
-@router.get("/me", response_model=list[ApplicationOut])
+@router.get("/me", response_model=Page[ApplicationOut])
 async def list_my_applications(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
-) -> list[ApplicationOut]:
-    applications = (
-        await db.scalars(
-            select(Application)
-            .where(Application.student_id == student.id)
-            .options(selectinload(Application.category))
-            .order_by(Application.created_at.desc())
-        )
-    ).all()
-    return [_serialize(a, with_category=True) for a in applications]
+    params: PageParams = Depends(page_params),
+) -> Page[ApplicationOut]:
+    query = (
+        select(Application)
+        .where(Application.student_id == student.id)
+        .options(selectinload(Application.category))
+        .order_by(Application.created_at.desc(), Application.id.desc())
+    )
+    applications, total = await fetch_page(db, query, params)
+    return Page.of(
+        [_serialize(a, with_category=True) for a in applications], total, params.page, params.per_page
+    )
 
 
-@router.get("/pending", response_model=list[ApplicationOut])
+@router.get("/pending", response_model=Page[ApplicationOut])
 async def list_pending_for_teacher(
     db: AsyncSession = Depends(get_db),
     teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
-) -> list[ApplicationOut]:
+    params: PageParams = Depends(page_params),
+) -> Page[ApplicationOut]:
     query = select(Application).where(Application.status == ApplicationStatusEnum.pending)
     if teacher.role != RoleEnum.admin:
         query = query.join(teacher_categories, teacher_categories.c.category_id == Application.category_id).where(
             teacher_categories.c.teacher_id == teacher.id
         )
-    applications = (
-        await db.scalars(
-            query.options(selectinload(Application.student), selectinload(Application.category)).order_by(
-                Application.created_at.asc()
-            )
-        )
-    ).all()
-    return [_serialize(a, with_student=True, with_category=True) for a in applications]
+    query = query.options(selectinload(Application.student), selectinload(Application.category)).order_by(
+        Application.created_at.asc(), Application.id.asc()
+    )
+    applications, total = await fetch_page(db, query, params)
+    return Page.of(
+        [_serialize(a, with_student=True, with_category=True) for a in applications], total, params.page, params.per_page
+    )
 
 
 @router.post("/{application_id}/approve", response_model=ApplicationOut)
@@ -170,22 +174,25 @@ async def reject_application(
     return ApplicationOut.model_validate(application)
 
 
-@router.get("", response_model=list[ApplicationOut])
+@router.get("", response_model=Page[ApplicationOut])
 async def list_all_applications(
     status_filter: ApplicationStatusEnum | None = Query(default=None, alias="status"),
     category_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_role(RoleEnum.admin)),
-) -> list[ApplicationOut]:
+    params: PageParams = Depends(page_params),
+) -> Page[ApplicationOut]:
     query = (
         select(Application)
         .options(selectinload(Application.student), selectinload(Application.category))
-        .order_by(Application.created_at.desc())
+        .order_by(Application.created_at.desc(), Application.id.desc())
     )
     if status_filter is not None:
         query = query.where(Application.status == status_filter)
     if category_id is not None:
         query = query.where(Application.category_id == category_id)
 
-    applications = (await db.scalars(query)).all()
-    return [_serialize(a, with_student=True, with_category=True) for a in applications]
+    applications, total = await fetch_page(db, query, params)
+    return Page.of(
+        [_serialize(a, with_student=True, with_category=True) for a in applications], total, params.page, params.per_page
+    )

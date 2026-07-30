@@ -3,27 +3,30 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.slug import slugify
 from app.database import get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
 from app.models.user import RoleEnum, User
 from app.schemas.category import AssignTeacherIn, CategoryAdminOut, CategoryIn, CategoryOut, CategoryUpdateIn
+from app.schemas.pagination import Page
 from app.schemas.user import UserOut, UserUpdateIn
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_role(RoleEnum.admin))])
 
 
-@router.get("/users", response_model=list[UserOut])
+@router.get("/users", response_model=Page[UserOut])
 async def list_users(
     role: RoleEnum | None = None,
     db: AsyncSession = Depends(get_db),
-) -> list[UserOut]:
-    query = select(User).order_by(User.created_at.desc())
+    params: PageParams = Depends(page_params),
+) -> Page[UserOut]:
+    query = select(User).order_by(User.created_at.desc(), User.id.desc())
     if role is not None:
         query = query.where(User.role == role)
-    users = (await db.scalars(query)).all()
-    return [UserOut.model_validate(u) for u in users]
+    users, total = await fetch_page(db, query, params)
+    return Page.of([UserOut.model_validate(u) for u in users], total, params.page, params.per_page)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
@@ -42,14 +45,18 @@ async def update_user(user_id: int, payload: UserUpdateIn, db: AsyncSession = De
     return UserOut.model_validate(user)
 
 
-@router.get("/categories", response_model=list[CategoryAdminOut])
-async def list_categories_for_admin(db: AsyncSession = Depends(get_db)) -> list[CategoryAdminOut]:
-    categories = (
-        await db.scalars(
-            select(Category).options(selectinload(Category.teachers)).order_by(Category.created_at.desc())
-        )
-    ).all()
-    return [CategoryAdminOut.model_validate(c) for c in categories]
+@router.get("/categories", response_model=Page[CategoryAdminOut])
+async def list_categories_for_admin(
+    db: AsyncSession = Depends(get_db),
+    params: PageParams = Depends(page_params),
+) -> Page[CategoryAdminOut]:
+    query = (
+        select(Category)
+        .options(selectinload(Category.teachers))
+        .order_by(Category.created_at.desc(), Category.id.desc())
+    )
+    categories, total = await fetch_page(db, query, params)
+    return Page.of([CategoryAdminOut.model_validate(c) for c in categories], total, params.page, params.per_page)
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)

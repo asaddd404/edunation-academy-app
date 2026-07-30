@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.storage import resolve_upload_path
 from app.database import get_db
 from app.deps import get_current_user
@@ -12,6 +13,7 @@ from app.models.lesson import Lesson
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.category import CategoryOut
+from app.schemas.pagination import Page
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -35,12 +37,14 @@ async def _lesson_stats(db: AsyncSession, category_ids: list[int]) -> dict[int, 
     return {row[0]: (row[1], int(row[2])) for row in rows}
 
 
-@router.get("", response_model=list[CategoryOut])
+@router.get("", response_model=Page[CategoryOut])
 async def list_categories(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[CategoryOut]:
-    categories = (await db.scalars(select(Category).where(Category.is_active.is_(True)))).all()
+    params: PageParams = Depends(page_params),
+) -> Page[CategoryOut]:
+    query = select(Category).where(Category.is_active.is_(True)).order_by(Category.name, Category.id)
+    categories, total = await fetch_page(db, query, params)
 
     status_by_category: dict[int, str] = {}
     if user.role == RoleEnum.student:
@@ -60,7 +64,7 @@ async def list_categories(
         out.my_application_status = status_by_category.get(category.id)
         out.lesson_count, out.total_duration_seconds = stats.get(category.id, (0, 0))
         result.append(out)
-    return result
+    return Page.of(result, total, params.page, params.per_page)
 
 
 @router.get("/{category_id}/image")

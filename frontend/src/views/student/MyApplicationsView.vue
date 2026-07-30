@@ -3,6 +3,7 @@ import { onMounted } from "vue";
 
 import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
+import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useApplicationsStore } from "@/stores/applications";
 import type { ApplicationStatus } from "@/types";
 
@@ -63,5 +64,13 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
         </div>
       </li>
     </ul>
+
+    <PaginationControls
+      :page="applications.myApplicationsPage.page"
+      :pages="applications.myApplicationsPage.pages"
+      :total="applications.myApplicationsPage.total"
+      class="mt-4"
+      @change="applications.fetchMine"
+    />
   </div>
 </template>
