@@ -105,6 +105,27 @@ const subjectGroups = computed<SubjectGroup[]>(() => {
   return [...bySubject.values()];
 });
 
+// The palette numbers questions within their subject, so the header has to
+// agree -- a palette button reading "1" under a header reading "11 / 20" is
+// two different answers to "where am I". Overall progress is still on screen
+// as the "Отвечено" counter.
+const currentPosition = computed(() => {
+  for (const group of subjectGroups.value) {
+    const localIndex = group.entries.findIndex((e) => e.globalIndex === currentIndex.value);
+    if (localIndex !== -1) {
+      return { number: localIndex + 1, total: group.entries.length };
+    }
+  }
+  return { number: currentIndex.value + 1, total: questions.value.length };
+});
+
+// The chip grid only ever shows one subject's questions at a time -- whichever
+// subject the current question belongs to -- so it stays compact instead of
+// stacking every subject's numbers on top of each other.
+const activeGroup = computed<SubjectGroup | null>(
+  () => subjectGroups.value.find((group) => isCurrentSubject(group)) ?? null,
+);
+
 function goTo(index: number) {
   if (index < 0 || index >= questions.value.length) return;
   currentIndex.value = index;
@@ -116,12 +137,8 @@ function goNext() {
   goTo(currentIndex.value + 1);
 }
 
-// Jumping to a subject lands on its first unanswered question -- picking up
-// where the student left off -- or its first question once every question
-// in that subject is already answered.
 function jumpToSubject(group: SubjectGroup) {
-  const target = group.entries.find((e) => !isAnswered(e.question)) ?? group.entries[0];
-  goTo(target.globalIndex);
+  goTo(group.entries[0].globalIndex);
 }
 
 function isCurrentSubject(group: SubjectGroup): boolean {
@@ -268,9 +285,9 @@ function timingLabel(r: EntSimulationResult): string {
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0">
             <p class="text-sm font-semibold">
-              Вопрос {{ currentIndex + 1 }} <span class="text-fg/40">/ {{ questions.length }}</span>
+              Вопрос {{ currentPosition.number }} <span class="text-fg/40">/ {{ currentPosition.total }}</span>
             </p>
-            <p class="truncate text-xs text-fg/50">{{ currentQuestion.subject_name }}</p>
+            <p class="truncate text-xs text-fg/50">{{ capitalize(currentQuestion.subject_name) }}</p>
           </div>
 
           <div class="flex shrink-0 items-center gap-3">
@@ -290,50 +307,57 @@ function timingLabel(r: EntSimulationResult): string {
           </div>
         </div>
 
-        <!-- 35 numbers eat a lot of sticky height on a phone -- let the grid
-             scroll instead of pushing the question off screen. -->
-        <div class="mt-3 max-h-[8.5rem] space-y-2 overflow-y-auto sm:max-h-none">
-          <div v-for="group in subjectGroups" :key="group.subjectName">
-            <!-- Only worth a label once there's more than one subject to tell
-                 apart -- a single-subject exam just numbers straight through. -->
-            <button
-              v-if="subjectGroups.length > 1"
-              type="button"
-              class="mb-1 flex items-center gap-1.5 text-xs font-medium transition-colors duration-150"
-              :class="isCurrentSubject(group) ? 'text-fg' : 'text-fg/50 hover:text-fg'"
-              @click="jumpToSubject(group)"
-            >
-              {{ capitalize(group.subjectName) }}
-              <span class="text-fg/40">{{ group.answeredCount }}/{{ group.entries.length }}</span>
-            </button>
-            <div class="flex flex-wrap gap-1.5">
-              <button
-                v-for="(entry, localIndex) in group.entries"
-                :key="entry.question.id"
-                type="button"
-                class="h-8 w-8 rounded-lg border text-xs font-medium transition-all duration-150"
-                :class="
-                  entry.globalIndex === currentIndex
-                    ? 'border-transparent bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                    : isAnswered(entry.question)
-                      ? 'border-transparent bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500/30 dark:text-emerald-400'
-                      : 'border-border text-fg/50 hover:border-indigo-500/40 hover:text-fg'
-                "
-                :aria-label="`${group.subjectName}, вопрос ${localIndex + 1}${isAnswered(entry.question) ? ', отвечен' : ''}`"
-                :aria-current="entry.globalIndex === currentIndex ? 'true' : undefined"
-                @click="goTo(entry.globalIndex)"
-              >
-                {{ localIndex + 1 }}
-              </button>
-            </div>
-          </div>
+        <!-- Subject tabs: one horizontal row, active tab in gradient accent.
+             Skipped for single-subject exams, where it'd just repeat the
+             header's subject name. -->
+        <div v-if="subjectGroups.length > 1" class="mt-3 flex flex-wrap gap-2">
+          <button
+            v-for="group in subjectGroups"
+            :key="group.subjectName"
+            type="button"
+            class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
+            :class="
+              isCurrentSubject(group)
+                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
+            "
+            @click="jumpToSubject(group)"
+          >
+            {{ capitalize(group.subjectName) }}
+            <span :class="isCurrentSubject(group) ? 'text-white/80' : 'text-fg/40'">
+              {{ group.answeredCount }}/{{ group.entries.length }}
+            </span>
+          </button>
+        </div>
+
+        <!-- Question chips: only the active subject's questions, so the grid
+             never grows past one subject's worth of numbers. -->
+        <div v-if="activeGroup" class="mt-3 flex flex-wrap gap-1.5">
+          <button
+            v-for="(entry, localIndex) in activeGroup.entries"
+            :key="entry.question.id"
+            type="button"
+            class="flex h-9 w-9 items-center justify-center rounded-xl text-xs transition-all duration-150"
+            :class="
+              entry.globalIndex === currentIndex
+                ? 'bg-indigo-50 font-bold text-indigo-700 ring-2 ring-indigo-500 dark:bg-indigo-950/50 dark:text-indigo-300'
+                : isAnswered(entry.question)
+                  ? 'bg-emerald-500 font-semibold text-white dark:bg-emerald-600'
+                  : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+            "
+            :aria-label="`${activeGroup.subjectName}, вопрос ${localIndex + 1}${isAnswered(entry.question) ? ', отвечен' : ''}`"
+            :aria-current="entry.globalIndex === currentIndex ? 'true' : undefined"
+            @click="goTo(entry.globalIndex)"
+          >
+            {{ localIndex + 1 }}
+          </button>
         </div>
       </div>
 
       <!-- ── Current question ──────────────────────────────────────── -->
       <section ref="questionCardRef" class="space-y-4 rounded-2xl border border-border bg-card p-5">
         <div class="flex flex-wrap items-center gap-2 text-xs text-fg/50">
-          <BaseBadge tone="neutral">{{ currentQuestion.subject_name }}</BaseBadge>
+          <BaseBadge tone="neutral">{{ capitalize(currentQuestion.subject_name) }}</BaseBadge>
           <span>{{ currentQuestion.max_score }} балл(а)</span>
         </div>
 
