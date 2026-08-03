@@ -8,12 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_student_has_any_course_access
+from app.core.ent_language import (
+    QuestionShortage,
+    UnknownLanguageError,
+    parse_language,
+    question_pool_filters,
+    shortage_message,
+)
 from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
 from app.core.storage import resolve_upload_path
 from app.database import get_db
 from app.deps import require_role
-from app.models.ent_question import EntQuestion
+from app.models.ent_question import EntQuestion, EntQuestionType
 from app.models.ent_simulation import EntSimulation, EntSimulationQuestion, EntSimulationStatus
 from app.models.ent_subject import EntSubject
 from app.models.student_rating import StudentRating
@@ -96,6 +103,17 @@ def _build_student_question(question: EntQuestion) -> EntQuestionStudentOut:
     )
 
 
+def _subject_quotas(subject: EntSubject) -> dict[EntQuestionType, int]:
+    """How many questions of each type the subject wants in a simulation.
+    All zeroes means unconfigured -- see start_simulation's legacy branch."""
+    return {
+        EntQuestionType.single: subject.single_choice_count,
+        EntQuestionType.multiple: subject.multiple_choice_count,
+        EntQuestionType.matching: subject.matching_count,
+        EntQuestionType.short_answer: subject.short_answer_count,
+    }
+
+
 def _remaining_seconds(simulation: EntSimulation) -> int | None:
     if not simulation.is_timed or simulation.expires_at is None:
         return None
@@ -128,6 +146,11 @@ async def start_simulation(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationOut:
+    try:
+        language = parse_language(payload.language)
+    except UnknownLanguageError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
     subjects = (
         await db.scalars(
             select(EntSubject).where(EntSubject.id.in_(payload.subject_ids), EntSubject.is_active.is_(True))
@@ -138,11 +161,44 @@ async def start_simulation(
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Предметы не найдены или неактивны: {sorted(missing)}")
 
+    subjects_by_id = {s.id: s for s in subjects}
+
+    async def available(subject_id: int, qtype: EntQuestionType | None = None) -> int:
+        return await db.scalar(
+            select(func.count(EntQuestion.id)).where(*question_pool_filters(subject_id, language, qtype))
+        )
+
+    # Checked for every subject *before* anything is written, so a bank that
+    # is short in the chosen language is reported in full ("Химия нужно 20,
+    # доступно 6") instead of one subject at a time, and never leaves a
+    # half-built attempt behind.
+    shortages: list[QuestionShortage] = []
+    for subject_id in payload.subject_ids:
+        subject = subjects_by_id[subject_id]
+        quotas = _subject_quotas(subject)
+        if any(quotas.values()):
+            for qtype, count in quotas.items():
+                if count <= 0:
+                    continue
+                have = await available(subject_id, qtype)
+                if have < count:
+                    shortages.append(QuestionShortage(subject.name, count, have, qtype))
+        else:
+            have = await available(subject_id)
+            if have < payload.questions_per_subject:
+                shortages.append(QuestionShortage(subject.name, payload.questions_per_subject, have))
+
+    if shortages:
+        # Not a silently shorter exam and not a 500: the caller is told which
+        # subject to import questions for, in which language, and how many.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, shortage_message(language, shortages))
+
     now = datetime.now(timezone.utc)
     simulation = EntSimulation(
         student_id=student.id,
         is_timed=payload.is_timed,
         duration_minutes=payload.duration_minutes,
+        language=language,
         expires_at=(now + timedelta(minutes=payload.duration_minutes)) if payload.is_timed else None,
     )
     db.add(simulation)
@@ -150,19 +206,46 @@ async def start_simulation(
 
     order_index = 0
     for subject_id in payload.subject_ids:
-        question_ids = (
-            await db.scalars(
-                select(EntQuestion.id)
-                .where(EntQuestion.subject_id == subject_id)
-                .order_by(func.random())
-                .limit(payload.questions_per_subject)
-            )
-        ).all()
+        subject = subjects_by_id[subject_id]
+        quotas = _subject_quotas(subject)
+
+        if any(quotas.values()):
+            # Quota-configured subject: draw `count` random questions per
+            # qtype. The counts above already proved the pool can cover them.
+            question_ids: list[int] = []
+            for qtype, count in quotas.items():
+                if count <= 0:
+                    continue
+                ids = (
+                    await db.scalars(
+                        select(EntQuestion.id)
+                        .where(*question_pool_filters(subject_id, language, qtype))
+                        .order_by(func.random())
+                        .limit(count)
+                    )
+                ).all()
+                question_ids.extend(ids)
+            # Interleave qtypes instead of leaving them grouped block-by-block.
+            random.shuffle(question_ids)
+        else:
+            # Legacy/unconfigured subject: flat random sample across all types.
+            question_ids = (
+                await db.scalars(
+                    select(EntQuestion.id)
+                    .where(*question_pool_filters(subject_id, language))
+                    .order_by(func.random())
+                    .limit(payload.questions_per_subject)
+                )
+            ).all()
+
         for question_id in question_ids:
             db.add(EntSimulationQuestion(simulation_id=simulation.id, question_id=question_id, order_index=order_index))
             order_index += 1
 
     if order_index == 0:
+        # Unreachable while the shortage check above holds (it fails first on
+        # an empty pool), kept as the backstop for a subject whose quotas and
+        # questions_per_subject are both zero.
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "В выбранных предметах пока нет вопросов")
 
@@ -177,6 +260,7 @@ async def start_simulation(
         id=simulation.id,
         is_timed=simulation.is_timed,
         duration_minutes=simulation.duration_minutes,
+        language=simulation.language,
         status=simulation.status,
         started_at=simulation.started_at,
         expires_at=simulation.expires_at,
@@ -225,6 +309,7 @@ async def get_simulation(
         id=simulation.id,
         is_timed=simulation.is_timed,
         duration_minutes=simulation.duration_minutes,
+        language=simulation.language,
         status=simulation.status,
         started_at=simulation.started_at,
         expires_at=simulation.expires_at,
@@ -258,6 +343,7 @@ def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
         id=simulation.id,
         is_timed=simulation.is_timed,
         duration_minutes=simulation.duration_minutes,
+        language=simulation.language,
         time_expired=simulation.time_expired,
         status=simulation.status,
         started_at=simulation.started_at,

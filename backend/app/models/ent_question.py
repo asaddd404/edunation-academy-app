@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -14,6 +14,20 @@ class EntQuestionType(str, enum.Enum):
     short_answer = "short_answer"
 
 
+class EntLanguage(str, enum.Enum):
+    """Language a question is written in — the ЕНТ is sat in one or the other,
+    never both, so this is what a simulation filters the bank by.
+
+    A native Postgres enum rather than a plain string: the value is only ever
+    read back in a `WHERE` clause, so a typo ('RU', 'kz') would not fail
+    anywhere — it would silently make the question invisible to every
+    simulation.
+    """
+
+    ru = "ru"
+    kk = "kk"
+
+
 class EntQuestion(Base):
     __tablename__ = "ent_questions"
 
@@ -23,6 +37,14 @@ class EntQuestion(Base):
         Enum(EntQuestionType, name="ent_question_type", native_enum=True), nullable=False
     )
     text: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # Russian unless the import (or the teacher) says otherwise: the whole bank
+    # predates this column, and 0013 backfills it to the same value.
+    language: Mapped[EntLanguage] = mapped_column(
+        Enum(EntLanguage, name="ent_language", native_enum=True),
+        nullable=False,
+        default=EntLanguage.ru,
+        server_default=EntLanguage.ru.value,
+    )
     # Optional illustration (graph, diagram, map, formula screenshot) -- some
     # ЕНТ questions are unanswerable without one.
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -43,7 +65,15 @@ class EntQuestion(Base):
         back_populates="question", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (CheckConstraint("max_score IN (1, 2)", name="ck_ent_question_max_score"),)
+    __table_args__ = (
+        CheckConstraint("max_score IN (1, 2)", name="ck_ent_question_max_score"),
+        # Every simulation start filters by subject *and* language (and, for a
+        # quota-configured subject, by qtype on top). Composite rather than a
+        # lone index on `language`, which has two values and would be ignored
+        # by the planner on its own; leading with subject_id keeps the same
+        # index serving the subject-only queries the bank screen makes.
+        Index("ix_ent_questions_subject_language", "subject_id", "language", "qtype"),
+    )
 
     @property
     def has_image(self) -> bool:

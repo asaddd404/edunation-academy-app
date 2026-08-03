@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.models.ent_question import EntQuestionType
+from app.models.ent_question import EntLanguage, EntQuestionType
 
 
 class EntChoiceIn(BaseModel):
@@ -16,6 +16,11 @@ class EntMatchPairIn(BaseModel):
 class EntQuestionIn(BaseModel):
     qtype: EntQuestionType
     text: str
+    # Typed as the enum so anything else is rejected here, at the API
+    # boundary, rather than at the DB one. Defaulted rather than required:
+    # every client that predates the ru/kk split keeps working, and Russian
+    # is what those clients were sending.
+    language: EntLanguage = EntLanguage.ru
     max_score: int = 1
     choices: list[EntChoiceIn] = []
     match_pairs: list[EntMatchPairIn] = []
@@ -93,6 +98,7 @@ class EntQuestionTeacherOut(BaseModel):
     subject_id: int
     qtype: EntQuestionType
     text: str
+    language: EntLanguage
     has_image: bool = False
     max_score: int
     order_index: int

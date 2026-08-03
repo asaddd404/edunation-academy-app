@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.ent_question import EntLanguage
 
 
 class EntSimulationStatus(str, enum.Enum):
@@ -20,6 +21,17 @@ class EntSimulation(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     is_timed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The language the attempt was sat in. Every question drawn into it is in
+    # this language today, but it is stored on the attempt as well: reporting
+    # ("how do our Kazakh-stream students do?") must not have to infer the
+    # answer by joining out to the questions, and a future mixed-language
+    # attempt would make that inference wrong.
+    language: Mapped[EntLanguage] = mapped_column(
+        Enum(EntLanguage, name="ent_language", native_enum=True),
+        nullable=False,
+        default=EntLanguage.ru,
+        server_default=EntLanguage.ru.value,
+    )
     status: Mapped[EntSimulationStatus] = mapped_column(
         Enum(EntSimulationStatus, name="ent_simulation_status", native_enum=True),
         default=EntSimulationStatus.in_progress,

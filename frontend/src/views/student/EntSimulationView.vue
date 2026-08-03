@@ -423,12 +423,19 @@ function timingLabel(r: EntSimulationResult): string {
             >
               <span class="sm:w-1/2">{{ prompt.text }}</span>
               <select
-                class="rounded-lg border border-fg/20 bg-transparent px-3 py-2 sm:w-1/2"
+                class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 sm:w-1/2 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                 :value="selectedPair(currentQuestion.id, prompt.id)"
                 @change="setMatchPair(currentQuestion.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
               >
-                <option value="" disabled>Выберите пару</option>
-                <option v-for="opt in currentQuestion.match_answers" :key="opt.id" :value="opt.id">
+                <option value="" disabled class="bg-white text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+                  Выберите пару
+                </option>
+                <option
+                  v-for="opt in currentQuestion.match_answers"
+                  :key="opt.id"
+                  :value="opt.id"
+                  class="bg-white text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                >
                   {{ opt.text }}
                 </option>
               </select>

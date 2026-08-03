@@ -230,6 +230,10 @@ export interface SectionTest {
 
 export type EntQuestionType = "single" | "multiple" | "matching" | "short_answer";
 export type EntSimulationStatus = "in_progress" | "submitted";
+/** Language a question is written in, and the one a simulation is sat in.
+ * Mirrors the `ent_language` enum on the backend -- the union lives here so
+ * no component re-spells the two literals. */
+export type ExamLanguage = "ru" | "kk";
 
 export interface EntSubject {
   id: number;
@@ -238,6 +242,10 @@ export interface EntSubject {
   is_active: boolean;
   created_at: string;
   question_count: number;
+  single_choice_count: number;
+  multiple_choice_count: number;
+  matching_count: number;
+  short_answer_count: number;
 }
 
 export interface EntChoiceTeacher {
@@ -264,12 +272,90 @@ export interface EntQuestionTeacher {
   subject_id: number;
   qtype: EntQuestionType;
   text: string;
+  language: ExamLanguage;
   has_image: boolean;
   max_score: number;
   order_index: number;
   choices: EntChoiceTeacher[];
   match_pairs: EntMatchPairTeacher[];
   answer_variants: EntAnswerVariant[];
+}
+
+/** The parser's own verdict on a question. Unlike `EntQuestionType` this
+ * includes `unknown` -- a block it could not classify, which is presented
+ * as an editable single-choice question with `needs_review` set. */
+export type EntDetectedQuestionType =
+  | "single_choice"
+  | "multiple_choice"
+  | "matching"
+  | "short_answer"
+  | "unknown";
+
+export interface EntChoiceImport {
+  text: string;
+  is_correct: boolean;
+  /** Canonical A–H label the answer key was matched against. */
+  label: string;
+  /** The letter as printed in the PDF -- Kazakh `Ә`, Cyrillic `Б`, … --
+   * shown next to the choice so the teacher recognizes their own file. */
+  raw_label: string;
+}
+
+export interface EntQuestionImport {
+  qtype: EntQuestionType;
+  text: string;
+  /** What the parser made of it. Editable on the card — whatever the teacher
+   * leaves it on is what `/bulk-create` saves. */
+  language: ExamLanguage;
+  max_score: number;
+  choices: EntChoiceImport[];
+  match_pairs: { prompt_text: string; answer_text: string }[];
+  answer_variants: string[];
+  confidence: number;
+  needs_review: boolean;
+  detected_qtype: EntDetectedQuestionType;
+  /** [first, last] line numbers in the cleaned PDF text this was built from. */
+  raw_line_range: number[];
+  /** Which `Вариант №N` of a multi-variant file this came from. `0` with a
+   * null label means the file was never split into variants. */
+  variant_id: number;
+  variant_label: string | null;
+  parse_error: string | null;
+  /** Where the answer came from: written in the file, inferred from a
+   * colour highlight, or not found. `highlight` is shown explicitly in the
+   * preview so the teacher verifies an inferred answer before saving. */
+  key_source: "text" | "highlight" | "none";
+}
+
+export interface EntVariantError {
+  variant_id: number;
+  variant_label: string | null;
+  error: string;
+}
+
+export interface EntPdfImportStats {
+  total_lines: number;
+  total_blocks_detected: number;
+  needs_review_count: number;
+  parse_errors: string[];
+  /** How many `Вариант №N` blocks the file was split into (1 when it has none). */
+  variants_detected: number;
+  /** Variants the parser could not walk. Questions read before the failure
+   * are still in `questions`, so this is a "check these" list, not a loss. */
+  variant_errors: EntVariantError[];
+}
+
+export interface EntPdfImportResult {
+  subject_id: number;
+  questions: EntQuestionImport[];
+  skipped_count: number;
+  warnings: string[];
+  stats: EntPdfImportStats;
+}
+
+export interface EntBulkCreateResult {
+  created_count: number;
+  skipped: { index: number; error: string }[];
 }
 
 export interface EntChoiceOption {
@@ -299,6 +385,7 @@ export interface EntSimulation {
   id: number;
   is_timed: boolean;
   duration_minutes: number | null;
+  language: ExamLanguage;
   status: EntSimulationStatus;
   started_at: string;
   expires_at: string | null;
@@ -334,6 +421,7 @@ export interface EntSimulationResult {
   id: number;
   is_timed: boolean;
   duration_minutes: number | null;
+  language: ExamLanguage;
   time_expired: boolean;
   status: EntSimulationStatus;
   started_at: string;
@@ -348,6 +436,7 @@ export interface EntSimulationSummary {
   id: number;
   is_timed: boolean;
   duration_minutes: number | null;
+  language: ExamLanguage;
   time_expired: boolean;
   status: EntSimulationStatus;
   started_at: string;

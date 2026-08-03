@@ -1,6 +1,9 @@
 import http from "@/api/http";
 import type {
+  EntBulkCreateResult,
   EntLeaderboard,
+  EntPdfImportResult,
+  EntQuestionImport,
   EntQuestionTeacher,
   EntQuestionType,
   EntSimulation,
@@ -8,6 +11,7 @@ import type {
   EntSimulationResult,
   EntSimulationSummary,
   EntSubject,
+  ExamLanguage,
 } from "@/types";
 
 // Student flow
@@ -21,6 +25,9 @@ export function startEntSimulation(payload: {
   questions_per_subject: number;
   is_timed: boolean;
   duration_minutes?: number;
+  /** Only questions in this language are drawn. A subject that cannot fill
+   * its share in it answers 422 with which subject is short and by how much. */
+  language: ExamLanguage;
 }) {
   return http.post<EntSimulation>("/ent/simulations", payload).then((r) => r.data);
 }
@@ -55,17 +62,32 @@ export function createEntSubject(payload: { name: string; slug?: string }) {
   return http.post<EntSubject>("/teacher/ent/subjects", payload).then((r) => r.data);
 }
 
-export function updateEntSubject(id: number, payload: { name?: string; is_active?: boolean }) {
+export interface EntSubjectUpdatePayload {
+  name?: string;
+  is_active?: boolean;
+  single_choice_count?: number;
+  multiple_choice_count?: number;
+  matching_count?: number;
+  short_answer_count?: number;
+}
+
+export function updateEntSubject(id: number, payload: EntSubjectUpdatePayload) {
   return http.patch<EntSubject>(`/teacher/ent/subjects/${id}`, payload).then((r) => r.data);
 }
 
-export function listSubjectQuestions(subjectId: number) {
-  return http.get<EntQuestionTeacher[]>(`/teacher/ent/subjects/${subjectId}/questions`).then((r) => r.data);
+/** Omitting `language` returns the whole bank — the "Все" tab. */
+export function listSubjectQuestions(subjectId: number, language?: ExamLanguage) {
+  return http
+    .get<EntQuestionTeacher[]>(`/teacher/ent/subjects/${subjectId}/questions`, {
+      params: language ? { language } : undefined,
+    })
+    .then((r) => r.data);
 }
 
 export interface EntQuestionCreatePayload {
   qtype: EntQuestionType;
   text: string;
+  language: ExamLanguage;
   max_score: number;
   choices?: { text: string; is_correct: boolean }[];
   match_pairs?: { prompt_text: string; answer_text: string }[];
@@ -96,4 +118,17 @@ export function deleteEntQuestionImage(questionId: number) {
 
 export function getEntQuestionImageUrl(questionId: number) {
   return `${import.meta.env.VITE_API_BASE_URL}/ent/questions/${questionId}/image`;
+}
+
+export function importEntQuestionsFromPdf(subjectId: number, file: File) {
+  const formData = new FormData();
+  formData.append("subject_id", String(subjectId));
+  formData.append("file", file);
+  return http.post<EntPdfImportResult>("/teacher/ent/questions/import-pdf", formData).then((r) => r.data);
+}
+
+export function bulkCreateEntQuestions(subjectId: number, questions: EntQuestionImport[]) {
+  return http
+    .post<EntBulkCreateResult>("/teacher/ent/questions/bulk-create", { subject_id: subjectId, questions })
+    .then((r) => r.data);
 }

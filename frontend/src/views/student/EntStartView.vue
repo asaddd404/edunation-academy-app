@@ -6,7 +6,8 @@ import { useRouter } from "vue-router";
 import { getEntLeaderboard, listEntSimulations, listEntSubjects, startEntSimulation } from "@/api/ent";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
-import type { EntLeaderboardEntry, EntSimulationSummary, EntSubject } from "@/types";
+import type { EntLeaderboardEntry, EntSimulationSummary, EntSubject, ExamLanguage } from "@/types";
+import { EXAM_LANGUAGES, LANGUAGE_FLAG, LANGUAGE_LABEL } from "@/utils/examLanguage";
 import { capitalize, pluralRu, subjectTheme } from "@/utils/subjectTheme";
 
 const router = useRouter();
@@ -21,6 +22,9 @@ const accessDenied = ref(false);
 
 const selectedSubjectIds = ref<number[]>([]);
 const questionsPerSubject = ref(10);
+// The language the exam is sat in: only questions in it are drawn. Russian
+// by default, which is what every attempt before this option was.
+const examLanguage = ref<ExamLanguage>("ru");
 const isTimed = ref(true);
 const durationMinutes = ref(60);
 
@@ -79,10 +83,18 @@ async function handleStart() {
       questions_per_subject: questionsPerSubject.value,
       is_timed: isTimed.value,
       duration_minutes: isTimed.value ? durationMinutes.value : undefined,
+      language: examLanguage.value,
     });
     router.push(`/ent/${simulation.id}`);
-  } catch {
-    startError.value = "Не удалось начать симуляцию. Проверьте, что в выбранных предметах есть вопросы.";
+  } catch (e) {
+    // A short bank comes back as 422 naming the subject, the language and
+    // the two numbers -- far more useful than anything this screen could
+    // guess, so it is shown as the server wrote it.
+    const detail = isAxiosError(e) ? e.response?.data?.detail : undefined;
+    startError.value =
+      typeof detail === "string"
+        ? detail
+        : "Не удалось начать симуляцию. Проверьте, что в выбранных предметах есть вопросы.";
   } finally {
     starting.value = false;
   }
@@ -167,6 +179,29 @@ function statusLabel(s: EntSimulationSummary): string {
       </section>
 
       <section class="glass-card space-y-5 p-4">
+        <p class="font-medium">Язык сдачи</p>
+        <div class="grid grid-cols-2 gap-3">
+          <button
+            v-for="language in EXAM_LANGUAGES"
+            :key="language"
+            type="button"
+            class="flex flex-col items-center gap-1 rounded-2xl border p-4 text-center transition-all duration-150"
+            :class="
+              examLanguage === language
+                ? 'scale-[1.02] border-transparent bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/20'
+                : 'border-border bg-card hover:border-indigo-500/40'
+            "
+            :aria-pressed="examLanguage === language"
+            @click="examLanguage = language"
+          >
+            <span class="text-2xl">{{ LANGUAGE_FLAG[language] }}</span>
+            <span class="text-sm font-medium">{{ LANGUAGE_LABEL[language] }}</span>
+          </button>
+        </div>
+        <p class="text-xs text-fg/50">
+          В симуляцию попадут только вопросы на выбранном языке.
+        </p>
+
         <p class="font-medium">Параметры</p>
 
         <div class="grid gap-4 sm:grid-cols-2">
@@ -232,6 +267,7 @@ function statusLabel(s: EntSimulationSummary): string {
           >
             <span>{{ new Date(s.started_at).toLocaleString("ru-RU") }}</span>
             <div class="flex items-center gap-2">
+              <BaseBadge tone="neutral" :title="LANGUAGE_LABEL[s.language]">{{ LANGUAGE_FLAG[s.language] }}</BaseBadge>
               <BaseBadge :tone="s.status === 'in_progress' ? 'warning' : 'neutral'">{{ statusLabel(s) }}</BaseBadge>
               <router-link class="text-accent underline underline-offset-2 hover:opacity-70" :to="`/ent/${s.id}`">Открыть</router-link>
             </div>

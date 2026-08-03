@@ -1,6 +1,13 @@
 from app.models.application import Application, ApplicationStatusEnum
 from app.models.category import Category, teacher_categories
-from app.models.ent_question import EntAnswerVariant, EntChoice, EntMatchPair, EntQuestion, EntQuestionType
+from app.models.ent_question import (
+    EntAnswerVariant,
+    EntChoice,
+    EntLanguage,
+    EntMatchPair,
+    EntQuestion,
+    EntQuestionType,
+)
 from app.models.ent_simulation import EntSimulation, EntSimulationQuestion, EntSimulationStatus
 from app.models.ent_subject import EntSubject
 from app.models.homework import HomeworkStatusEnum, HomeworkSubmission
@@ -21,6 +28,7 @@ __all__ = [
     "Choice",
     "EntAnswerVariant",
     "EntChoice",
+    "EntLanguage",
     "EntMatchPair",
     "EntQuestion",
     "EntQuestionType",

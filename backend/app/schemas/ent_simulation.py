@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.models.ent_question import EntQuestionType
+from app.models.ent_question import EntLanguage, EntQuestionType
 from app.models.ent_simulation import EntSimulationStatus
 from app.schemas.ent_question import EntAnswerVariantOut, EntChoiceTeacherOut, EntMatchPairTeacherOut
 
@@ -12,6 +12,12 @@ class EntSimulationStartIn(BaseModel):
     questions_per_subject: int = 10
     is_timed: bool
     duration_minutes: int | None = None
+    # A plain str, not EntLanguage, on purpose: coercing here would answer an
+    # unknown value with Pydantic's own 422 ("Input should be 'ru' or 'kk'"),
+    # and the router owes a student who picked a language on screen a 400
+    # with a Russian sentence. core.ent_language.parse_language does that
+    # conversion, and is the only thing that reads this field.
+    language: str = "ru"
 
     @model_validator(mode="after")
     def _validate(self) -> "EntSimulationStartIn":
@@ -56,6 +62,7 @@ class EntSimulationOut(BaseModel):
     id: int
     is_timed: bool
     duration_minutes: int | None
+    language: EntLanguage
     status: EntSimulationStatus
     started_at: datetime
     expires_at: datetime | None
@@ -95,6 +102,7 @@ class EntSimulationResultOut(BaseModel):
     id: int
     is_timed: bool
     duration_minutes: int | None
+    language: EntLanguage
     time_expired: bool
     status: EntSimulationStatus
     started_at: datetime
@@ -111,6 +119,7 @@ class EntSimulationSummaryOut(BaseModel):
     id: int
     is_timed: bool
     duration_minutes: int | None
+    language: EntLanguage
     time_expired: bool
     status: EntSimulationStatus
     started_at: datetime
