@@ -12,6 +12,7 @@ import type {
   EntSimulationSummary,
   EntSubject,
   ExamLanguage,
+  Page,
 } from "@/types";
 
 // Student flow
@@ -76,10 +77,15 @@ export function updateEntSubject(id: number, payload: EntSubjectUpdatePayload) {
 }
 
 /** Omitting `language` returns the whole bank — the "Все" tab. */
-export function listSubjectQuestions(subjectId: number, language?: ExamLanguage) {
+export function listSubjectQuestions(
+  subjectId: number,
+  language?: ExamLanguage,
+  page = 1,
+  perPage = 50,
+) {
   return http
-    .get<EntQuestionTeacher[]>(`/teacher/ent/subjects/${subjectId}/questions`, {
-      params: language ? { language } : undefined,
+    .get<Page<EntQuestionTeacher>>(`/teacher/ent/subjects/${subjectId}/questions`, {
+      params: { language, page, per_page: perPage },
     })
     .then((r) => r.data);
 }

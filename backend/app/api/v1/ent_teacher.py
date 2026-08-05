@@ -14,6 +14,7 @@ from app.core.ent_pdf_import import (
     parse_ent_pdf_questions,
     to_import_payload,
 )
+from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.slug import slugify
 from app.core.storage import delete_upload, save_ent_question_image
 from app.database import get_db
@@ -42,6 +43,7 @@ from app.schemas.ent_question import (
     EntQuestionTeacherOut,
 )
 from app.schemas.ent_subject import EntSubjectIn, EntSubjectOut, EntSubjectUpdateIn
+from app.schemas.pagination import Page
 
 MAX_ENT_PDF_SIZE = 15 * 1024 * 1024  # 15 MB
 MAX_BULK_DELETE_BATCH = 500
@@ -129,14 +131,18 @@ async def update_subject(
     return out
 
 
-@router.get("/subjects/{subject_id}/questions", response_model=list[EntQuestionTeacherOut])
+@router.get("/subjects/{subject_id}/questions", response_model=Page[EntQuestionTeacherOut])
 async def list_subject_questions(
     subject_id: int,
     language: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
-) -> list[EntQuestionTeacherOut]:
-    """The subject's questions, optionally narrowed to one language.
+    params: PageParams = Depends(page_params),
+) -> Page[EntQuestionTeacherOut]:
+    """The subject's questions, optionally narrowed to one language, one
+    page at a time -- an imported bank can run into the thousands, and this
+    is the same `Page`/`fetch_page` convention every other list in the app
+    already uses rather than a bespoke one for just this screen.
 
     Omitting `language` returns the whole bank -- the "Все" tab, and what
     every caller written before the ru/kk split asks for."""
@@ -149,19 +155,18 @@ async def list_subject_questions(
         except UnknownLanguageError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
-    questions = (
-        await db.scalars(
-            select(EntQuestion)
-            .where(*filters)
-            .options(
-                selectinload(EntQuestion.choices),
-                selectinload(EntQuestion.match_pairs),
-                selectinload(EntQuestion.answer_variants),
-            )
-            .order_by(EntQuestion.order_index)
+    query = (
+        select(EntQuestion)
+        .where(*filters)
+        .options(
+            selectinload(EntQuestion.choices),
+            selectinload(EntQuestion.match_pairs),
+            selectinload(EntQuestion.answer_variants),
         )
-    ).all()
-    return [EntQuestionTeacherOut.model_validate(q) for q in questions]
+        .order_by(EntQuestion.order_index)
+    )
+    questions, total = await fetch_page(db, query, params)
+    return Page.of([EntQuestionTeacherOut.model_validate(q) for q in questions], total, params.page, params.per_page)
 
 
 @router.post("/subjects/{subject_id}/questions", response_model=EntQuestionTeacherOut, status_code=status.HTTP_201_CREATED)
