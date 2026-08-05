@@ -12,6 +12,14 @@
 
   /* Pop accent (XP/progress/CTA) -- stays vibrant in both themes. */
   --color-pop: 100 100% 45%;
+
+  /* Tells the browser which palette its own native controls (select popups,
+     scrollbars, form fields) should render in. Without this, a <select>'s
+     dropdown popup is drawn by the OS in its default (usually light)
+     scheme while `body`'s near-white `text-fg` still gets inherited into
+     it -- white text on a white popup. Theme-wide, not per-element,
+     because every native control has the same problem. */
+  color-scheme: light;
 }
 
 .dark {
@@ -23,6 +31,8 @@
   --color-accent: 240 20% 97%;
 
   --color-pop: 100 100% 54%;
+
+  color-scheme: dark;
 }
 
 html,
@@ -33,6 +43,14 @@ body,
 
 body {
   @apply bg-bg text-fg antialiased transition-colors duration-200;
+}
+
+/* Belt-and-suspenders for browsers/OSes that don't fully honor
+   `color-scheme` on <option> (plain CSS, not Tailwind -- the dropdown
+   popup renders outside the normal document/Tailwind styling context). */
+select option {
+  background-color: hsl(var(--color-card));
+  color: hsl(var(--color-fg));
 }
 
 @layer components {

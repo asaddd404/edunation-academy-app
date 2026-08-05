@@ -134,7 +134,7 @@ async function handleSubmit() {
             <div v-for="prompt in question.match_prompts" :key="prompt.id" class="flex items-center gap-2 text-sm">
               <span class="w-1/2">{{ prompt.text }}</span>
               <select
-                class="w-1/2 rounded-lg border border-fg/20 bg-transparent px-3 py-2"
+                class="w-1/2 rounded-lg border border-border bg-card px-3 py-2 text-fg"
                 @change="setMatchPair(question.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
               >
                 <option value="" disabled selected>Выберите пару</option>

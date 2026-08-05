@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, nextTick, reactive, ref } from "vue";
 
 import { bulkCreateEntQuestions, importEntQuestionsFromPdf } from "@/api/ent";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
@@ -12,6 +12,9 @@ import type {
   EntSubject,
   ExamLanguage,
 } from "@/types";
+import { describePlan, planAnswerKey, type KeyAssignment } from "@/utils/answerKey";
+import { FLAG_CHIP_CLASS, flagInfo, isReady, rankFlags } from "@/utils/entImportFlags";
+import { requiredMaxScore, savableProblem } from "@/utils/entQuestionValidity";
 import { EXAM_LANGUAGES, LANGUAGE_FLAG, LANGUAGE_LABEL, otherLanguage } from "@/utils/examLanguage";
 
 const props = defineProps<{
@@ -44,13 +47,73 @@ const pickedFile = ref<File | null>(null);
 // rather than sent to bulk-create just to be skipped there.
 interface EditableQuestion extends EntQuestionImport {
   include: boolean;
+  /**
+   * Whether the answer shown on this card is a real one.
+   *
+   * Needed because a keyless question does not arrive with nothing ticked:
+   * `/import-pdf` marks the first option correct so the item still passes
+   * `/bulk-create`'s validation, and read literally that placeholder makes
+   * every unanswered question look answered — "проставлено 105 из 119"
+   * when the true figure is nine. So the parser's own verdict is trusted
+   * until the teacher touches the card, and the controls after that.
+   */
+  answered: boolean;
 }
 const questions = reactive<EditableQuestion[]>([]);
 const saveResult = ref<EntBulkCreateResult | null>(null);
 const stats = ref<EntPdfImportStats | null>(null);
 
 const includedCount = computed(() => questions.filter((q) => q.include).length);
-const reviewCount = computed(() => questions.filter((q) => q.needs_review).length);
+
+// ── Answers ─────────────────────────────────────────────────────────────
+// The papers this screen exists for carry no answer key at all, so "does
+// this question have an answer yet" is the number the teacher is actually
+// working against -- not "does the parser trust itself".
+
+/** Whether the card's controls currently hold an answer of any kind. */
+function answerIsFilled(q: EditableQuestion): boolean {
+  if (q.qtype === "single" || q.qtype === "multiple") return q.choices.some((c) => c.is_correct);
+  if (q.qtype === "matching") return q.match_pairs.filter((p) => p.answer_text).length >= 2;
+  return q.answer_variants.some((v) => v.trim());
+}
+
+/** The question a teacher can stop worrying about: an answer that is
+ * actually meant, rather than the placeholder the API had to send. */
+function hasAnswer(q: EditableQuestion): boolean {
+  return q.answered && answerIsFilled(q);
+}
+
+/** Ready means two things, and both have to hold: nothing the parser
+ * flagged as blocking, and nothing that would make /bulk-create refuse it.
+ * The second is what keeps "Сохранить готовые (N)" from being a promise of
+ * N saves and a list of skips. */
+function isReadyToSave(q: EditableQuestion): boolean {
+  return isReady(q.flags) && savableProblem(q) === null;
+}
+
+const answeredCount = computed(() => questions.filter(hasAnswer).length);
+const readyCount = computed(() => questions.filter((q) => q.include && isReadyToSave(q)).length);
+const blockedCount = computed(() => questions.filter((q) => q.include && !isReadyToSave(q)).length);
+
+/** Called after any edit to an answer. From here on the controls are the
+ * truth, so the placeholder no longer counts for anything -- and dropping
+ * `missing_key` is what makes the progress counter and the "save the ready
+ * ones" button mean something: the flag described the *file*, and the
+ * teacher has just superseded it. */
+function refreshAnswerFlags(q: EditableQuestion) {
+  q.answered = answerIsFilled(q);
+  const had = q.flags.includes("missing_key");
+  if (q.answered && had) q.flags = q.flags.filter((f) => f !== "missing_key");
+  if (!q.answered && !had && q.key_source === "none") q.flags = [...q.flags, "missing_key"];
+  q.needs_review = !isReadyToSave(q) || q.detected_qtype === "unknown" || !!q.parse_error;
+}
+
+/** The backend ties max_score to the question type, so changing the type on
+ * the card has to carry the score with it or the save is refused. */
+function onQtypeChange(q: EditableQuestion) {
+  q.max_score = requiredMaxScore(q.qtype);
+  refreshAnswerFlags(q);
+}
 
 // ── Language ────────────────────────────────────────────────────────────
 // "Все" on open: the detector splits a bilingual file by itself, so hiding
@@ -66,11 +129,214 @@ const languageCounts = computed<Record<ExamLanguage, number>>(() => ({
   kk: questions.filter((q) => q.language === "kk").length,
 }));
 
+// ── Review filter ───────────────────────────────────────────────────────
+// Two thousand cards is not a list a teacher reads; it is one they need to
+// cut down to the part that still needs them.
+type ReviewFilter = "all" | "unanswered" | "flagged" | string;
+const reviewFilter = ref<ReviewFilter>("all");
+
+const unansweredCount = computed(() => questions.length - answeredCount.value);
+const flaggedCount = computed(() => questions.filter((q) => q.flags.length > 0).length);
+const presentFlags = computed(() => rankFlags(questions.flatMap((q) => q.flags)));
+const flagCounts = computed(() => {
+  const counts: Record<string, number> = {};
+  for (const q of questions) for (const flag of q.flags) counts[flag] = (counts[flag] ?? 0) + 1;
+  return counts;
+});
+
+function matchesFilters(q: EditableQuestion): boolean {
+  if (languageFilter.value !== "all" && q.language !== languageFilter.value) return false;
+  if (reviewFilter.value === "all") return true;
+  if (reviewFilter.value === "unanswered") return !hasAnswer(q);
+  if (reviewFilter.value === "flagged") return q.flags.length > 0;
+  return q.flags.includes(reviewFilter.value);
+}
+
 const visibleQuestions = computed(() =>
-  questions
-    .map((question, index) => ({ question, index }))
-    .filter(({ question }) => languageFilter.value === "all" || question.language === languageFilter.value),
+  questions.map((question, index) => ({ question, index })).filter(({ question }) => matchesFilters(question)),
 );
+
+// ── Variants ────────────────────────────────────────────────────────────
+// Keyed on label as well as number: a bilingual paper has a "Вариант №1"
+// and a "1 нұсқа", both numbered 1, and a key pasted into one must not
+// land in the other.
+interface VariantGroup {
+  key: string;
+  label: string | null;
+  entries: { question: EditableQuestion; index: number }[];
+}
+
+function variantKey(q: EntQuestionImport): string {
+  return `${q.variant_id}|${q.variant_label ?? ""}`;
+}
+
+const visibleGroups = computed<VariantGroup[]>(() => {
+  const groups: VariantGroup[] = [];
+  for (const entry of visibleQuestions.value) {
+    const key = variantKey(entry.question);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.entries.push(entry);
+    else groups.push({ key, label: entry.question.variant_label, entries: [entry] });
+  }
+  return groups;
+});
+
+/** Every question of a variant, filters ignored: a key covers the whole
+ * variant even when the teacher is looking at part of it. */
+function variantQuestions(key: string): EditableQuestion[] {
+  return questions.filter((q) => variantKey(q) === key);
+}
+
+function variantNumbers(key: string): number[] {
+  return variantQuestions(key)
+    .map((q) => q.question_number)
+    .filter((n): n is number => n !== null);
+}
+
+function variantAnswered(key: string): number {
+  return variantQuestions(key).filter(hasAnswer).length;
+}
+
+// ── Bulk answer key ─────────────────────────────────────────────────────
+const keyInput = reactive<Record<string, string>>({});
+// One snapshot per variant, taken as the key is applied, so "Отменить"
+// restores exactly what was there -- including answers the teacher had
+// already typed by hand.
+type Snapshot = {
+  index: number;
+  correct: boolean[];
+  pairs: { prompt_text: string; answer_text: string }[];
+  flags: string[];
+  // Restored along with the rest: without it "Отменить" puts the ticks
+  // back but leaves the card counted as answered, so the progress figure
+  // never returns to what it was.
+  answered: boolean;
+};
+const keyUndo = reactive<Record<string, Snapshot[]>>({});
+const keyResult = reactive<Record<string, string>>({});
+
+function keyPlan(key: string) {
+  const input = keyInput[key] ?? "";
+  if (!input.trim()) return null;
+  return planAnswerKey(input, variantNumbers(key));
+}
+
+function keyPreview(key: string): string {
+  const plan = keyPlan(key);
+  if (!plan) return "";
+  return describePlan(plan, variantNumbers(key).length);
+}
+
+function applyAssignment(q: EditableQuestion, assignment: KeyAssignment) {
+  if (q.qtype === "matching") {
+    // "39: 1-A, 2-B" names prompts by their position in the left column;
+    // a bare "39-AB" is read the same way, in order.
+    const pairs = assignment.pairs?.length
+      ? assignment.pairs.map((p) => ({ left: Number(p.left) - 1, right: p.right }))
+      : assignment.letters.map((right, left) => ({ left, right }));
+    for (const { left, right } of pairs) {
+      const prompt = q.match_left_items[left];
+      const choice = q.match_options.find((c) => c.label === right);
+      if (prompt === undefined || !choice) continue;
+      const existing = q.match_pairs.find((p) => p.prompt_text === prompt);
+      if (existing) existing.answer_text = choice.text;
+      else q.match_pairs.push({ prompt_text: prompt, answer_text: choice.text });
+    }
+  } else if (q.qtype === "single" || q.qtype === "multiple") {
+    for (const choice of q.choices) choice.is_correct = assignment.letters.includes(choice.label);
+  } else {
+    q.answer_variants = [...assignment.letters];
+  }
+  refreshAnswerFlags(q);
+}
+
+function applyKey(key: string) {
+  const plan = keyPlan(key);
+  if (!plan) return;
+
+  const byNumber = new Map(plan.matched.map((a) => [a.questionNumber, a]));
+  const snapshot: Snapshot[] = [];
+  let applied = 0;
+
+  questions.forEach((q, index) => {
+    if (variantKey(q) !== key || q.question_number === null) return;
+    const assignment = byNumber.get(q.question_number);
+    if (!assignment) return;
+    snapshot.push({
+      index,
+      correct: q.choices.map((c) => c.is_correct),
+      pairs: q.match_pairs.map((p) => ({ ...p })),
+      flags: [...q.flags],
+      answered: q.answered,
+    });
+    applyAssignment(q, assignment);
+    applied += 1;
+  });
+
+  keyUndo[key] = snapshot;
+  keyResult[key] = `Проставлено ответов: ${applied}. ${
+    plan.missingNumbers.length ? `Без ответа: ${plan.missingNumbers.join(", ")}.` : ""
+  }`;
+}
+
+function undoKey(key: string) {
+  for (const entry of keyUndo[key] ?? []) {
+    const q = questions[entry.index];
+    if (!q) continue;
+    entry.correct.forEach((value, i) => {
+      const choice = q.choices[i];
+      if (choice) choice.is_correct = value;
+    });
+    q.match_pairs.splice(0, q.match_pairs.length, ...entry.pairs);
+    q.flags = [...entry.flags];
+    q.answered = entry.answered;
+    q.needs_review = !isReadyToSave(q) || q.detected_qtype === "unknown" || !!q.parse_error;
+  }
+  delete keyUndo[key];
+  keyResult[key] = "Ответы варианта возвращены к исходным.";
+}
+
+// ── Keyboard review ─────────────────────────────────────────────────────
+// A/B/C/D picks an answer, Enter moves on. Forty questions become forty
+// seconds, which is the difference between the import being used and not.
+const cardRefs = new Map<number, HTMLElement>();
+
+function registerCard(index: number, el: unknown) {
+  if (el instanceof HTMLElement) cardRefs.set(index, el);
+  else cardRefs.delete(index);
+}
+
+function focusCard(index: number) {
+  nextTick(() => cardRefs.get(index)?.focus());
+}
+
+function focusNextFrom(index: number) {
+  const order = visibleQuestions.value.map((entry) => entry.index);
+  const position = order.indexOf(index);
+  const next = order[position + 1];
+  if (next !== undefined) focusCard(next);
+}
+
+function onCardKey(event: KeyboardEvent, q: EditableQuestion, index: number) {
+  // Never steal a key from a field the teacher is typing in.
+  const target = event.target as HTMLElement | null;
+  if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+
+  if (event.key === "Enter" || event.key === "Escape") {
+    event.preventDefault();
+    focusNextFrom(index);
+    return;
+  }
+  const letter = event.key.toUpperCase();
+  if (!/^[A-H]$/.test(letter)) return;
+  const choice = q.choices.find((c) => c.label === letter);
+  if (!choice) return;
+
+  event.preventDefault();
+  if (q.qtype === "multiple") choice.is_correct = !choice.is_correct;
+  else for (const c of q.choices) c.is_correct = c === choice;
+  refreshAnswerFlags(q);
+}
 
 function toggleLanguage(q: EditableQuestion) {
   q.language = otherLanguage(q.language);
@@ -105,7 +371,13 @@ async function handleUpload() {
     const result = await importEntQuestionsFromPdf(selectedSubjectId.value, pickedFile.value);
     warnings.value = result.warnings;
     stats.value = result.stats;
-    questions.splice(0, questions.length, ...result.questions.map((q) => ({ ...q, include: true })));
+    questions.splice(
+      0,
+      questions.length,
+      // `missing_key` is the parser saying the file carried no answer for
+      // this question, whatever the placeholder tick on option A suggests.
+      ...result.questions.map((q) => ({ ...q, include: true, answered: !q.flags.includes("missing_key") })),
+    );
     phase.value = "preview";
   } catch {
     errorMessage.value = "Не удалось обработать PDF-файл. Попробуйте другой файл.";
@@ -131,9 +403,48 @@ function removeQuestion(index: number) {
   questions.splice(index, 1);
 }
 
-async function handleSave() {
+/** The option currently paired with a recovered prompt, as a label. */
+function pairedLabel(q: EditableQuestion, prompt: string): string {
+  const pair = q.match_pairs.find((p) => p.prompt_text === prompt);
+  if (!pair) return "";
+  return q.match_options.find((c) => c.text === pair.answer_text)?.label ?? "";
+}
+
+function setPairedLabel(q: EditableQuestion, prompt: string, label: string) {
+  const choice = q.match_options.find((c) => c.label === label);
+  const existing = q.match_pairs.find((p) => p.prompt_text === prompt);
+  if (!choice) {
+    if (existing) q.match_pairs.splice(q.match_pairs.indexOf(existing), 1);
+  } else if (existing) {
+    existing.answer_text = choice.text;
+  } else {
+    q.match_pairs.push({ prompt_text: prompt, answer_text: choice.text });
+  }
+  refreshAnswerFlags(q);
+}
+
+/**
+ * The question as `/bulk-create` will accept it.
+ *
+ * `EntQuestionIn` rejects any answer field its type does not use, so the
+ * card's working state cannot be posted as-is: a matching question carries
+ * `choices` (the right-hand column it is paired against — see the adapter),
+ * and a question whose type the teacher changed still carries whatever the
+ * previous type filled in. Both would 422 the entire batch, so exactly one
+ * answer field is sent and the rest are dropped.
+ */
+function forSaving(q: EditableQuestion): EntQuestionImport {
+  const base = { ...q, choices: [], match_pairs: [], answer_variants: [] };
+  if (q.qtype === "single" || q.qtype === "multiple") return { ...base, choices: q.choices };
+  if (q.qtype === "matching") {
+    return { ...base, match_pairs: q.match_pairs.filter((p) => p.prompt_text && p.answer_text) };
+  }
+  return { ...base, answer_variants: q.answer_variants.filter((v) => v.trim()) };
+}
+
+async function save(only: "all" | "ready") {
   if (!selectedSubjectId.value) return;
-  const toSave = questions.filter((q) => q.include);
+  const toSave = questions.filter((q) => q.include && (only === "all" || isReadyToSave(q))).map(forSaving);
   if (!toSave.length) return;
 
   phase.value = "saving";
@@ -157,18 +468,6 @@ function sourceLines(q: EditableQuestion): string {
   return first === last ? `строка ${first + 1}` : `строки ${first + 1}–${last + 1}`;
 }
 
-// A file of fifty variants arrives as one flat list. Rather than nesting
-// the reactive array (which every edit handler would then have to walk),
-// the list stays flat and a heading is drawn wherever the variant changes.
-// Measured against the previous *visible* card, so filtering to one
-// language doesn't leave headings for variants that are no longer shown.
-function startsVariant(position: number): boolean {
-  const entry = visibleQuestions.value[position];
-  if (!entry?.question.variant_label) return false;
-  const previous = visibleQuestions.value[position - 1];
-  return !previous || previous.question.variant_id !== entry.question.variant_id;
-}
-
 function choiceLabel(c: { label: string; raw_label: string }): string {
   // The printed glyph is what the teacher will look for on their page;
   // the canonical label only matters when the two differ.
@@ -179,7 +478,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="emit('close')">
-    <div class="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-card p-5">
+    <div class="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-border bg-card p-5">
       <div class="mb-4 flex items-center justify-between">
         <h2 class="text-lg font-semibold">Импорт вопросов из PDF</h2>
         <button class="text-fg/50 hover:text-fg" @click="emit('close')">✕</button>
@@ -191,7 +490,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
           <span class="mb-1.5 block font-medium text-fg/80">Предмет</span>
           <select
             v-model.number="selectedSubjectId"
-            class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
+            class="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg"
           >
             <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
@@ -232,154 +531,335 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
         <div class="mb-3 space-y-1">
           <p v-for="(w, i) in warnings" :key="i" class="text-sm text-amber-700 dark:text-amber-400">⚠ {{ w }}</p>
           <p class="text-sm text-fg/60">
-            Распознано вопросов: {{ questions.length }}<span v-if="reviewCount">, из них требуют проверки:
-              {{ reviewCount }}</span
-            >. Проверьте отмеченные жёлтым — парсер не уверен в типе или ответе.
+            Распознано вопросов: {{ questions.length }}. Проставлено ответов:
+            <strong class="text-fg/80">{{ answeredCount }}</strong> из {{ questions.length }}.
+          </p>
+          <!-- Said plainly and once: in these papers the answers are simply
+               not in the file, and a teacher who does not know that reads
+               2000 red cards as 2000 parsing failures. -->
+          <p v-if="unansweredCount > questions.length / 2" class="text-sm text-amber-700 dark:text-amber-400">
+            В этом файле нет правильных ответов — их нужно проставить. Быстрее всего вставить ключ
+            варианта в поле под его заголовком.
           </p>
           <p v-if="stats" class="text-xs text-fg/40">
             Обработано строк: {{ stats.total_lines }} · найдено блоков: {{ stats.total_blocks_detected }}
             <span v-if="stats.variants_detected > 1"> · вариантов: {{ stats.variants_detected }}</span>
+            <span v-if="stats.duplicate_variant_headers">
+              · повторных заголовков объединено: {{ stats.duplicate_variant_headers }}</span
+            >
           </p>
         </div>
 
-        <!-- ── Language quick filter ──────────────────────────────────
+        <!-- ── Filters ────────────────────────────────────────────────
              A view over the list, not a selection: the checkboxes decide
              what gets saved, so a hidden card that is still ticked is still
              saved (and the note below says so). -->
-        <div v-if="questions.length" class="mb-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
-            :class="
-              languageFilter === 'all'
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
-            "
-            @click="languageFilter = 'all'"
-          >
-            Все ({{ questions.length }})
-          </button>
-          <button
-            v-for="language in EXAM_LANGUAGES"
-            :key="language"
-            type="button"
-            class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
-            :class="
-              languageFilter === language
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
-            "
-            @click="languageFilter = language"
-          >
-            {{ LANGUAGE_FLAG[language] }} Только {{ LANGUAGE_LABEL[language] }} ({{ languageCounts[language] }})
-          </button>
-          <span v-if="languageFilter !== 'all'" class="text-xs text-fg/40">
-            Фильтр только скрывает карточки — сохранятся все отмеченные ({{ includedCount }}).
-          </span>
+        <div v-if="questions.length" class="mb-3 space-y-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
+              :class="
+                languageFilter === 'all'
+                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
+              "
+              @click="languageFilter = 'all'"
+            >
+              Все языки ({{ questions.length }})
+            </button>
+            <button
+              v-for="language in EXAM_LANGUAGES"
+              :key="language"
+              type="button"
+              class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
+              :class="
+                languageFilter === language
+                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                  : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
+              "
+              @click="languageFilter = language"
+            >
+              {{ LANGUAGE_FLAG[language] }} {{ LANGUAGE_LABEL[language] }} ({{ languageCounts[language] }})
+            </button>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
+              :class="reviewFilter === 'all' ? 'border-fg/40 bg-fg/10 font-medium' : 'border-fg/15 text-fg/60 hover:bg-fg/5'"
+              @click="reviewFilter = 'all'"
+            >
+              Все вопросы
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
+              :class="
+                reviewFilter === 'unanswered' ? 'border-fg/40 bg-fg/10 font-medium' : 'border-fg/15 text-fg/60 hover:bg-fg/5'
+              "
+              @click="reviewFilter = 'unanswered'"
+            >
+              Без ответа ({{ unansweredCount }})
+            </button>
+            <button
+              type="button"
+              class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
+              :class="
+                reviewFilter === 'flagged' ? 'border-fg/40 bg-fg/10 font-medium' : 'border-fg/15 text-fg/60 hover:bg-fg/5'
+              "
+              @click="reviewFilter = 'flagged'"
+            >
+              С замечаниями ({{ flaggedCount }})
+            </button>
+            <select
+              :value="presentFlags.includes(reviewFilter) ? reviewFilter : ''"
+              class="rounded-lg border border-border bg-card px-2 py-1 text-xs text-fg"
+              @change="reviewFilter = ($event.target as HTMLSelectElement).value || 'all'"
+            >
+              <option value="">По типу замечания…</option>
+              <option v-for="flag in presentFlags" :key="flag" :value="flag">
+                {{ flagInfo(flag).label }} ({{ flagCounts[flag] }})
+              </option>
+            </select>
+            <span class="text-xs text-fg/40">
+              Фильтры только скрывают карточки — сохранятся все отмеченные ({{ includedCount }}).
+            </span>
+          </div>
         </div>
 
         <div class="flex-1 space-y-3 overflow-y-auto pr-1">
-          <template v-for="({ question: q, index: i }, position) in visibleQuestions" :key="i">
-            <p
-              v-if="startsVariant(position)"
-              class="sticky top-0 z-10 -mx-1 bg-card px-1 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-fg/50"
-            >
-              {{ q.variant_label }}
-            </p>
-          <div
-            class="space-y-3 rounded-xl border p-3 text-sm"
-            :class="q.needs_review ? 'border-amber-500/50 bg-amber-500/5' : 'border-fg/10'"
-          >
-            <div class="flex flex-wrap items-center gap-2">
-              <input type="checkbox" v-model="q.include" class="h-4 w-4 accent-indigo-600" />
-              <BaseBadge :tone="q.needs_review ? 'warning' : 'success'">
-                {{ q.needs_review ? "Требует проверки" : "Уверенно" }} · {{ confidencePct(q.confidence) }}
-              </BaseBadge>
-              <!-- One click flips the language: with two of them a dropdown
-                   costs the same click and reads worse. -->
-              <button
-                type="button"
-                class="rounded-lg border border-fg/20 px-2 py-1 text-xs transition-colors duration-150 hover:border-fg/40 hover:bg-fg/5"
-                :title="`Язык вопроса — нажмите, чтобы переключить на «${LANGUAGE_LABEL[otherLanguage(q.language)]}»`"
-                @click="toggleLanguage(q)"
-              >
-                {{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}
-              </button>
-              <select v-model="q.qtype" class="rounded-lg border border-fg/20 bg-transparent px-2 py-1 text-xs">
-                <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
-              </select>
-              <span v-if="sourceLines(q)" class="text-xs text-fg/40">{{ sourceLines(q) }}</span>
-              <button class="ml-auto text-xs text-red-600 hover:underline dark:text-red-500" @click="removeQuestion(i)">
-                Удалить
-              </button>
+          <template v-for="group in visibleGroups" :key="group.key">
+            <!-- ── Variant header, with the bulk key field ─────────────
+                 The single most important control on this screen: without
+                 it a 2000-question file is 2000 clicks. -->
+            <div class="sticky top-0 z-10 -mx-1 space-y-2 border-b border-border bg-card px-1 pb-2 pt-2">
+              <p v-if="group.label" class="text-xs font-semibold uppercase tracking-wide text-fg/50">
+                {{ group.label }}
+                <span class="ml-1 font-normal normal-case tracking-normal text-fg/40">
+                  — с ответами {{ variantAnswered(group.key) }} из {{ variantQuestions(group.key).length }}
+                </span>
+              </p>
+              <div class="flex flex-wrap items-start gap-2">
+                <input
+                  v-model="keyInput[group.key]"
+                  type="text"
+                  placeholder="Вставить ключи варианта: 1-B, 2-C, 3-A …"
+                  class="min-w-[16rem] flex-1 rounded-lg border border-fg/20 bg-transparent px-2.5 py-1.5 text-xs"
+                  @keydown.enter.prevent="applyKey(group.key)"
+                />
+                <BaseButton
+                  class="!px-3 !py-1.5 !text-xs"
+                  :disabled="!keyPlan(group.key)?.matched.length"
+                  @click="applyKey(group.key)"
+                >
+                  Применить
+                </BaseButton>
+                <BaseButton
+                  v-if="keyUndo[group.key]"
+                  variant="secondary"
+                  class="!px-3 !py-1.5 !text-xs"
+                  @click="undoKey(group.key)"
+                >
+                  Отменить
+                </BaseButton>
+              </div>
+              <!-- Shown before anything is applied: a bulk edit the teacher
+                   cannot see the shape of first is one they cannot trust. -->
+              <p v-if="keyPreview(group.key)" class="text-xs text-fg/50">{{ keyPreview(group.key) }}</p>
+              <p v-if="keyResult[group.key]" class="text-xs text-emerald-700 dark:text-emerald-400">
+                {{ keyResult[group.key] }}
+              </p>
             </div>
 
-            <p v-if="q.parse_error" class="text-xs text-red-600 dark:text-red-500">
-              Не удалось разобрать этот блок ({{ q.parse_error }}) — текст ниже приведён как есть из файла.
-            </p>
-            <p v-else-if="q.detected_qtype === 'unknown'" class="text-xs text-amber-700 dark:text-amber-400">
-              Тип вопроса определить не удалось — выберите его и заполните ответы вручную.
-            </p>
-            <p v-else-if="q.key_source === 'highlight'" class="text-xs text-amber-700 dark:text-amber-400">
-              Ответ взят из выделения цветом в PDF (в файле нет текстового «Ответ:») — проверьте его.
-            </p>
-
-            <textarea
-              v-model="q.text"
-              rows="2"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-              placeholder="Текст вопроса"
-            />
-
-            <template v-if="q.qtype === 'single' || q.qtype === 'multiple'">
-              <div v-for="(c, ci) in q.choices" :key="ci" class="flex items-center gap-2">
-                <input v-model="c.is_correct" type="checkbox" class="h-4 w-4 accent-indigo-600" />
-                <span v-if="choiceLabel(c)" class="w-14 shrink-0 text-xs text-fg/40">{{ choiceLabel(c) }}</span>
-                <input v-model="c.text" class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm" />
+            <div
+              v-for="{ question: q, index: i } in group.entries"
+              :key="i"
+              :ref="(el) => registerCard(i, el)"
+              tabindex="0"
+              class="space-y-3 rounded-xl border p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500/60"
+              :class="
+                !isReadyToSave(q)
+                  ? 'border-red-500/40 bg-red-500/5'
+                  : q.needs_review
+                    ? 'border-amber-500/50 bg-amber-500/5'
+                    : 'border-fg/10'
+              "
+              @keydown="onCardKey($event, q, i)"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <input v-model="q.include" type="checkbox" class="h-4 w-4 accent-indigo-600" />
+                <span v-if="q.question_number !== null" class="text-xs font-semibold text-fg/50">
+                  №{{ q.question_number }}
+                </span>
+                <BaseBadge :tone="hasAnswer(q) ? 'success' : 'warning'">
+                  {{ hasAnswer(q) ? "Ответ проставлен" : "Без ответа" }} · {{ confidencePct(q.confidence) }}
+                </BaseBadge>
+                <!-- One click flips the language: with two of them a dropdown
+                     costs the same click and reads worse. -->
+                <button
+                  type="button"
+                  class="rounded-lg border border-fg/20 px-2 py-1 text-xs transition-colors duration-150 hover:border-fg/40 hover:bg-fg/5"
+                  :title="`Язык вопроса — нажмите, чтобы переключить на «${LANGUAGE_LABEL[otherLanguage(q.language)]}»`"
+                  @click="toggleLanguage(q)"
+                >
+                  {{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}
+                </button>
+                <select
+                  v-model="q.qtype"
+                  class="rounded-lg border border-border bg-card px-2 py-1 text-xs text-fg"
+                  @change="onQtypeChange(q)"
+                >
+                  <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
+                </select>
+                <span v-if="sourceLines(q)" class="text-xs text-fg/40">{{ sourceLines(q) }}</span>
+                <button class="ml-auto text-xs text-red-600 hover:underline dark:text-red-500" @click="removeQuestion(i)">
+                  Удалить
+                </button>
               </div>
-              <button class="text-xs text-accent hover:underline" @click="addChoice(q)">+ вариант</button>
-            </template>
 
-            <template v-else-if="q.qtype === 'matching'">
-              <div v-for="(p, pi) in q.match_pairs" :key="pi" class="flex items-center gap-2">
-                <input
-                  v-model="p.prompt_text"
-                  placeholder="Слева"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
-                />
-                <input
-                  v-model="p.answer_text"
-                  placeholder="Справа"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
-                />
+              <!-- Named faults instead of one amber wash: what to look at,
+                   and whether it blocks saving. -->
+              <div v-if="q.flags.length" class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="flag in rankFlags(q.flags)"
+                  :key="flag"
+                  class="rounded-md border px-1.5 py-0.5 text-[11px]"
+                  :class="FLAG_CHIP_CLASS[flagInfo(flag).tone]"
+                >
+                  {{ flagInfo(flag).tone === "danger" ? "⚠" : "ℹ" }} {{ flagInfo(flag).label }}
+                </span>
               </div>
-              <button class="text-xs text-accent hover:underline" @click="addMatchPair(q)">+ пара</button>
-            </template>
 
-            <template v-else>
-              <div v-for="(_, vi) in q.answer_variants" :key="vi" class="flex items-center gap-2">
-                <input
-                  v-model="q.answer_variants[vi]"
-                  placeholder="Принимаемый ответ"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
-                />
-              </div>
-              <button class="text-xs text-accent hover:underline" @click="addAnswerVariant(q)">+ вариант написания</button>
-            </template>
-          </div>
+              <!-- Named at the moment it can be fixed, not after the save
+                   has already skipped it. -->
+              <p v-if="savableProblem(q)" class="text-xs text-red-600 dark:text-red-500">
+                Не сохранится: {{ savableProblem(q) }}
+              </p>
+
+              <p v-if="q.parse_error" class="text-xs text-red-600 dark:text-red-500">
+                Не удалось разобрать этот блок ({{ q.parse_error }}) — текст ниже приведён как есть из файла.
+              </p>
+              <p v-else-if="q.detected_qtype === 'unknown'" class="text-xs text-amber-700 dark:text-amber-400">
+                Тип вопроса определить не удалось — выберите его и заполните ответы вручную.
+              </p>
+              <p v-else-if="q.key_source === 'highlight'" class="text-xs text-amber-700 dark:text-amber-400">
+                Ответ взят из выделения цветом в PDF (в файле нет текстового «Ответ:») — проверьте его.
+              </p>
+
+              <textarea
+                v-model="q.text"
+                rows="2"
+                class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
+                placeholder="Текст вопроса"
+              />
+
+              <template v-if="q.qtype === 'single' || q.qtype === 'multiple'">
+                <div v-for="(c, ci) in q.choices" :key="ci" class="flex items-center gap-2">
+                  <input
+                    v-model="c.is_correct"
+                    type="checkbox"
+                    class="h-4 w-4 accent-indigo-600"
+                    @change="refreshAnswerFlags(q)"
+                  />
+                  <span v-if="choiceLabel(c)" class="w-14 shrink-0 text-xs text-fg/40">{{ choiceLabel(c) }}</span>
+                  <input v-model="c.text" class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm" />
+                </div>
+                <button class="text-xs text-accent hover:underline" @click="addChoice(q)">+ вариант</button>
+              </template>
+
+              <template v-else-if="q.qtype === 'matching'">
+                <!-- With the prompts recovered from the PDF's table, pairing
+                     is a letter per prompt rather than two free-text columns
+                     the teacher has to retype. -->
+                <template v-if="q.match_left_items.length && q.match_options.length">
+                  <div v-for="(prompt, pi) in q.match_left_items" :key="pi" class="flex items-center gap-2">
+                    <span class="w-6 shrink-0 text-xs text-fg/40">{{ pi + 1 }}.</span>
+                    <span class="flex-1 text-sm">{{ prompt }}</span>
+                    <select
+                      class="rounded-lg border border-border bg-card px-2 py-1 text-xs text-fg"
+                      :value="pairedLabel(q, prompt)"
+                      @change="setPairedLabel(q, prompt, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="">—</option>
+                      <option v-for="c in q.match_options" :key="c.label" :value="c.label">
+                        {{ c.label }}) {{ c.text }}
+                      </option>
+                    </select>
+                  </div>
+                </template>
+                <!-- No prompts recovered (a file whose tables were not
+                     ruled): fall back to two free-text columns. -->
+                <template v-else>
+                  <div v-for="(p, pi) in q.match_pairs" :key="pi" class="flex items-center gap-2">
+                    <input
+                      v-model="p.prompt_text"
+                      placeholder="Слева"
+                      class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      v-model="p.answer_text"
+                      placeholder="Справа"
+                      class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                </template>
+                <button
+                  v-if="!q.match_left_items.length"
+                  class="text-xs text-accent hover:underline"
+                  @click="addMatchPair(q)"
+                >
+                  + пара
+                </button>
+              </template>
+
+              <template v-else>
+                <div v-for="(_, vi) in q.answer_variants" :key="vi" class="flex items-center gap-2">
+                  <input
+                    v-model="q.answer_variants[vi]"
+                    placeholder="Принимаемый ответ"
+                    class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <button class="text-xs text-accent hover:underline" @click="addAnswerVariant(q)">+ вариант написания</button>
+              </template>
+            </div>
           </template>
 
           <p v-if="!questions.length" class="text-sm text-fg/60">Ничего не распознано.</p>
           <p v-else-if="!visibleQuestions.length" class="text-sm text-fg/60">
-            В файле нет вопросов на выбранном языке.
+            Под выбранные фильтры не подходит ни один вопрос.
           </p>
         </div>
 
         <p v-if="errorMessage" class="mt-3 text-sm text-red-600 dark:text-red-500">{{ errorMessage }}</p>
 
-        <div class="mt-4 flex justify-end gap-2 border-t border-border pt-4">
+        <div class="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+          <p class="mr-auto text-xs text-fg/40">
+            Подсказка: выберите карточку и нажимайте A/B/C/D — ответ, Enter — следующий вопрос.
+          </p>
           <BaseButton variant="secondary" :disabled="phase === 'saving'" @click="emit('close')">Отмена</BaseButton>
-          <BaseButton :disabled="!includedCount || phase === 'saving'" @click="handleSave">
+          <!-- Saving in parts, so a teacher who did thirty variants today
+               keeps them instead of losing the lot to the ten they have not
+               reached yet. When anything is blocked, *this* is the primary
+               action: a question with no answer is saved with a placeholder
+               one, and "сохранить всё" must say so rather than look like
+               the safe default. -->
+          <template v-if="blockedCount">
+            <BaseButton
+              variant="secondary"
+              :disabled="!includedCount || phase === 'saving'"
+              :title="`${blockedCount} вопрос(ов) без ответа будут сохранены с первым вариантом, отмеченным верным`"
+              @click="save('all')"
+            >
+              Сохранить все, включая {{ blockedCount }} без ответа
+            </BaseButton>
+            <BaseButton :disabled="!readyCount || phase === 'saving'" @click="save('ready')">
+              {{ phase === "saving" ? "Сохраняем…" : `Сохранить готовые (${readyCount})` }}
+            </BaseButton>
+          </template>
+          <BaseButton v-else :disabled="!includedCount || phase === 'saving'" @click="save('all')">
             {{ phase === "saving" ? "Сохраняем…" : `Сохранить ${includedCount} вопросов в базу` }}
           </BaseButton>
         </div>

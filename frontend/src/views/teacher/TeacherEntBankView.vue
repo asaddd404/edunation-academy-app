@@ -731,7 +731,7 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
               <span class="mb-1.5 block font-medium text-fg/80">Тип вопроса</span>
               <select
                 v-model="questionForms[subject.id].qtype"
-                class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm"
+                class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
                 @change="onQtypeChange(subject.id)"
               >
                 <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
@@ -742,7 +742,7 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
               <span class="mb-1.5 block font-medium text-fg/80">Язык вопроса</span>
               <select
                 v-model="questionForms[subject.id].language"
-                class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm"
+                class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
               >
                 <option v-for="language in EXAM_LANGUAGES" :key="language" :value="language">
                   {{ LANGUAGE_FLAG[language] }} {{ LANGUAGE_LABEL[language] }}
@@ -786,7 +786,7 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
               <span class="mb-1.5 block font-medium text-fg/80">Баллы за вопрос</span>
               <select
                 v-model.number="questionForms[subject.id].maxScore"
-                class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm"
+                class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
               >
                 <option :value="1">1</option>
                 <option :value="2">2 (профильный)</option>

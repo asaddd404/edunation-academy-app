@@ -162,7 +162,7 @@ async function handleDecideApplication(applicationId: number, decision: "approve
         </div>
         <div class="flex items-center gap-2">
           <select
-            class="rounded-lg border border-fg/20 bg-transparent px-2 py-2 text-sm"
+            class="rounded-lg border border-border bg-card px-2 py-2 text-sm text-fg"
             :value="user.role"
             @change="handleRoleChange(user, ($event.target as HTMLSelectElement).value as Role)"
           >
@@ -219,7 +219,7 @@ async function handleDecideApplication(applicationId: number, decision: "approve
         <div class="flex items-center gap-2">
           <select
             v-model="assignTeacherByCategory[category.id]"
-            class="rounded-lg border border-fg/20 bg-transparent px-2 py-2 text-sm"
+            class="rounded-lg border border-border bg-card px-2 py-2 text-sm text-fg"
           >
             <option value="">Назначить учителя…</option>
             <option v-for="teacher in availableTeachers(category)" :key="teacher.id" :value="teacher.id">

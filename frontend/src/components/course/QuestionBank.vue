@@ -201,7 +201,7 @@ async function handleDelete(questionId: number) {
         <span class="mb-1.5 block font-medium text-fg/80">Тип вопроса</span>
         <select
           v-model="form.qtype"
-          class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm"
+          class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
           @change="onQtypeChange"
         >
           <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
@@ -212,7 +212,7 @@ async function handleDelete(questionId: number) {
 
       <label class="block text-sm" v-if="form.qtype !== 'multiple' && form.qtype !== 'matching'">
         <span class="mb-1.5 block font-medium text-fg/80">Баллы за вопрос</span>
-        <select v-model.number="form.maxScore" class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm">
+        <select v-model.number="form.maxScore" class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg">
           <option :value="1">1</option>
           <option :value="2">2 (профильный)</option>
         </select>
