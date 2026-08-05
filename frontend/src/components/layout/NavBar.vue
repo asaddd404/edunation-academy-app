@@ -47,6 +47,8 @@ const links = computed(() => {
 });
 
 const bellRoot = ref<HTMLElement | null>(null);
+const mobileMenuRoot = ref<HTMLElement | null>(null);
+const mobileMenuButton = ref<HTMLElement | null>(null);
 const dropdownOpen = ref(false);
 const mobileMenuOpen = ref(false);
 
@@ -61,7 +63,33 @@ async function toggleDropdown() {
 
 function handleClickOutside(event: MouseEvent) {
   if (bellRoot.value && !bellRoot.value.contains(event.target as Node)) dropdownOpen.value = false;
+  if (
+    mobileMenuOpen.value &&
+    mobileMenuRoot.value &&
+    !mobileMenuRoot.value.contains(event.target as Node) &&
+    mobileMenuButton.value &&
+    !mobileMenuButton.value.contains(event.target as Node)
+  ) {
+    closeMobileMenu();
+  }
 }
+
+function handleEscapeKey(event: KeyboardEvent) {
+  if (event.key === "Escape" && mobileMenuOpen.value) closeMobileMenu();
+}
+
+// Body scroll is locked while the drawer covers the screen -- restores
+// whatever value was there before (rather than assuming "") so this
+// doesn't clobber a lock some other overlay might already hold.
+let previousBodyOverflow = "";
+watch(mobileMenuOpen, (isOpen) => {
+  if (isOpen) {
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.overflow = previousBodyOverflow;
+  }
+});
 
 async function handleNotificationClick(notification: { id: number; link: string | null; is_read: boolean }) {
   await notifications.markRead(notification.id);
@@ -89,8 +117,17 @@ watch(
 
 watch(() => router.currentRoute.value.fullPath, closeMobileMenu);
 
-onMounted(() => document.addEventListener("click", handleClickOutside));
-onBeforeUnmount(() => document.removeEventListener("click", handleClickOutside));
+onMounted(() => {
+  document.addEventListener("click", handleClickOutside);
+  document.addEventListener("keydown", handleEscapeKey);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleClickOutside);
+  document.removeEventListener("keydown", handleEscapeKey);
+  // In case the component unmounts while the drawer is open (route change
+  // away from an authenticated layout), don't leave scrolling locked.
+  document.body.style.overflow = previousBodyOverflow;
+});
 
 function handleLogout() {
   auth.logout();
@@ -115,7 +152,7 @@ function handleLogout() {
             :key="link.to"
             :to="link.to"
             class="text-fg/70 hover:text-fg"
-            active-class="text-accent font-medium"
+            exact-active-class="text-accent font-medium"
           >
             {{ link.label }}
           </router-link>
@@ -170,6 +207,7 @@ function handleLogout() {
 
         <button
           v-if="auth.isAuthenticated"
+          ref="mobileMenuButton"
           class="flex h-8 w-8 items-center justify-center rounded-lg text-fg/70 hover:bg-fg/10 md:hidden"
           aria-label="Меню"
           @click="mobileMenuOpen = !mobileMenuOpen"
@@ -270,6 +308,7 @@ function handleLogout() {
 
     <nav
       v-if="auth.isAuthenticated && mobileMenuOpen"
+      ref="mobileMenuRoot"
       class="flex flex-col gap-1 border-t border-fg/10 px-4 py-3 text-sm md:hidden"
     >
       <router-link
@@ -277,7 +316,7 @@ function handleLogout() {
         :key="link.to"
         :to="link.to"
         class="rounded-lg px-3 py-2.5 text-fg/70 hover:bg-fg/5"
-        active-class="bg-fg/5 text-accent font-medium"
+        exact-active-class="bg-fg/5 text-accent font-medium"
       >
         {{ link.label }}
       </router-link>
