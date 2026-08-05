@@ -65,18 +65,26 @@ async def list_subjects(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> list[EntSubjectOut]:
-    query = select(EntSubject, func.count(EntQuestion.id)).outerjoin(
-        EntQuestion, EntQuestion.subject_id == EntSubject.id
-    )
+    query = select(
+        EntSubject,
+        func.count(EntQuestion.id),
+        # Powers the bank screen's ru/kk split badge -- FILTER rather than a
+        # second query per subject or a Python-side count, since the join
+        # is already right there.
+        func.count(EntQuestion.id).filter(EntQuestion.language == EntLanguage.ru),
+        func.count(EntQuestion.id).filter(EntQuestion.language == EntLanguage.kk),
+    ).outerjoin(EntQuestion, EntQuestion.subject_id == EntSubject.id)
     if user.role != RoleEnum.admin:
         query = query.where(or_(EntSubject.is_active.is_(True), EntSubject.created_by_id == user.id))
     query = query.group_by(EntSubject.id).order_by(EntSubject.name)
 
     rows = (await db.execute(query)).all()
     result = []
-    for subject, question_count in rows:
+    for subject, question_count, ru_count, kk_count in rows:
         out = EntSubjectOut.model_validate(subject)
         out.question_count = question_count
+        out.ru_count = ru_count
+        out.kk_count = kk_count
         result.append(out)
     return result
 

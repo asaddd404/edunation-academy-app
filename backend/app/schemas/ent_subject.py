@@ -65,3 +65,5 @@ class EntSubjectOut(BaseModel):
     multiple_choice_count: int = 0
     matching_count: int = 0
     short_answer_count: int = 0
+    ru_count: int = 0
+    kk_count: int = 0

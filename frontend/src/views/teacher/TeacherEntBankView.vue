@@ -20,6 +20,7 @@ import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
+import { useModalFocusTrap } from "@/composables/useModalFocusTrap";
 import type { EntQuestionTeacher, EntQuestionType, EntSubject, ExamLanguage } from "@/types";
 import { EXAM_LANGUAGES, LANGUAGE_FLAG, LANGUAGE_LABEL } from "@/utils/examLanguage";
 
@@ -142,6 +143,7 @@ function toggleSelectAllVisible(subjectId: number) {
 }
 
 const bulkDeleteModalOpen = ref(false);
+const bulkDeleteModalRef = ref<HTMLElement | null>(null);
 const bulkDeleteConfirmText = ref("");
 const bulkDeleting = ref(false);
 // Below this count, a plain "are you sure" is enough; above it, the teacher
@@ -163,6 +165,8 @@ function closeBulkDeleteModal() {
   if (bulkDeleting.value) return;
   bulkDeleteModalOpen.value = false;
 }
+
+useModalFocusTrap(bulkDeleteModalRef, closeBulkDeleteModal);
 
 async function confirmBulkDelete() {
   if (!canConfirmBulkDelete.value || openSubjectId.value === null) return;
@@ -214,6 +218,7 @@ async function handlePdfImportSaved() {
 }
 
 const quotaModalSubject = ref<EntSubject | null>(null);
+const quotaModalRef = ref<HTMLElement | null>(null);
 const quotaForm = reactive({
   single_choice_count: 0,
   multiple_choice_count: 0,
@@ -233,6 +238,8 @@ function openQuotaModal(subject: EntSubject) {
 function closeQuotaModal() {
   quotaModalSubject.value = null;
 }
+
+useModalFocusTrap(quotaModalRef, closeQuotaModal);
 
 async function saveQuotas() {
   if (!quotaModalSubject.value) return;
@@ -561,6 +568,9 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
                 Переименовать
               </button>
               <BaseBadge tone="neutral">{{ subject.question_count }} вопросов</BaseBadge>
+              <BaseBadge v-if="subject.question_count > 0" tone="neutral">
+                🇷🇺 {{ subject.ru_count }} / 🇰🇿 {{ subject.kk_count }}
+              </BaseBadge>
               <BaseBadge :tone="subject.is_active ? 'success' : 'warning'">
                 {{ subject.is_active ? "активен" : "скрыт" }}
               </BaseBadge>
@@ -860,7 +870,7 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       @click.self="closeQuotaModal"
     >
-      <div class="w-full max-w-md rounded-2xl border border-border bg-card p-5">
+      <div ref="quotaModalRef" role="dialog" aria-modal="true" class="w-full max-w-md rounded-2xl border border-border bg-card p-5">
         <h2 class="mb-1 text-lg font-semibold">Структура предмета «{{ quotaModalSubject.name }}»</h2>
         <p class="mb-4 text-sm text-fg/60">
           Сколько вопросов каждого типа брать при генерации симуляции. Если всё оставить по 0, предмет останется в
@@ -921,7 +931,12 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
          action in this screen that can wipe out real work, so closing it
          has to be a deliberate click, not a stray click near the edge. ── -->
     <div v-if="bulkDeleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-md rounded-2xl border border-border bg-card p-5">
+      <div
+        ref="bulkDeleteModalRef"
+        role="dialog"
+        aria-modal="true"
+        class="w-full max-w-md rounded-2xl border border-border bg-card p-5"
+      >
         <h2 class="mb-1 text-lg font-semibold">Удалить выбранные вопросы?</h2>
         <p class="mb-4 text-sm text-fg/60">
           Будет удалено вопросов: <strong>{{ selectedIds.size }}</strong

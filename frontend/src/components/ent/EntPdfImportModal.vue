@@ -4,6 +4,7 @@ import { computed, nextTick, reactive, ref } from "vue";
 import { bulkCreateEntQuestions, importEntQuestionsFromPdf } from "@/api/ent";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
+import { useModalFocusTrap } from "@/composables/useModalFocusTrap";
 import type {
   EntBulkCreateResult,
   EntPdfImportStats,
@@ -23,6 +24,15 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ close: []; saved: [] }>();
+
+const modalPanelRef = ref<HTMLElement | null>(null);
+// Matches the existing guard on the visible "Отмена" button (disabled
+// while phase === 'saving') -- Esc shouldn't open a second way to
+// interrupt an in-flight save that the button already blocks.
+useModalFocusTrap(modalPanelRef, () => {
+  if (phase.value === "saving") return;
+  emit("close");
+});
 
 const QTYPE_LABEL: Record<EntQuestionType, string> = {
   single: "Один правильный ответ",
@@ -478,7 +488,12 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="emit('close')">
-    <div class="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-border bg-card p-5">
+    <div
+      ref="modalPanelRef"
+      role="dialog"
+      aria-modal="true"
+      class="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-border bg-card p-5"
+    >
       <div class="mb-4 flex items-center justify-between">
         <h2 class="text-lg font-semibold">Импорт вопросов из PDF</h2>
         <button class="text-fg/50 hover:text-fg" @click="emit('close')">✕</button>

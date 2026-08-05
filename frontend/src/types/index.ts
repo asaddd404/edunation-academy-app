@@ -246,6 +246,8 @@ export interface EntSubject {
   multiple_choice_count: number;
   matching_count: number;
   short_answer_count: number;
+  ru_count: number;
+  kk_count: number;
 }
 
 export interface EntChoiceTeacher {
@@ -320,6 +322,24 @@ export interface EntQuestionImport {
    * null label means the file was never split into variants. */
   variant_id: number;
   variant_label: string | null;
+  /** The number this question was printed under inside its variant, or null
+   * if the file gave it none. A pasted answer key is matched on this — not
+   * on the card's position, which drifts whenever the file skipped a
+   * number and would then shift every later answer by one. */
+  question_number: number | null;
+  /** What the parser found wrong with this question, named. Blocking flags
+   * (see `isBlockingFlag`) mean it cannot be saved as it stands. */
+  flags: string[];
+  /** The prompts a matching question's options pair with, recovered from
+   * the ruled table in the PDF. Empty for every other type. Shown even
+   * though the pairing is unknown: it is what the teacher needs in order to
+   * supply the pairing. */
+  match_left_items: string[];
+  /** The right-hand column those prompts are paired with. Kept out of
+   * `choices` because `/bulk-create` rejects `choices` on a matching
+   * question — an imported question has to stay postable exactly as it
+   * arrives. Empty for every other type. */
+  match_options: { label: string; raw_label: string; text: string }[];
   parse_error: string | null;
   /** Where the answer came from: written in the file, inferred from a
    * colour highlight, or not found. `highlight` is shown explicitly in the
@@ -343,6 +363,13 @@ export interface EntPdfImportStats {
   /** Variants the parser could not walk. Questions read before the failure
    * are still in `questions`, so this is a "check these" list, not a loss. */
   variant_errors: EntVariantError[];
+  /** flag name -> how many questions carry it. What turns "2374 требуют
+   * проверки" into something actionable: 2374 missing keys is twenty
+   * minutes of pasting, 2374 missing option lists is a broken import. */
+  by_flag: Record<string, number>;
+  /** Repeated `Вариант №N` headers folded back into the variant they head
+   * instead of cutting it into one segment per page. */
+  duplicate_variant_headers: number;
 }
 
 export interface EntPdfImportResult {
