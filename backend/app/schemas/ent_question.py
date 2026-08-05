@@ -105,3 +105,23 @@ class EntQuestionTeacherOut(BaseModel):
     choices: list[EntChoiceTeacherOut] = []
     match_pairs: list[EntMatchPairTeacherOut] = []
     answer_variants: list[EntAnswerVariantOut] = []
+
+
+class EntBulkDeleteIn(BaseModel):
+    question_ids: list[int]
+
+    @model_validator(mode="after")
+    def _validate(self) -> "EntBulkDeleteIn":
+        if not self.question_ids:
+            raise ValueError("Список вопросов пуст")
+        return self
+
+
+class EntBulkDeleteSkip(BaseModel):
+    id: int
+    reason: str
+
+
+class EntBulkDeleteOut(BaseModel):
+    deleted: list[int]
+    failed: list[EntBulkDeleteSkip]

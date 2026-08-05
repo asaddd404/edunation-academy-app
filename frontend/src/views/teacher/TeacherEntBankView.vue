@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { onMounted } from "vue";
 
 import {
+  bulkDeleteEntQuestions,
   createEntSubject,
   createSubjectQuestion,
   deleteEntQuestion,
@@ -55,9 +56,116 @@ async function loadQuestions(subjectId: number) {
   );
 }
 
+// ── Toast: a small local banner, not a global system -- the only screen
+// that currently needs one is this one (bulk-delete partial failure,
+// single-delete rollback, "selection was reset" notices).
+const toast = ref<{ message: string; tone: "error" | "info" } | null>(null);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showToast(message: string, tone: "error" | "info" = "info", ms = 4000) {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast.value = { message, tone };
+  toastTimer = setTimeout(() => (toast.value = null), ms);
+}
+
+// ── Bulk selection: scoped to whichever subject is currently expanded.
+// Cleared (with a notice) whenever the language filter or the open subject
+// changes, so a selection never silently carries over onto a different set
+// of questions than the one the teacher is looking at.
+const selectedIds = reactive(new Set<number>());
+const lastClickedIndex = ref<number | null>(null);
+
+function clearSelection(notify = false) {
+  if (notify && selectedIds.size > 0) showToast("Выбор сброшен", "info", 2500);
+  selectedIds.clear();
+  lastClickedIndex.value = null;
+}
+
+function toggleQuestionSelection(subjectId: number, index: number, event: MouseEvent) {
+  const list = questionsBySubject[subjectId];
+  const question = list[index];
+  if (event.shiftKey && lastClickedIndex.value !== null) {
+    const [start, end] = [lastClickedIndex.value, index].sort((a, b) => a - b);
+    for (let i = start; i <= end; i++) selectedIds.add(list[i].id);
+  } else if (selectedIds.has(question.id)) {
+    selectedIds.delete(question.id);
+  } else {
+    selectedIds.add(question.id);
+  }
+  lastClickedIndex.value = index;
+}
+
+function visibleQuestions(subjectId: number): EntQuestionTeacher[] {
+  return questionsBySubject[subjectId] ?? [];
+}
+
+function allVisibleSelected(subjectId: number): boolean {
+  const list = visibleQuestions(subjectId);
+  return list.length > 0 && list.every((q) => selectedIds.has(q.id));
+}
+
+function toggleSelectAllVisible(subjectId: number) {
+  const list = visibleQuestions(subjectId);
+  if (allVisibleSelected(subjectId)) {
+    for (const q of list) selectedIds.delete(q.id);
+  } else {
+    for (const q of list) selectedIds.add(q.id);
+  }
+}
+
+const bulkDeleteModalOpen = ref(false);
+const bulkDeleteConfirmText = ref("");
+const bulkDeleting = ref(false);
+// Below this count, a plain "are you sure" is enough; above it, the teacher
+// has to type the exact number being removed -- the spec's protection
+// against an autopilot double-click wiping out a big chunk of the bank.
+const TYPED_CONFIRM_THRESHOLD = 10;
+
+const needsTypedConfirm = computed(() => selectedIds.size > TYPED_CONFIRM_THRESHOLD);
+const canConfirmBulkDelete = computed(
+  () => !needsTypedConfirm.value || bulkDeleteConfirmText.value.trim() === String(selectedIds.size),
+);
+
+function openBulkDeleteModal() {
+  bulkDeleteConfirmText.value = "";
+  bulkDeleteModalOpen.value = true;
+}
+
+function closeBulkDeleteModal() {
+  if (bulkDeleting.value) return;
+  bulkDeleteModalOpen.value = false;
+}
+
+async function confirmBulkDelete() {
+  if (!canConfirmBulkDelete.value || openSubjectId.value === null) return;
+  const subjectId = openSubjectId.value;
+  const ids = [...selectedIds];
+
+  bulkDeleting.value = true;
+  try {
+    const result = await bulkDeleteEntQuestions(ids);
+    const deleted = new Set(result.deleted);
+    questionsBySubject[subjectId] = questionsBySubject[subjectId].filter((q) => !deleted.has(q.id));
+    const subject = subjects.value.find((s) => s.id === subjectId);
+    if (subject) subject.question_count = Math.max(0, subject.question_count - deleted.size);
+    clearSelection();
+    bulkDeleteModalOpen.value = false;
+    if (result.failed.length > 0) {
+      showToast(`Удалено ${deleted.size}, не найдено ${result.failed.length} (уже удалены ранее)`, "info");
+    } else {
+      showToast(`Удалено вопросов: ${deleted.size}`, "info");
+    }
+  } catch {
+    showToast("Не удалось удалить выбранные вопросы. Попробуйте ещё раз.", "error");
+  } finally {
+    bulkDeleting.value = false;
+  }
+}
+
 async function setBankLanguage(value: ExamLanguage | "all") {
   if (bankLanguage.value === value) return;
   bankLanguage.value = value;
+  clearSelection(true);
   // Everything cached was fetched under the previous filter.
   for (const key of Object.keys(questionsBySubject)) delete questionsBySubject[Number(key)];
   if (openSubjectId.value !== null) {
@@ -202,6 +310,7 @@ async function handleRenameSubject(subjectId: number) {
 }
 
 async function toggleSubject(subjectId: number) {
+  clearSelection();
   if (openSubjectId.value === subjectId) {
     openSubjectId.value = null;
     return;
@@ -469,39 +578,81 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
           </div>
 
           <p v-if="questionsLoading" class="text-sm text-fg/60">Загрузка вопросов…</p>
-          <ul v-else class="space-y-2">
-            <li
-              v-for="q in questionsBySubject[subject.id]"
-              :key="q.id"
-              class="flex items-start justify-between gap-3 rounded-lg border border-fg/10 p-3 text-sm"
+          <template v-else>
+            <div v-if="questionsBySubject[subject.id]?.length" class="flex items-center gap-2 text-sm text-fg/60">
+              <input
+                type="checkbox"
+                :checked="allVisibleSelected(subject.id)"
+                aria-label="Выбрать все вопросы на экране"
+                @click.stop="toggleSelectAllVisible(subject.id)"
+              />
+              <span>Выбрать все на этом экране ({{ questionsBySubject[subject.id].length }})</span>
+            </div>
+
+            <!-- ── Sticky bulk-action bar: only takes space once something is selected ── -->
+            <div
+              v-if="selectedIds.size > 0"
+              class="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm"
             >
-              <div class="flex min-w-0 gap-3">
-                <img
-                  v-if="q.has_image"
-                  :src="questionImageUrl(q.id)"
-                  alt=""
-                  class="h-16 w-24 shrink-0 rounded-lg border border-fg/10 object-cover"
-                />
-                <div class="min-w-0">
-                  <BaseBadge tone="neutral">{{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}</BaseBadge>
-                  <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
-                  <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
-                  <p class="mt-1">{{ q.text }}</p>
+              <span class="font-medium">Выбрано: {{ selectedIds.size }}</span>
+              <div class="flex items-center gap-2">
+                <button type="button" class="text-fg/60 hover:text-fg" @click="clearSelection()">Снять выбор</button>
+                <BaseButton variant="danger" :disabled="selectedIds.size === 0" @click="openBulkDeleteModal">
+                  Удалить выбранные ({{ selectedIds.size }})
+                </BaseButton>
+              </div>
+            </div>
+
+            <ul class="space-y-2">
+              <li
+                v-for="(q, index) in questionsBySubject[subject.id]"
+                :key="q.id"
+                class="flex items-start justify-between gap-3 rounded-lg border border-fg/10 p-3 text-sm"
+                :class="{ 'border-indigo-500/50 bg-indigo-500/5': selectedIds.has(q.id) }"
+              >
+                <div class="flex min-w-0 gap-3">
+                  <input
+                    type="checkbox"
+                    class="mt-1 shrink-0"
+                    :checked="selectedIds.has(q.id)"
+                    :aria-label="`Выбрать вопрос: ${q.text}`"
+                    @click.stop="toggleQuestionSelection(subject.id, index, $event)"
+                  />
+                  <img
+                    v-if="q.has_image"
+                    :src="questionImageUrl(q.id)"
+                    alt=""
+                    class="h-16 w-24 shrink-0 rounded-lg border border-fg/10 object-cover"
+                  />
+                  <div class="min-w-0">
+                    <BaseBadge tone="neutral">{{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}</BaseBadge>
+                    <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
+                    <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
+                    <p class="mt-1">{{ q.text }}</p>
+                  </div>
                 </div>
-              </div>
-              <div class="flex shrink-0 gap-2">
-                <BaseButton variant="secondary" @click="startEditQuestion(subject.id, q)">Редактировать</BaseButton>
-                <BaseButton variant="danger" @click="handleDeleteQuestion(subject.id, q.id)">Удалить</BaseButton>
-              </div>
-            </li>
-            <li v-if="!questionsBySubject[subject.id]?.length" class="text-sm text-fg/60">
-              {{
-                bankLanguage === "all"
-                  ? "Вопросов пока нет."
-                  : `Вопросов на языке «${LANGUAGE_LABEL[bankLanguage]}» пока нет.`
-              }}
-            </li>
-          </ul>
+                <div class="flex shrink-0 gap-2">
+                  <BaseButton variant="secondary" @click="startEditQuestion(subject.id, q)">Редактировать</BaseButton>
+                  <button
+                    type="button"
+                    class="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+                    aria-label="Удалить вопрос"
+                    title="Удалить вопрос"
+                    @click="handleDeleteQuestion(subject.id, q.id)"
+                  >
+                    🗑
+                  </button>
+                </div>
+              </li>
+              <li v-if="!questionsBySubject[subject.id]?.length" class="text-sm text-fg/60">
+                {{
+                  bankLanguage === "all"
+                    ? "Вопросов пока нет."
+                    : `Вопросов на языке «${LANGUAGE_LABEL[bankLanguage]}» пока нет.`
+                }}
+              </li>
+            </ul>
+          </template>
 
           <div class="space-y-3 rounded-lg bg-fg/5 p-4">
             <p class="text-sm font-medium">
@@ -696,6 +847,50 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
           <BaseButton :disabled="savingQuotas" @click="saveQuotas">Сохранить</BaseButton>
         </div>
       </div>
+    </div>
+
+    <!-- ── Bulk-delete confirmation. No backdrop-click close: this is the one
+         action in this screen that can wipe out real work, so closing it
+         has to be a deliberate click, not a stray click near the edge. ── -->
+    <div v-if="bulkDeleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div class="w-full max-w-md rounded-2xl border border-border bg-card p-5">
+        <h2 class="mb-1 text-lg font-semibold">Удалить выбранные вопросы?</h2>
+        <p class="mb-4 text-sm text-fg/60">
+          Будет удалено вопросов: <strong>{{ selectedIds.size }}</strong
+          >. Это действие нельзя отменить.
+        </p>
+
+        <label v-if="needsTypedConfirm" class="mb-4 block text-sm">
+          <span class="mb-1.5 block font-medium text-fg/80">
+            Введите количество удаляемых вопросов ({{ selectedIds.size }}) для подтверждения
+          </span>
+          <input
+            v-model="bulkDeleteConfirmText"
+            type="text"
+            inputmode="numeric"
+            class="w-full rounded-lg border border-fg/20 bg-card px-3 py-2 text-sm text-fg"
+            @keyup.enter="canConfirmBulkDelete && confirmBulkDelete()"
+          />
+        </label>
+
+        <div class="flex justify-end gap-2">
+          <BaseButton variant="secondary" :disabled="bulkDeleting" @click="closeBulkDeleteModal">Отмена</BaseButton>
+          <!-- Not autofocused on purpose: an accidental Enter shouldn't delete. -->
+          <BaseButton variant="danger" :disabled="!canConfirmBulkDelete || bulkDeleting" @click="confirmBulkDelete">
+            {{ bulkDeleting ? "Удаление…" : `Удалить (${selectedIds.size})` }}
+          </BaseButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Toast ──────────────────────────────────────────────────────── -->
+    <div
+      v-if="toast"
+      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2.5 text-sm shadow-lg"
+      :class="toast.tone === 'error' ? 'bg-red-600 text-white' : 'bg-fg text-bg'"
+      role="status"
+    >
+      {{ toast.message }}
     </div>
   </div>
 </template>

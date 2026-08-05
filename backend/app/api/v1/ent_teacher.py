@@ -26,15 +26,25 @@ from app.schemas.ent_import import (
     EntBulkCreateOut,
     EntBulkCreateSkip,
     EntChoiceImportOut,
+    EntMatchOptionOut,
     EntPdfImportOut,
     EntPdfImportStats,
     EntQuestionImportOut,
     EntVariantErrorOut,
 )
-from app.schemas.ent_question import EntChoiceIn, EntMatchPairIn, EntQuestionIn, EntQuestionTeacherOut
+from app.schemas.ent_question import (
+    EntBulkDeleteIn,
+    EntBulkDeleteOut,
+    EntBulkDeleteSkip,
+    EntChoiceIn,
+    EntMatchPairIn,
+    EntQuestionIn,
+    EntQuestionTeacherOut,
+)
 from app.schemas.ent_subject import EntSubjectIn, EntSubjectOut, EntSubjectUpdateIn
 
 MAX_ENT_PDF_SIZE = 15 * 1024 * 1024  # 15 MB
+MAX_BULK_DELETE_BATCH = 500
 
 
 def _label_at(labels: list[tuple[str, str]], index: int, part: int) -> str:
@@ -263,6 +273,60 @@ async def delete_question(
     delete_upload(image_path)
 
 
+@router.post("/questions/bulk-delete", response_model=EntBulkDeleteOut)
+async def bulk_delete_questions(
+    payload: EntBulkDeleteIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> EntBulkDeleteOut:
+    """Deletes a teacher-selected batch of questions in one action.
+
+    Ownership is checked per subject touched by the batch, and a single
+    foreign id fails the *whole* request (403, nothing deleted) rather than
+    silently dropping just that id -- a bulk action is exactly the place a
+    partial-authorization result would be easy to misread as "it worked".
+    Ids that don't exist (already deleted by an earlier call, or never did)
+    are not an authorization failure -- they land in `failed` with
+    `not_found` so retrying a batch is safe.
+    """
+    ids = set(payload.question_ids)
+    if len(ids) > MAX_BULK_DELETE_BATCH:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Не более {MAX_BULK_DELETE_BATCH} вопросов за один запрос"
+        )
+
+    questions = (await db.scalars(select(EntQuestion).where(EntQuestion.id.in_(ids)))).all()
+    found_by_id = {q.id: q for q in questions}
+    not_found = ids - found_by_id.keys()
+
+    # Checked before anything is touched: if any subject in the batch isn't
+    # the caller's, the request is rejected outright rather than deleting
+    # just the ids that did belong to them.
+    for subject_id in {q.subject_id for q in questions}:
+        await assert_owns_ent_subject(db, user, subject_id)
+
+    image_paths = [q.image_path for q in questions if q.image_path]
+    for question in questions:
+        await db.delete(question)
+    await db.commit()
+    # Only after the rows are gone, matching the single-delete endpoint's
+    # ordering -- a failed commit can't leave a live question pointing at a
+    # file that was already removed.
+    for path in image_paths:
+        delete_upload(path)
+
+    deleted_ids = sorted(found_by_id.keys())
+    logger.info(
+        "ENT bulk delete: user_id=%s role=%s deleted %d question(s), %d not found",
+        user.id, user.role.value, len(deleted_ids), len(not_found),
+    )
+
+    return EntBulkDeleteOut(
+        deleted=deleted_ids,
+        failed=[EntBulkDeleteSkip(id=qid, reason="not_found") for qid in sorted(not_found)],
+    )
+
+
 async def _load_question_with_relations(db: AsyncSession, question_id: int) -> EntQuestion:
     return await db.scalar(
         select(EntQuestion)
@@ -375,7 +439,7 @@ async def import_questions_from_pdf(
     questions: list[EntQuestionImportOut] = []
     stats = EntPdfImportStats()
     try:
-        parsed = parse_ent_pdf_questions(text, extracted.marks)
+        parsed = parse_ent_pdf_questions(text, extracted.marks, extracted.cells)
         stats = EntPdfImportStats(
             total_lines=parsed.stats.total_lines,
             total_blocks_detected=parsed.stats.total_blocks_detected,
@@ -389,6 +453,8 @@ async def import_questions_from_pdf(
                 )
                 for error in parsed.stats.variant_errors
             ],
+            by_flag=parsed.stats.by_flag,
+            duplicate_variant_headers=parsed.stats.duplicate_variant_headers,
         )
         for message in parsed.warnings:
             warn(message)
@@ -422,6 +488,13 @@ async def import_questions_from_pdf(
                     raw_line_range=payload.raw_line_range,
                     variant_id=payload.variant_id,
                     variant_label=payload.variant_label,
+                    question_number=payload.question_number,
+                    flags=payload.flags,
+                    match_left_items=payload.match_left_items,
+                    match_options=[
+                        EntMatchOptionOut(label=label, raw_label=raw, text=text)
+                        for label, raw, text in payload.match_options
+                    ],
                     parse_error=payload.parse_error,
                     key_source=payload.key_source,
                 )

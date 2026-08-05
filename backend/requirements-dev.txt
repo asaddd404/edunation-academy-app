@@ -1,5 +1,9 @@
 -r requirements.txt
 pytest==9.1.1
+pytest-asyncio==1.4.0
+# DB-backed tests (test_ent_teacher_bulk_delete.py and friends) drive the
+# real FastAPI app over ASGI instead of raw requests.
+httpx==0.27.2
 # Used only by tests/test_ent_pdf_marks.py, which builds real PDFs to
 # exercise colour-mark detection against the actual extractor.
 reportlab==5.0.0

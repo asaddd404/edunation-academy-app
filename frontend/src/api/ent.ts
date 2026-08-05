@@ -106,6 +106,17 @@ export function deleteEntQuestion(questionId: number) {
   return http.delete(`/teacher/ent/questions/${questionId}`);
 }
 
+export interface EntBulkDeleteResult {
+  deleted: number[];
+  failed: { id: number; reason: string }[];
+}
+
+export function bulkDeleteEntQuestions(questionIds: number[]) {
+  return http
+    .post<EntBulkDeleteResult>("/teacher/ent/questions/bulk-delete", { question_ids: questionIds })
+    .then((r) => r.data);
+}
+
 export function uploadEntQuestionImage(questionId: number, file: File) {
   const formData = new FormData();
   formData.append("file", file);
