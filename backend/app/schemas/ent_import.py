@@ -21,6 +21,20 @@ class EntChoiceImportOut(EntChoiceIn):
     raw_label: str = ""
 
 
+class EntMatchOptionOut(BaseModel):
+    """One candidate from the right-hand column of a matching question.
+
+    Deliberately not sent as a `choice`: EntQuestionIn rejects `choices` on
+    a matching question, and an imported question has to stay postable
+    exactly as it arrives. These are what each prompt gets paired *with*,
+    which the preview needs and the save endpoint does not.
+    """
+
+    label: str
+    raw_label: str = ""
+    text: str
+
+
 class EntVariantErrorOut(BaseModel):
     """One "Вариант №N" the parser could not walk. Named individually so a
     50-variant file reports which block to look at."""
@@ -64,6 +78,28 @@ class EntQuestionImportOut(BaseModel):
     # variant or it labels none of them.
     variant_id: int = 0
     variant_label: str | None = None
+    # The number this question was printed under inside its variant. Null
+    # when the file gave it none. This is the key a pasted answer string
+    # ("1-B, 2-C, ...") is matched on, so it must not be confused with the
+    # question's index in the list: a file that skips a number makes the two
+    # disagree, and pairing on position would then shift every later answer.
+    question_number: int | None = None
+    # What the parser found wrong with this question, named. See
+    # BLOCKING_FLAGS in app.core.ent_pdf_import: the blocking ones mean the
+    # question cannot be saved as it stands, the rest are worth a glance.
+    # A list rather than a single verdict because a question routinely has
+    # several, and "which ones" is what decides whether it needs two
+    # seconds of attention or two minutes.
+    flags: list[str] = []
+    # The left-hand column of a matching question -- the prompts its options
+    # get matched to, recovered from the ruled table the PDF typeset them
+    # in. Empty for every other question type. Sent even though
+    # `match_pairs` is usually empty: the pairing is exactly what the
+    # teacher has to supply, and they cannot supply it without seeing these.
+    match_left_items: list[str] = []
+    # The right-hand column those prompts are paired with. Empty for every
+    # other question type.
+    match_options: list[EntMatchOptionOut] = []
     parse_error: str | None = None
     # Where the answer came from: "text" (written "Ответ:" in the file),
     # "highlight" (inferred from a colour mark) or "none". The preview
@@ -81,6 +117,15 @@ class EntPdfImportStats(BaseModel):
     parse_errors: list[str] = []
     variants_detected: int = 0
     variant_errors: list[EntVariantErrorOut] = []
+    # flag name -> how many questions carry it. What turns "2374 need
+    # review" into something a teacher can act on: 2374 missing keys is
+    # twenty minutes of pasting answer strings, while 2374 missing option
+    # lists would be a broken import.
+    by_flag: dict[str, int] = {}
+    # Repeated "Вариант №N" headers folded back into the variant they head,
+    # rather than cutting it in two. Surfaced so a teacher who expected 50
+    # variants and got 50 can see the running headers were handled.
+    duplicate_variant_headers: int = 0
 
 
 class EntPdfImportOut(BaseModel):

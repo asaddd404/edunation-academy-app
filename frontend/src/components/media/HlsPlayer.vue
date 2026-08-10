@@ -41,6 +41,6 @@ onBeforeUnmount(destroy);
 <template>
   <div class="overflow-hidden rounded-xl bg-black">
     <video ref="videoRef" controls class="aspect-video w-full" />
-    <p v-if="error" class="bg-red-500/15 p-3 text-sm text-red-700 dark:text-red-400">{{ error }}</p>
+    <p v-if="error" class="bg-clay/15 p-3 text-sm text-clay">{{ error }}</p>
   </div>
 </template>

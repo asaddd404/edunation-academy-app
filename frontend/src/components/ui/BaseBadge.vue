@@ -4,12 +4,12 @@ withDefaults(defineProps<{ tone?: "neutral" | "success" | "warning" | "danger" }
 
 <template>
   <span
-    class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+    class="badge"
     :class="{
-      'bg-fg/10 text-fg/70': tone === 'neutral',
-      'bg-green-500/15 text-green-800 dark:text-green-500': tone === 'success',
-      'bg-yellow-500/15 text-amber-800 dark:text-yellow-500': tone === 'warning',
-      'bg-red-500/15 text-red-700 dark:text-red-400': tone === 'danger',
+      'bg-paper-2 text-ink-2': tone === 'neutral',
+      'bg-moss/15 text-moss': tone === 'success',
+      'bg-marigold/20 text-ink': tone === 'warning',
+      'bg-clay/15 text-clay': tone === 'danger',
     }"
   >
     <slot />

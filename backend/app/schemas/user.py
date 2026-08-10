@@ -24,6 +24,14 @@ class UserUpdateIn(BaseModel):
     is_active: bool | None = None
 
 
+class PasswordResetOut(BaseModel):
+    """The plaintext temporary password, shown to the admin exactly once --
+    nothing stores it beyond this response, so there is no second chance to
+    retrieve it after the dialog closes."""
+
+    temporary_password: str
+
+
 class ProfileUpdateIn(BaseModel):
     first_name: str | None = None
     last_name: str | None = None

@@ -9,8 +9,6 @@ declare module "vue-router" {
     roles?: Role[];
     /** Authenticated users get bounced to their role home. */
     guestOnly?: boolean;
-    /** "full" opts out of AppShell's max-w-3xl reading container. */
-    layout?: "full";
   }
 }
 
@@ -32,7 +30,6 @@ const router = createRouter({
       path: "/",
       name: "landing",
       component: () => import("@/views/public/LandingView.vue"),
-      meta: { layout: "full" },
     },
     {
       path: "/register",
@@ -147,7 +144,6 @@ const router = createRouter({
       path: "/:pathMatch(.*)*",
       name: "not-found",
       component: () => import("@/views/NotFoundView.vue"),
-      meta: { layout: "full" },
     },
   ],
   scrollBehavior(_to, _from, savedPosition) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { X } from "@lucide/vue";
 import { computed, nextTick, reactive, ref } from "vue";
 
 import { bulkCreateEntQuestions, importEntQuestionsFromPdf } from "@/api/ent";
@@ -487,172 +488,176 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="emit('close')">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @click.self="emit('close')">
     <div
       ref="modalPanelRef"
       role="dialog"
       aria-modal="true"
-      class="flex max-h-[92vh] w-full max-w-4xl flex-col rounded-2xl border border-border bg-card p-5"
+      class="card flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden"
     >
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Импорт вопросов из PDF</h2>
-        <button class="text-fg/50 hover:text-fg" @click="emit('close')">✕</button>
+      <div class="flex items-center justify-between px-5 pb-4 pt-5">
+        <h2 class="text-lg font-semibold text-ink">Импорт вопросов из PDF</h2>
+        <button
+          class="flex h-11 w-11 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
+          aria-label="Закрыть"
+          @click="emit('close')"
+        >
+          <X :size="18" :stroke-width="1.8" />
+        </button>
       </div>
 
       <!-- ── Step 1: upload ─────────────────────────────────────────── -->
       <template v-if="phase === 'upload' || phase === 'error'">
-        <label class="mb-4 block text-sm">
-          <span class="mb-1.5 block font-medium text-fg/80">Предмет</span>
-          <select
-            v-model.number="selectedSubjectId"
-            class="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg"
+        <div class="px-5 pb-5">
+          <label class="mb-4 block text-sm">
+            <span class="mb-1.5 block font-medium text-ink">Предмет</span>
+            <select v-model.number="selectedSubjectId" class="input">
+              <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+
+          <div
+            class="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-10 text-center transition-colors duration-150"
+            :class="isDragging ? 'border-moss bg-moss/5' : 'border-line-strong'"
+            @dragover.prevent="isDragging = true"
+            @dragleave.prevent="isDragging = false"
+            @drop.prevent="onDrop"
+            @click="fileInput?.click()"
           >
-            <option v-for="s in subjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </label>
+            <span class="text-3xl">📄</span>
+            <p class="text-sm font-medium text-ink">
+              {{ pickedFile ? pickedFile.name : "Перетащите PDF сюда или нажмите, чтобы выбрать файл" }}
+            </p>
+            <p class="text-xs text-ink-3">Только .pdf</p>
+            <input ref="fileInput" type="file" accept="application/pdf" class="hidden" @change="onFileInputChange" />
+          </div>
 
-        <div
-          class="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-10 text-center transition-colors duration-150"
-          :class="isDragging ? 'border-indigo-500 bg-indigo-500/5' : 'border-fg/20'"
-          @dragover.prevent="isDragging = true"
-          @dragleave.prevent="isDragging = false"
-          @drop.prevent="onDrop"
-          @click="fileInput?.click()"
-        >
-          <span class="text-3xl">📄</span>
-          <p class="text-sm font-medium">
-            {{ pickedFile ? pickedFile.name : "Перетащите PDF сюда или нажмите, чтобы выбрать файл" }}
-          </p>
-          <p class="text-xs text-fg/50">Только .pdf</p>
-          <input ref="fileInput" type="file" accept="application/pdf" class="hidden" @change="onFileInputChange" />
-        </div>
+          <p v-if="errorMessage" class="mt-3 text-sm text-clay">{{ errorMessage }}</p>
 
-        <p v-if="errorMessage" class="mt-3 text-sm text-red-600 dark:text-red-500">{{ errorMessage }}</p>
-
-        <div class="mt-5 flex justify-end gap-2">
-          <BaseButton variant="secondary" @click="emit('close')">Отмена</BaseButton>
-          <BaseButton :disabled="!pickedFile || !selectedSubjectId" @click="handleUpload">Обработать</BaseButton>
+          <div class="mt-5 flex justify-end gap-2">
+            <BaseButton variant="secondary" @click="emit('close')">Отмена</BaseButton>
+            <BaseButton :disabled="!pickedFile || !selectedSubjectId" @click="handleUpload">Обработать</BaseButton>
+          </div>
         </div>
       </template>
 
       <!-- ── Step 2: processing ─────────────────────────────────────── -->
-      <div v-else-if="phase === 'processing'" class="flex flex-col items-center gap-3 py-16">
-        <div class="h-10 w-10 animate-spin rounded-full border-4 border-fg/20 border-t-indigo-500"></div>
-        <p class="text-sm text-fg/60">Извлекаем текст и распознаём вопросы…</p>
+      <div v-else-if="phase === 'processing'" class="flex flex-col items-center gap-3 px-5 pb-10 pt-2">
+        <div class="h-10 w-10 animate-spin rounded-full border-4 border-line-strong border-t-moss"></div>
+        <p class="text-sm text-ink-2">Извлекаем текст и распознаём вопросы…</p>
       </div>
 
       <!-- ── Step 3: preview ────────────────────────────────────────── -->
       <template v-else-if="phase === 'preview' || phase === 'saving'">
-        <div class="mb-3 space-y-1">
-          <p v-for="(w, i) in warnings" :key="i" class="text-sm text-amber-700 dark:text-amber-400">⚠ {{ w }}</p>
-          <p class="text-sm text-fg/60">
-            Распознано вопросов: {{ questions.length }}. Проставлено ответов:
-            <strong class="text-fg/80">{{ answeredCount }}</strong> из {{ questions.length }}.
-          </p>
-          <!-- Said plainly and once: in these papers the answers are simply
-               not in the file, and a teacher who does not know that reads
-               2000 red cards as 2000 parsing failures. -->
-          <p v-if="unansweredCount > questions.length / 2" class="text-sm text-amber-700 dark:text-amber-400">
-            В этом файле нет правильных ответов — их нужно проставить. Быстрее всего вставить ключ
-            варианта в поле под его заголовком.
-          </p>
-          <p v-if="stats" class="text-xs text-fg/40">
-            Обработано строк: {{ stats.total_lines }} · найдено блоков: {{ stats.total_blocks_detected }}
-            <span v-if="stats.variants_detected > 1"> · вариантов: {{ stats.variants_detected }}</span>
-            <span v-if="stats.duplicate_variant_headers">
-              · повторных заголовков объединено: {{ stats.duplicate_variant_headers }}</span
-            >
-          </p>
-        </div>
-
-        <!-- ── Filters ────────────────────────────────────────────────
-             A view over the list, not a selection: the checkboxes decide
-             what gets saved, so a hidden card that is still ticked is still
-             saved (and the note below says so). -->
-        <div v-if="questions.length" class="mb-3 space-y-2">
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
-              :class="
-                languageFilter === 'all'
-                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
-              "
-              @click="languageFilter = 'all'"
-            >
-              Все языки ({{ questions.length }})
-            </button>
-            <button
-              v-for="language in EXAM_LANGUAGES"
-              :key="language"
-              type="button"
-              class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
-              :class="
-                languageFilter === language
-                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
-              "
-              @click="languageFilter = language"
-            >
-              {{ LANGUAGE_FLAG[language] }} {{ LANGUAGE_LABEL[language] }} ({{ languageCounts[language] }})
-            </button>
+        <!-- ── Sticky header: stats + filters stay visible while the card
+             list below scrolls -- a teacher forty cards in still has the
+             language/review tabs and the "N recognized" caption in view. ── -->
+        <div class="sticky top-0 z-20 space-y-3 border-b border-line bg-paper px-5 pb-3">
+          <div class="space-y-1">
+            <p v-for="(w, i) in warnings" :key="i" class="rounded-md bg-marigold/10 px-2 py-1 text-sm text-ink">⚠ {{ w }}</p>
+            <p class="text-sm text-ink-2">
+              Распознано вопросов: {{ questions.length }}. Проставлено ответов:
+              <strong class="text-ink">{{ answeredCount }}</strong> из {{ questions.length }}.
+            </p>
+            <!-- Said plainly and once: in these papers the answers are simply
+                 not in the file, and a teacher who does not know that reads
+                 2000 red cards as 2000 parsing failures. -->
+            <p v-if="unansweredCount > questions.length / 2" class="rounded-md bg-marigold/10 px-2 py-1 text-sm text-ink">
+              В этом файле нет правильных ответов — их нужно проставить. Быстрее всего вставить ключ
+              варианта в поле под его заголовком.
+            </p>
+            <p v-if="stats" class="text-xs text-ink-3">
+              Обработано строк: {{ stats.total_lines }} · найдено блоков: {{ stats.total_blocks_detected }}
+              <span v-if="stats.variants_detected > 1"> · вариантов: {{ stats.variants_detected }}</span>
+              <span v-if="stats.duplicate_variant_headers">
+                · повторных заголовков объединено: {{ stats.duplicate_variant_headers }}</span
+              >
+            </p>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
-              :class="reviewFilter === 'all' ? 'border-fg/40 bg-fg/10 font-medium' : 'border-fg/15 text-fg/60 hover:bg-fg/5'"
-              @click="reviewFilter = 'all'"
-            >
-              Все вопросы
-            </button>
-            <button
-              type="button"
-              class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
-              :class="
-                reviewFilter === 'unanswered' ? 'border-fg/40 bg-fg/10 font-medium' : 'border-fg/15 text-fg/60 hover:bg-fg/5'
-              "
-              @click="reviewFilter = 'unanswered'"
-            >
-              Без ответа ({{ unansweredCount }})
-            </button>
-            <button
-              type="button"
-              class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
-              :class="
-                reviewFilter === 'flagged' ? 'border-fg/40 bg-fg/10 font-medium' : 'border-fg/15 text-fg/60 hover:bg-fg/5'
-              "
-              @click="reviewFilter = 'flagged'"
-            >
-              С замечаниями ({{ flaggedCount }})
-            </button>
-            <select
-              :value="presentFlags.includes(reviewFilter) ? reviewFilter : ''"
-              class="rounded-lg border border-border bg-card px-2 py-1 text-xs text-fg"
-              @change="reviewFilter = ($event.target as HTMLSelectElement).value || 'all'"
-            >
-              <option value="">По типу замечания…</option>
-              <option v-for="flag in presentFlags" :key="flag" :value="flag">
-                {{ flagInfo(flag).label }} ({{ flagCounts[flag] }})
-              </option>
-            </select>
-            <span class="text-xs text-fg/40">
-              Фильтры только скрывают карточки — сохранятся все отмеченные ({{ includedCount }}).
-            </span>
+          <!-- ── Filters ──────────────────────────────────────────────
+               A view over the list, not a selection: the checkboxes decide
+               what gets saved, so a hidden card that is still ticked is still
+               saved (and the note below says so). -->
+          <div v-if="questions.length" class="space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors duration-150"
+                :class="languageFilter === 'all' ? 'bg-moss text-moss-fg' : 'bg-paper-2 text-ink-2 hover:bg-line hover:text-ink'"
+                @click="languageFilter = 'all'"
+              >
+                Все языки ({{ questions.length }})
+              </button>
+              <button
+                v-for="language in EXAM_LANGUAGES"
+                :key="language"
+                type="button"
+                class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors duration-150"
+                :class="languageFilter === language ? 'bg-moss text-moss-fg' : 'bg-paper-2 text-ink-2 hover:bg-line hover:text-ink'"
+                @click="languageFilter = language"
+              >
+                {{ LANGUAGE_FLAG[language] }} {{ LANGUAGE_LABEL[language] }} ({{ languageCounts[language] }})
+              </button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
+                :class="reviewFilter === 'all' ? 'border-line-strong bg-paper-2 font-medium text-ink' : 'border-line text-ink-2 hover:bg-paper-2'"
+                @click="reviewFilter = 'all'"
+              >
+                Все вопросы
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
+                :class="
+                  reviewFilter === 'unanswered' ? 'border-line-strong bg-paper-2 font-medium text-ink' : 'border-line text-ink-2 hover:bg-paper-2'
+                "
+                @click="reviewFilter = 'unanswered'"
+              >
+                Без ответа ({{ unansweredCount }})
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border px-2.5 py-1 text-xs transition-colors duration-150"
+                :class="
+                  reviewFilter === 'flagged' ? 'border-line-strong bg-paper-2 font-medium text-ink' : 'border-line text-ink-2 hover:bg-paper-2'
+                "
+                @click="reviewFilter = 'flagged'"
+              >
+                С замечаниями ({{ flaggedCount }})
+              </button>
+              <select
+                :value="presentFlags.includes(reviewFilter) ? reviewFilter : ''"
+                class="rounded-lg border border-line bg-paper px-2 py-1 text-xs text-ink"
+                @change="reviewFilter = ($event.target as HTMLSelectElement).value || 'all'"
+              >
+                <option value="">По типу замечания…</option>
+                <option v-for="flag in presentFlags" :key="flag" :value="flag">
+                  {{ flagInfo(flag).label }} ({{ flagCounts[flag] }})
+                </option>
+              </select>
+              <span class="text-xs text-ink-3">
+                Фильтры только скрывают карточки — сохранятся все отмеченные ({{ includedCount }}).
+              </span>
+            </div>
           </div>
         </div>
 
-        <div class="flex-1 space-y-3 overflow-y-auto pr-1">
+        <!-- ── Scrollable card list: vertical scroll only, contained so no
+             card can push the modal wider than the viewport. ── -->
+        <div class="w-full max-w-full flex-1 space-y-3 overflow-x-hidden overflow-y-auto px-5 py-3 max-h-[65vh]">
           <template v-for="group in visibleGroups" :key="group.key">
             <!-- ── Variant header, with the bulk key field ─────────────
                  The single most important control on this screen: without
                  it a 2000-question file is 2000 clicks. -->
-            <div class="sticky top-0 z-10 -mx-1 space-y-2 border-b border-border bg-card px-1 pb-2 pt-2">
-              <p v-if="group.label" class="text-xs font-semibold uppercase tracking-wide text-fg/50">
+            <div class="sticky top-0 z-10 -mx-1 space-y-2 border-b border-line bg-paper px-1 pb-2 pt-2">
+              <p v-if="group.label" class="text-xs font-semibold uppercase tracking-wide text-ink-2">
                 {{ group.label }}
-                <span class="ml-1 font-normal normal-case tracking-normal text-fg/40">
+                <span class="ml-1 font-normal normal-case tracking-normal text-ink-3">
                   — с ответами {{ variantAnswered(group.key) }} из {{ variantQuestions(group.key).length }}
                 </span>
               </p>
@@ -661,7 +666,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                   v-model="keyInput[group.key]"
                   type="text"
                   placeholder="Вставить ключи варианта: 1-B, 2-C, 3-A …"
-                  class="min-w-[16rem] flex-1 rounded-lg border border-fg/20 bg-transparent px-2.5 py-1.5 text-xs"
+                  class="min-w-[16rem] flex-1 rounded-lg border border-line-strong bg-paper px-2.5 py-1.5 text-xs text-ink"
                   @keydown.enter.prevent="applyKey(group.key)"
                 />
                 <BaseButton
@@ -682,30 +687,38 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
               </div>
               <!-- Shown before anything is applied: a bulk edit the teacher
                    cannot see the shape of first is one they cannot trust. -->
-              <p v-if="keyPreview(group.key)" class="text-xs text-fg/50">{{ keyPreview(group.key) }}</p>
-              <p v-if="keyResult[group.key]" class="text-xs text-emerald-700 dark:text-emerald-400">
+              <p v-if="keyPreview(group.key)" class="text-xs text-ink-3">{{ keyPreview(group.key) }}</p>
+              <p v-if="keyResult[group.key]" class="text-xs text-moss">
                 {{ keyResult[group.key] }}
               </p>
             </div>
 
+            <!-- ── Card states, ranked by how urgent they are:
+                 · blocking (would fail /bulk-create) is a real validation
+                   error -- clay, the same tone as any other failed-save state.
+                 · needs_review (advisory: missing key, unknown type, parse
+                   error) is exactly the "human needs to look at this" case
+                   `.marker-edge` exists for -- one flagged question in a
+                   list of hundreds, not decoration.
+                 · otherwise plain. -->
             <div
               v-for="{ question: q, index: i } in group.entries"
               :key="i"
               :ref="(el) => registerCard(i, el)"
               tabindex="0"
-              class="space-y-3 rounded-xl border p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500/60"
+              class="w-full min-w-0 max-w-full space-y-3 overflow-x-hidden rounded-xl border p-3 text-sm outline-none focus:ring-2 focus:ring-moss/60"
               :class="
                 !isReadyToSave(q)
-                  ? 'border-red-500/40 bg-red-500/5'
+                  ? 'border-clay/40 bg-clay/5'
                   : q.needs_review
-                    ? 'border-amber-500/50 bg-amber-500/5'
-                    : 'border-fg/10'
+                    ? 'marker-edge bg-marigold/5'
+                    : 'border-line'
               "
               @keydown="onCardKey($event, q, i)"
             >
               <div class="flex flex-wrap items-center gap-2">
-                <input v-model="q.include" type="checkbox" class="h-4 w-4 accent-indigo-600" />
-                <span v-if="q.question_number !== null" class="text-xs font-semibold text-fg/50">
+                <input v-model="q.include" type="checkbox" class="h-4 w-4 accent-moss" />
+                <span v-if="q.question_number !== null" class="text-xs font-semibold text-ink-3">
                   №{{ q.question_number }}
                 </span>
                 <BaseBadge :tone="hasAnswer(q) ? 'success' : 'warning'">
@@ -715,21 +728,17 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                      costs the same click and reads worse. -->
                 <button
                   type="button"
-                  class="rounded-lg border border-fg/20 px-2 py-1 text-xs transition-colors duration-150 hover:border-fg/40 hover:bg-fg/5"
+                  class="rounded-lg border border-line-strong px-2 py-1 text-xs text-ink-2 transition-colors duration-150 hover:border-line-strong hover:bg-paper-2"
                   :title="`Язык вопроса — нажмите, чтобы переключить на «${LANGUAGE_LABEL[otherLanguage(q.language)]}»`"
                   @click="toggleLanguage(q)"
                 >
                   {{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}
                 </button>
-                <select
-                  v-model="q.qtype"
-                  class="rounded-lg border border-border bg-card px-2 py-1 text-xs text-fg"
-                  @change="onQtypeChange(q)"
-                >
+                <select v-model="q.qtype" class="rounded-lg border border-line bg-paper px-2 py-1 text-xs text-ink" @change="onQtypeChange(q)">
                   <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
                 </select>
-                <span v-if="sourceLines(q)" class="text-xs text-fg/40">{{ sourceLines(q) }}</span>
-                <button class="ml-auto text-xs text-red-600 hover:underline dark:text-red-500" @click="removeQuestion(i)">
+                <span v-if="sourceLines(q)" class="text-xs text-ink-3">{{ sourceLines(q) }}</span>
+                <button class="ml-auto text-xs text-clay hover:underline" @click="removeQuestion(i)">
                   Удалить
                 </button>
               </div>
@@ -749,24 +758,24 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
 
               <!-- Named at the moment it can be fixed, not after the save
                    has already skipped it. -->
-              <p v-if="savableProblem(q)" class="text-xs text-red-600 dark:text-red-500">
+              <p v-if="savableProblem(q)" class="text-xs text-clay">
                 Не сохранится: {{ savableProblem(q) }}
               </p>
 
-              <p v-if="q.parse_error" class="text-xs text-red-600 dark:text-red-500">
+              <p v-if="q.parse_error" class="text-xs text-clay">
                 Не удалось разобрать этот блок ({{ q.parse_error }}) — текст ниже приведён как есть из файла.
               </p>
-              <p v-else-if="q.detected_qtype === 'unknown'" class="text-xs text-amber-700 dark:text-amber-400">
+              <p v-else-if="q.detected_qtype === 'unknown'" class="text-xs text-ink">
                 Тип вопроса определить не удалось — выберите его и заполните ответы вручную.
               </p>
-              <p v-else-if="q.key_source === 'highlight'" class="text-xs text-amber-700 dark:text-amber-400">
+              <p v-else-if="q.key_source === 'highlight'" class="text-xs text-ink">
                 Ответ взят из выделения цветом в PDF (в файле нет текстового «Ответ:») — проверьте его.
               </p>
 
               <textarea
                 v-model="q.text"
                 rows="2"
-                class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
+                class="w-full max-w-full break-words rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
                 placeholder="Текст вопроса"
               />
 
@@ -775,13 +784,13 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                   <input
                     v-model="c.is_correct"
                     type="checkbox"
-                    class="h-4 w-4 accent-indigo-600"
+                    class="h-4 w-4 accent-moss"
                     @change="refreshAnswerFlags(q)"
                   />
-                  <span v-if="choiceLabel(c)" class="w-14 shrink-0 text-xs text-fg/40">{{ choiceLabel(c) }}</span>
-                  <input v-model="c.text" class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm" />
+                  <span v-if="choiceLabel(c)" class="w-14 shrink-0 text-xs text-ink-3">{{ choiceLabel(c) }}</span>
+                  <input v-model="c.text" class="input min-w-0 flex-1 whitespace-normal break-words px-2 py-1.5" />
                 </div>
-                <button class="text-xs text-accent hover:underline" @click="addChoice(q)">+ вариант</button>
+                <button class="text-xs text-moss hover:underline" @click="addChoice(q)">+ вариант</button>
               </template>
 
               <template v-else-if="q.qtype === 'matching'">
@@ -790,10 +799,10 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                      the teacher has to retype. -->
                 <template v-if="q.match_left_items.length && q.match_options.length">
                   <div v-for="(prompt, pi) in q.match_left_items" :key="pi" class="flex items-center gap-2">
-                    <span class="w-6 shrink-0 text-xs text-fg/40">{{ pi + 1 }}.</span>
-                    <span class="flex-1 text-sm">{{ prompt }}</span>
+                    <span class="w-6 shrink-0 text-xs text-ink-3">{{ pi + 1 }}.</span>
+                    <span class="min-w-0 flex-1 whitespace-normal break-words text-sm text-ink">{{ prompt }}</span>
                     <select
-                      class="rounded-lg border border-border bg-card px-2 py-1 text-xs text-fg"
+                      class="shrink-0 rounded-lg border border-line bg-paper px-2 py-1 text-xs text-ink"
                       :value="pairedLabel(q, prompt)"
                       @change="setPairedLabel(q, prompt, ($event.target as HTMLSelectElement).value)"
                     >
@@ -808,21 +817,13 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                      ruled): fall back to two free-text columns. -->
                 <template v-else>
                   <div v-for="(p, pi) in q.match_pairs" :key="pi" class="flex items-center gap-2">
-                    <input
-                      v-model="p.prompt_text"
-                      placeholder="Слева"
-                      class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
-                    />
-                    <input
-                      v-model="p.answer_text"
-                      placeholder="Справа"
-                      class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
-                    />
+                    <input v-model="p.prompt_text" placeholder="Слева" class="input min-w-0 flex-1 whitespace-normal break-words px-2 py-1.5" />
+                    <input v-model="p.answer_text" placeholder="Справа" class="input min-w-0 flex-1 whitespace-normal break-words px-2 py-1.5" />
                   </div>
                 </template>
                 <button
                   v-if="!q.match_left_items.length"
-                  class="text-xs text-accent hover:underline"
+                  class="text-xs text-moss hover:underline"
                   @click="addMatchPair(q)"
                 >
                   + пара
@@ -834,24 +835,26 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                   <input
                     v-model="q.answer_variants[vi]"
                     placeholder="Принимаемый ответ"
-                    class="flex-1 rounded-lg border border-fg/20 bg-transparent px-2 py-1.5 text-sm"
+                    class="input min-w-0 flex-1 whitespace-normal break-words px-2 py-1.5"
                   />
                 </div>
-                <button class="text-xs text-accent hover:underline" @click="addAnswerVariant(q)">+ вариант написания</button>
+                <button class="text-xs text-moss hover:underline" @click="addAnswerVariant(q)">+ вариант написания</button>
               </template>
             </div>
           </template>
 
-          <p v-if="!questions.length" class="text-sm text-fg/60">Ничего не распознано.</p>
-          <p v-else-if="!visibleQuestions.length" class="text-sm text-fg/60">
+          <p v-if="!questions.length" class="text-sm text-ink-2">Ничего не распознано.</p>
+          <p v-else-if="!visibleQuestions.length" class="text-sm text-ink-2">
             Под выбранные фильтры не подходит ни один вопрос.
           </p>
         </div>
 
-        <p v-if="errorMessage" class="mt-3 text-sm text-red-600 dark:text-red-500">{{ errorMessage }}</p>
+        <p v-if="errorMessage" class="px-5 text-sm text-clay">{{ errorMessage }}</p>
 
-        <div class="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-          <p class="mr-auto text-xs text-fg/40">
+        <!-- ── Sticky footer: save actions stay reachable without scrolling
+             to the bottom of a long card list. ── -->
+        <div class="sticky bottom-0 z-20 flex flex-wrap items-center justify-end gap-2 border-t border-line bg-paper p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <p class="mr-auto text-xs text-ink-3">
             Подсказка: выберите карточку и нажимайте A/B/C/D — ответ, Enter — следующий вопрос.
           </p>
           <BaseButton variant="secondary" :disabled="phase === 'saving'" @click="emit('close')">Отмена</BaseButton>
@@ -881,11 +884,11 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
       </template>
 
       <!-- ── Step 4: done ───────────────────────────────────────────── -->
-      <div v-else-if="phase === 'done' && saveResult" class="flex flex-col items-center gap-3 py-10 text-center">
+      <div v-else-if="phase === 'done' && saveResult" class="flex flex-col items-center gap-3 px-5 pb-10 pt-2 text-center">
         <span class="text-3xl">✅</span>
-        <p class="font-medium">Сохранено вопросов: {{ saveResult.created_count }}</p>
-        <div v-if="saveResult.skipped.length" class="max-w-sm text-sm text-fg/60">
-          <p class="mb-1 text-amber-700 dark:text-amber-400">Пропущено: {{ saveResult.skipped.length }}</p>
+        <p class="font-medium text-ink">Сохранено вопросов: {{ saveResult.created_count }}</p>
+        <div v-if="saveResult.skipped.length" class="max-w-sm text-sm text-ink-2">
+          <p class="mb-1 rounded-md bg-marigold/10 px-2 py-1 text-ink">Пропущено: {{ saveResult.skipped.length }}</p>
           <ul class="space-y-1 text-left">
             <li v-for="s in saveResult.skipped" :key="s.index">№{{ s.index + 1 }}: {{ s.error }}</li>
           </ul>

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { getCategoryImageUrl } from "@/api/categories";
 import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
+import PageContainer from "@/components/layout/PageContainer.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import { useApplicationsStore } from "@/stores/applications";
 import { useCategoriesStore } from "@/stores/categories";
@@ -53,64 +54,68 @@ const filtered = computed(() => {
 </script>
 
 <template>
-  <div>
-    <div class="relative mb-8 overflow-hidden rounded-2xl border border-border bg-card px-6 py-10 sm:px-10">
-      <div class="glow-blob -left-16 -top-24 h-64 w-64" />
-      <div class="glow-blob -bottom-24 -right-10 h-64 w-64" style="background: radial-gradient(circle, hsl(330 81% 60% / 0.5), transparent 70%)" />
-      <div class="relative">
-        <h1 class="text-3xl font-bold sm:text-4xl">
-          <span class="text-gradient-brand">Каталог предметов</span>
-        </h1>
-        <p class="mt-2 max-w-xl text-sm text-fg/60 sm:text-base">
-          Выбирай предмет, подавай заявку и открывай уроки, тесты и симуляции ЕНТ — всё в одном месте.
-        </p>
+  <PageContainer>
+    <div class="mb-8 overflow-hidden rounded-2xl border border-line bg-paper px-6 py-10 sm:px-10">
+      <h1 class="font-display text-display-lg text-ink">Каталог предметов</h1>
+      <p class="mt-2 max-w-xl text-sm text-ink-2 sm:text-base">
+        Выбирай предмет, подавай заявку и открывай уроки, тесты и симуляции ЕНТ — всё в одном месте.
+      </p>
 
-        <div class="mt-6 flex flex-col gap-3">
-          <input
-            v-model="search"
-            type="search"
-            placeholder="Найти предмет…"
-            class="w-full max-w-md rounded-xl border border-fg/20 bg-transparent px-4 py-3 text-sm text-fg placeholder:text-fg/40 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:bg-bg/60"
-          />
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all duration-150"
-              :class="
-                activeTag === null
-                  ? 'border-transparent bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : 'border-border text-fg/70 hover:border-indigo-500/40 hover:text-fg'
-              "
-              @click="activeTag = null"
-            >
-              Все
-            </button>
-            <button
-              v-for="tag in tags"
-              :key="tag"
-              type="button"
-              class="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all duration-150"
-              :class="
-                activeTag === tag
-                  ? 'border-transparent bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : 'border-border text-fg/70 hover:border-indigo-500/40 hover:text-fg'
-              "
-              @click="activeTag = activeTag === tag ? null : tag"
-            >
-              {{ tag }}
-            </button>
-          </div>
+      <div class="mt-6 flex flex-col gap-3">
+        <input v-model="search" type="search" placeholder="Найти предмет…" class="input w-full max-w-md" />
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors"
+            :class="
+              activeTag === null
+                ? 'border-transparent bg-moss text-moss-fg'
+                : 'border-line text-ink-2 hover:border-line-strong hover:text-ink'
+            "
+            @click="activeTag = null"
+          >
+            Все
+          </button>
+          <button
+            v-for="tag in tags"
+            :key="tag"
+            type="button"
+            class="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors"
+            :class="
+              activeTag === tag
+                ? 'border-transparent bg-moss text-moss-fg'
+                : 'border-line text-ink-2 hover:border-line-strong hover:text-ink'
+            "
+            @click="activeTag = activeTag === tag ? null : tag"
+          >
+            {{ tag }}
+          </button>
         </div>
       </div>
     </div>
 
-    <p v-if="categories.loading" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="!filtered.length" class="text-fg/60">Ничего не найдено по вашему запросу.</p>
-    <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div v-if="categories.loading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div v-for="n in 6" :key="n" class="h-64 animate-pulse rounded-xl bg-paper-2" />
+    </div>
+    <div v-else-if="!filtered.length" class="card flex flex-col items-center gap-3 px-6 py-12 text-center">
+      <span class="text-3xl">🔍</span>
+      <p class="font-medium text-ink">Ничего не найдено</p>
+      <p class="max-w-xs text-sm text-ink-2">Попробуйте изменить запрос или сбросить фильтр по предмету.</p>
+      <BaseButton
+        variant="secondary"
+        @click="
+          search = '';
+          activeTag = null;
+        "
+      >
+        Сбросить фильтры
+      </BaseButton>
+    </div>
+    <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 items-stretch">
       <div
         v-for="category in filtered"
         :key="category.id"
-        class="flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-500/5"
+        class="card flex flex-col overflow-hidden transition-transform hover:-translate-y-0.5"
       >
         <img
           v-if="category.has_image"
@@ -118,26 +123,22 @@ const filtered = computed(() => {
           alt=""
           class="h-32 w-full object-cover"
         />
-        <div
-          v-else
-          class="flex h-32 w-full items-center justify-center bg-gradient-to-br text-5xl"
-          :class="subjectTheme(category.name, category.id).gradient"
-        >
+        <div v-else class="flex h-32 w-full items-center justify-center bg-moss/15 text-5xl">
           {{ subjectTheme(category.name, category.id).icon }}
         </div>
 
         <div class="flex flex-1 flex-col gap-3 p-5">
           <div class="flex items-start justify-between gap-2">
-            <h2 class="text-lg font-semibold">{{ capitalize(category.name) }}</h2>
+            <h2 class="text-lg font-semibold text-ink">{{ capitalize(category.name) }}</h2>
             <ApplicationStatusBadge :status="category.my_application_status" />
           </div>
-          <p v-if="category.description" class="line-clamp-2 text-sm text-fg/60">{{ category.description }}</p>
+          <p v-if="category.description" class="line-clamp-2 text-sm text-ink-2">{{ category.description }}</p>
 
           <div class="flex flex-wrap gap-1.5 text-xs">
-            <span class="rounded-full bg-fg/5 px-2.5 py-1 font-medium text-fg/70">
+            <span class="rounded-full bg-paper-2 px-2.5 py-1 font-medium text-ink-2">
               {{ lessonsLabel(category.lesson_count) }}
             </span>
-            <span v-if="hoursLabel(category.total_duration_seconds)" class="rounded-full bg-fg/5 px-2.5 py-1 font-medium text-fg/70">
+            <span v-if="hoursLabel(category.total_duration_seconds)" class="rounded-full bg-paper-2 px-2.5 py-1 font-medium text-ink-2">
               ~{{ hoursLabel(category.total_duration_seconds) }}
             </span>
           </div>
@@ -157,5 +158,5 @@ const filtered = computed(() => {
         </div>
       </div>
     </div>
-  </div>
+  </PageContainer>
 </template>

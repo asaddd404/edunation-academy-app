@@ -6,7 +6,7 @@ const emit = defineEmits<{ (e: "change", page: number): void }>();
 </script>
 
 <template>
-  <div v-if="pages > 1" class="flex flex-wrap items-center justify-between gap-3 pt-1 text-sm text-fg/60">
+  <div v-if="pages > 1" class="flex flex-wrap items-center justify-between gap-3 pt-1 text-body text-ink-2">
     <span>Стр. {{ page }} из {{ pages }} · всего {{ total }}</span>
     <div class="flex gap-2">
       <BaseButton variant="secondary" :disabled="page <= 1" @click="emit('change', page - 1)">← Назад</BaseButton>

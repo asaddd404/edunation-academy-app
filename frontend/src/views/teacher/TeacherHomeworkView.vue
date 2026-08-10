@@ -2,6 +2,8 @@
 import { onMounted, reactive, ref } from "vue";
 
 import { downloadHomeworkFile, listPendingHomework, reviewHomework } from "@/api/homework";
+import PageContainer from "@/components/layout/PageContainer.vue";
+import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { HomeworkSubmission } from "@/types";
 
@@ -36,18 +38,26 @@ function handleDownload(submission: HomeworkSubmission) {
 </script>
 
 <template>
-  <div>
-    <h1 class="mb-6 text-2xl font-semibold">Домашние задания на проверку</h1>
-    <p v-if="loading" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="!submissions.length" class="text-fg/60">Нечего проверять.</p>
-    <ul class="space-y-4">
-      <li v-for="submission in submissions" :key="submission.id" class="space-y-3 rounded-xl border border-fg/10 p-4">
+  <PageContainer>
+    <PageHeader title="Домашние задания на проверку" />
+
+    <div v-if="loading" class="space-y-4">
+      <div v-for="i in 3" :key="i" class="h-40 animate-pulse rounded-xl bg-paper-2" />
+    </div>
+
+    <div v-else-if="!submissions.length" class="card py-12 text-center">
+      <p class="text-3xl">✅</p>
+      <p class="mt-3 text-ink-2">Нечего проверять — все домашние задания разобраны.</p>
+    </div>
+
+    <ul v-else class="space-y-4">
+      <li v-for="submission in submissions" :key="submission.id" class="card marker-edge space-y-3 p-4">
         <div>
-          <p class="font-medium">{{ submission.student_name }} — {{ submission.lesson_title }}</p>
-          <p v-if="submission.text_answer" class="mt-2 whitespace-pre-line text-sm text-fg/80">{{ submission.text_answer }}</p>
+          <p class="font-medium text-ink">{{ submission.student_name }} — {{ submission.lesson_title }}</p>
+          <p v-if="submission.text_answer" class="mt-2 whitespace-pre-line text-sm text-ink-2">{{ submission.text_answer }}</p>
           <button
             v-if="submission.file_original_name"
-            class="mt-2 text-sm text-accent underline"
+            class="mt-2 text-sm text-moss underline"
             @click="handleDownload(submission)"
           >
             Скачать файл: {{ submission.file_original_name }}
@@ -56,7 +66,7 @@ function handleDownload(submission: HomeworkSubmission) {
         <input
           v-model="feedback[submission.id]"
           placeholder="Комментарий (необязательно)"
-          class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
+          class="input"
         />
         <div class="flex gap-2">
           <BaseButton variant="secondary" :disabled="reviewingId === submission.id" @click="handleReview(submission.id, 'revision_requested')">
@@ -68,5 +78,5 @@ function handleDownload(submission: HomeworkSubmission) {
         </div>
       </li>
     </ul>
-  </div>
+  </PageContainer>
 </template>

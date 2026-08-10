@@ -172,38 +172,37 @@ async function handleDelete(questionId: number) {
 
 <template>
   <div>
-    <p v-if="loading" class="text-sm text-fg/60">Загрузка вопросов…</p>
+    <div v-if="loading" class="mb-3 space-y-2">
+      <div class="h-14 animate-pulse rounded-lg bg-paper-2" />
+      <div class="h-14 animate-pulse rounded-lg bg-paper-2" />
+    </div>
     <ul v-else class="mb-3 space-y-2">
       <li
         v-for="q in questions"
         :key="q.id"
-        class="flex items-start justify-between gap-3 rounded-lg border border-fg/10 p-3 text-sm"
+        class="flex flex-col gap-3 rounded-lg border border-line p-3 text-sm sm:flex-row sm:items-start sm:justify-between"
       >
-        <div>
+        <div class="min-w-0">
           <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
           <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
-          <p class="mt-1">{{ q.text }}</p>
+          <p class="mt-1 text-ink">{{ q.text }}</p>
         </div>
-        <div class="flex shrink-0 gap-2">
+        <div class="flex shrink-0 flex-wrap gap-2">
           <BaseButton variant="secondary" @click="startEdit(q)">Редактировать</BaseButton>
           <BaseButton variant="danger" @click="handleDelete(q.id)">Удалить</BaseButton>
         </div>
       </li>
-      <li v-if="!questions.length" class="text-sm text-fg/60">Вопросов пока нет.</li>
+      <li v-if="!questions.length" class="text-sm text-ink-2">Вопросов пока нет.</li>
     </ul>
 
     <BaseButton v-if="!formOpen" variant="secondary" @click="openCreateForm">Добавить вопрос</BaseButton>
 
-    <div v-else class="space-y-3 rounded-lg bg-fg/5 p-4">
-      <p class="text-sm font-medium">{{ editingId !== null ? "Редактирование вопроса" : "Новый вопрос" }}</p>
+    <div v-else class="space-y-3 rounded-lg bg-paper-2 p-4">
+      <p class="text-sm font-medium text-ink">{{ editingId !== null ? "Редактирование вопроса" : "Новый вопрос" }}</p>
 
       <label class="block text-sm">
-        <span class="mb-1.5 block font-medium text-fg/80">Тип вопроса</span>
-        <select
-          v-model="form.qtype"
-          class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
-          @change="onQtypeChange"
-        >
+        <span class="mb-1.5 block font-medium text-ink-2">Тип вопроса</span>
+        <select v-model="form.qtype" class="input" @change="onQtypeChange">
           <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
         </select>
       </label>
@@ -211,13 +210,13 @@ async function handleDelete(questionId: number) {
       <BaseInput v-model="form.text" label="Текст вопроса" />
 
       <label class="block text-sm" v-if="form.qtype !== 'multiple' && form.qtype !== 'matching'">
-        <span class="mb-1.5 block font-medium text-fg/80">Баллы за вопрос</span>
-        <select v-model.number="form.maxScore" class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg">
+        <span class="mb-1.5 block font-medium text-ink-2">Баллы за вопрос</span>
+        <select v-model.number="form.maxScore" class="input">
           <option :value="1">1</option>
           <option :value="2">2 (профильный)</option>
         </select>
       </label>
-      <p v-else class="text-sm text-fg/60">Баллы: 2 (2 — всё верно, 1 — частично, 0 — иначе)</p>
+      <p v-else class="text-sm text-ink-2">Баллы: 2 (2 — всё верно, 1 — частично, 0 — иначе)</p>
 
       <template v-if="form.qtype === 'single' || form.qtype === 'multiple'">
         <div v-for="(choice, i) in form.choices" :key="i" class="flex items-center gap-2">
@@ -229,38 +228,22 @@ async function handleDelete(questionId: number) {
             @change="form.choices.forEach((c, ci) => (c.isCorrect = ci === i))"
           />
           <input v-else type="checkbox" v-model="choice.isCorrect" />
-          <input
-            v-model="choice.text"
-            placeholder="Вариант ответа"
-            class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-          />
+          <input v-model="choice.text" placeholder="Вариант ответа" class="input flex-1" />
         </div>
         <BaseButton variant="secondary" @click="addChoice">+ вариант</BaseButton>
       </template>
 
       <template v-else-if="form.qtype === 'matching'">
         <div v-for="(pair, i) in form.matchPairs" :key="i" class="flex items-center gap-2">
-          <input
-            v-model="pair.promptText"
-            placeholder="Слева (вопрос)"
-            class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-          />
-          <input
-            v-model="pair.answerText"
-            placeholder="Справа (правильная пара)"
-            class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-          />
+          <input v-model="pair.promptText" placeholder="Слева (вопрос)" class="input flex-1" />
+          <input v-model="pair.answerText" placeholder="Справа (правильная пара)" class="input flex-1" />
         </div>
         <BaseButton variant="secondary" @click="addMatchPair">+ пара</BaseButton>
       </template>
 
       <template v-else>
         <div v-for="(_, i) in form.answerVariants" :key="i" class="flex items-center gap-2">
-          <input
-            v-model="form.answerVariants[i]"
-            placeholder="Принимаемый ответ"
-            class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-          />
+          <input v-model="form.answerVariants[i]" placeholder="Принимаемый ответ" class="input flex-1" />
         </div>
         <BaseButton variant="secondary" @click="addAnswerVariant">+ вариант написания</BaseButton>
       </template>

@@ -303,10 +303,11 @@ def test_question_numbering_restarts_in_every_variant():
 )
 def test_variant_triggers(header):
     lines = join_wrapped_lines(preprocess(f"{header}\n1. Вопрос?\nA) Да\nB) Нет\nОтвет: A\n"))
-    segments = split_variants(lines)
+    segments, duplicates = split_variants(lines)
 
     assert [s.variant_id for s in segments] == [4]
     assert segments[0].label == header
+    assert duplicates == 0
 
 
 def test_a_variant_word_inside_a_question_does_not_cut_the_file():

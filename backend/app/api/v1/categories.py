@@ -1,40 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.category_stats import lesson_stats
 from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.storage import resolve_upload_path
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.application import Application
 from app.models.category import Category
-from app.models.lesson import Lesson
-from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.category import CategoryOut
 from app.schemas.pagination import Page
 
 router = APIRouter(prefix="/categories", tags=["categories"])
-
-
-async def _lesson_stats(db: AsyncSession, category_ids: list[int]) -> dict[int, tuple[int, int]]:
-    """category_id -> (lesson_count, total_video_duration_seconds), real counts from Section/Lesson."""
-    if not category_ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(
-                Section.category_id,
-                func.count(Lesson.id),
-                func.coalesce(func.sum(Lesson.video_duration_seconds), 0),
-            )
-            .join(Lesson, Lesson.section_id == Section.id)
-            .where(Section.category_id.in_(category_ids))
-            .group_by(Section.category_id)
-        )
-    ).all()
-    return {row[0]: (row[1], int(row[2])) for row in rows}
 
 
 @router.get("", response_model=Page[CategoryOut])
@@ -56,7 +36,7 @@ async def list_categories(
             # decision takes precedence over an older pending row if re-applied).
             status_by_category[app_.category_id] = app_.status.value
 
-    stats = await _lesson_stats(db, [c.id for c in categories])
+    stats = await lesson_stats(db, [c.id for c in categories])
 
     result = []
     for category in categories:
@@ -105,6 +85,6 @@ async def get_category(
         if application is not None:
             out.my_application_status = application.status.value
 
-    stats = await _lesson_stats(db, [category_id])
+    stats = await lesson_stats(db, [category_id])
     out.lesson_count, out.total_duration_seconds = stats.get(category_id, (0, 0))
     return out

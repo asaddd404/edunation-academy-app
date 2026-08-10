@@ -5,15 +5,31 @@ export default {
   theme: {
     extend: {
       colors: {
-        accent: "hsl(var(--color-accent) / <alpha-value>)",
-        bg: "hsl(var(--color-bg) / <alpha-value>)",
-        fg: "hsl(var(--color-fg) / <alpha-value>)",
-        card: "hsl(var(--color-card) / <alpha-value>)",
-        border: "hsl(var(--color-border) / <alpha-value>)",
-        pop: "hsl(var(--color-pop) / <alpha-value>)",
+        ink: "rgb(var(--ink) / <alpha-value>)",
+        "ink-2": "rgb(var(--ink-2) / <alpha-value>)",
+        "ink-3": "rgb(var(--ink-3) / <alpha-value>)",
+        sand: "rgb(var(--sand) / <alpha-value>)",
+        paper: "rgb(var(--paper) / <alpha-value>)",
+        "paper-2": "rgb(var(--paper-2) / <alpha-value>)",
+        line: "rgb(var(--line) / <alpha-value>)",
+        "line-strong": "rgb(var(--line-strong) / <alpha-value>)",
+        moss: "rgb(var(--moss) / <alpha-value>)",
+        "moss-fg": "rgb(var(--moss-fg) / <alpha-value>)",
+        marigold: "rgb(var(--marigold) / <alpha-value>)",
+        clay: "rgb(var(--clay) / <alpha-value>)",
       },
-      boxShadow: {
-        glow: "0 0 0 1px hsl(var(--color-pop) / 0.4), 0 0 24px 0 hsl(var(--color-pop) / 0.45)",
+      borderRadius: { DEFAULT: "var(--radius)" },
+      fontFamily: {
+        display: ["Literata", "ui-serif", "serif"],
+        body: ["Inter", "ui-sans-serif", "sans-serif"],
+      },
+      fontSize: {
+        "display-lg": ["2rem", { lineHeight: "2.5rem", fontWeight: "600" }],
+        "display-sm": ["1.375rem", { lineHeight: "1.875rem", fontWeight: "600" }],
+        "body-lg": ["1.0625rem", { lineHeight: "1.75rem", fontWeight: "400" }],
+        body: ["0.9375rem", { lineHeight: "1.5rem", fontWeight: "400" }],
+        label: ["0.8125rem", { lineHeight: "1.125rem", fontWeight: "500" }],
+        caption: ["0.75rem", { lineHeight: "1rem", fontWeight: "400" }],
       },
       keyframes: {
         "fade-up": {
@@ -24,22 +40,11 @@ export default {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
-        float: {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-12px)" },
-        },
-        drift: {
-          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
-          "33%": { transform: "translate(24px, -18px) scale(1.08)" },
-          "66%": { transform: "translate(-18px, 14px) scale(0.95)" },
-        },
       },
       animation: {
         // `both` keeps the element hidden until its (optionally delayed) run starts.
         "fade-up": "fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both",
         "fade-in": "fade-in 0.5s ease-out both",
-        float: "float 6s ease-in-out infinite",
-        drift: "drift 18s ease-in-out infinite",
       },
     },
   },

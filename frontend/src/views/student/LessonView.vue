@@ -6,6 +6,8 @@ import { submitHomework } from "@/api/homework";
 import { getLesson, submitTestAttempt } from "@/api/lessons";
 import { getStudentVideoTicket } from "@/api/video";
 import HlsPlayer from "@/components/media/HlsPlayer.vue";
+import PageContainer from "@/components/layout/PageContainer.vue";
+import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { AnswerPayload, LessonDetail, TestAttemptResult } from "@/types";
@@ -126,140 +128,149 @@ function handleFileChange(event: Event) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-2xl space-y-8">
-    <p v-if="loading" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="loadError" class="text-red-600 dark:text-red-500">{{ loadError }}</p>
+  <PageContainer>
+    <div v-if="loading" class="space-y-6">
+      <div class="h-8 w-2/3 animate-pulse rounded-lg bg-paper-2"></div>
+      <div class="h-64 w-full animate-pulse rounded-2xl bg-paper-2"></div>
+      <div class="h-40 w-full max-w-[42rem] animate-pulse rounded-2xl bg-paper-2"></div>
+    </div>
+
+    <div v-else-if="loadError" class="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+      <p class="text-clay">{{ loadError }}</p>
+      <BaseButton variant="secondary" @click="load">Повторить</BaseButton>
+    </div>
+
     <template v-else-if="lesson">
-      <div>
-        <h1 class="mb-2 text-2xl font-semibold">{{ lesson.title }}</h1>
-        <BaseBadge :tone="lesson.is_passed ? 'success' : 'neutral'">
-          {{ lesson.is_passed ? "Тест пройден" : "Тест не пройден" }}
-        </BaseBadge>
-      </div>
+      <PageHeader :title="lesson.title">
+        <template #actions>
+          <BaseBadge :tone="lesson.is_passed ? 'success' : 'neutral'">
+            {{ lesson.is_passed ? "Тест пройден" : "Тест не пройден" }}
+          </BaseBadge>
+        </template>
+      </PageHeader>
 
-      <HlsPlayer v-if="videoSrc" :src="videoSrc" />
-      <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-fg/10 p-4 text-sm text-fg/60">
-        Видео обрабатывается, зайдите чуть позже.
-      </p>
-      <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-fg/10 p-4 text-sm text-red-600 dark:text-red-500">
-        Не удалось обработать видео. Сообщите учителю.
-      </p>
-      <p v-else-if="videoError" class="rounded-xl border border-fg/10 p-4 text-sm text-red-600 dark:text-red-500">{{ videoError }}</p>
-
-      <p v-if="lesson.description" class="whitespace-pre-line text-fg/80">{{ lesson.description }}</p>
-
-      <section v-if="lesson.questions.length" class="space-y-4 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
-        <h2 class="text-lg font-medium">Мини-тест</h2>
-        <div v-for="question in lesson.questions" :key="question.id" class="space-y-2">
-          <p class="font-medium">{{ question.text }}</p>
-
-          <template v-if="question.qtype === 'single'">
-            <label
-              v-for="choice in question.choices"
-              :key="choice.id"
-              class="flex items-center gap-2 rounded-lg border border-fg/10 px-3 py-2 text-sm"
-            >
-              <input
-                type="radio"
-                :name="`question-${question.id}`"
-                :value="choice.id"
-                @change="setSingleChoice(question.id, choice.id)"
-              />
-              {{ choice.text }}
-            </label>
-          </template>
-
-          <template v-else-if="question.qtype === 'multiple'">
-            <label
-              v-for="choice in question.choices"
-              :key="choice.id"
-              class="flex items-center gap-2 rounded-lg border border-fg/10 px-3 py-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                @change="toggleMultipleChoice(question.id, choice.id, ($event.target as HTMLInputElement).checked)"
-              />
-              {{ choice.text }}
-            </label>
-          </template>
-
-          <template v-else-if="question.qtype === 'matching'">
-            <div v-for="prompt in question.match_prompts" :key="prompt.id" class="flex items-center gap-2 text-sm">
-              <span class="w-1/2">{{ prompt.text }}</span>
-              <select
-                class="w-1/2 rounded-lg border border-border bg-card px-3 py-2 text-fg"
-                @change="setMatchPair(question.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
-              >
-                <option value="" disabled selected>Выберите пару</option>
-                <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ opt.text }}</option>
-              </select>
-            </div>
-          </template>
-
-          <template v-else>
-            <input
-              type="text"
-              placeholder="Ваш ответ"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm"
-              @input="setShortAnswer(question.id, ($event.target as HTMLInputElement).value)"
-            />
-          </template>
-        </div>
-        <p v-if="testResult" class="text-sm" :class="testResult.passed ? 'text-green-700 dark:text-green-500' : 'text-red-600 dark:text-red-500'">
-          {{
-            testResult.passed
-              ? `Тест пройден, балл: ${testResult.score}%`
-              : `Тест не пройден (балл: ${testResult.score}%). Правильные ответы не показываются — пересмотрите урок и попробуйте снова.`
-          }}
+      <div class="space-y-8">
+        <HlsPlayer v-if="videoSrc" :src="videoSrc" />
+        <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-line p-4 text-sm text-ink-2">
+          Видео обрабатывается, зайдите чуть позже.
         </p>
-        <p v-if="testError" class="text-sm text-red-600 dark:text-red-500">{{ testError }}</p>
-        <BaseButton variant="cta" :disabled="!allQuestionsAnswered || testSubmitting" @click="handleSubmitTest">
-          Отправить тест
-        </BaseButton>
-      </section>
+        <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-line p-4 text-sm text-clay">
+          Не удалось обработать видео. Сообщите учителю.
+        </p>
+        <p v-else-if="videoError" class="rounded-xl border border-line p-4 text-sm text-clay">{{ videoError }}</p>
 
-      <section v-if="lesson.homework_assignment" class="space-y-3 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
-        <h2 class="text-lg font-medium">Домашнее задание</h2>
-        <p class="text-fg/80">{{ lesson.homework_assignment }}</p>
+        <p v-if="lesson.description" class="max-w-[70ch] whitespace-pre-line text-ink-2">{{ lesson.description }}</p>
 
-        <div v-if="lesson.my_homework" class="rounded-lg bg-fg/5 p-3 text-sm">
-          <p>
-            Статус:
-            <BaseBadge
-              :tone="
-                lesson.my_homework.status === 'accepted'
-                  ? 'success'
-                  : lesson.my_homework.status === 'revision_requested'
-                    ? 'danger'
-                    : 'warning'
-              "
-            >
+        <div class="max-w-[42rem] space-y-8">
+          <section v-if="lesson.questions.length" class="card space-y-4 p-4">
+            <h2 class="text-lg font-medium text-ink">Мини-тест</h2>
+            <div v-for="question in lesson.questions" :key="question.id" class="space-y-2">
+              <p class="text-body-lg font-medium text-ink">{{ question.text }}</p>
+
+              <template v-if="question.qtype === 'single'">
+                <label
+                  v-for="choice in question.choices"
+                  :key="choice.id"
+                  class="flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
+                >
+                  <input
+                    type="radio"
+                    :name="`question-${question.id}`"
+                    :value="choice.id"
+                    @change="setSingleChoice(question.id, choice.id)"
+                  />
+                  {{ choice.text }}
+                </label>
+              </template>
+
+              <template v-else-if="question.qtype === 'multiple'">
+                <label
+                  v-for="choice in question.choices"
+                  :key="choice.id"
+                  class="flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    @change="toggleMultipleChoice(question.id, choice.id, ($event.target as HTMLInputElement).checked)"
+                  />
+                  {{ choice.text }}
+                </label>
+              </template>
+
+              <template v-else-if="question.qtype === 'matching'">
+                <div v-for="prompt in question.match_prompts" :key="prompt.id" class="flex items-center gap-2 text-sm">
+                  <span class="w-1/2 text-ink">{{ prompt.text }}</span>
+                  <select
+                    class="input w-1/2"
+                    @change="setMatchPair(question.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
+                  >
+                    <option value="" disabled selected>Выберите пару</option>
+                    <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ opt.text }}</option>
+                  </select>
+                </div>
+              </template>
+
+              <template v-else>
+                <input
+                  type="text"
+                  placeholder="Ваш ответ"
+                  class="input"
+                  @input="setShortAnswer(question.id, ($event.target as HTMLInputElement).value)"
+                />
+              </template>
+            </div>
+            <p v-if="testResult" class="text-sm" :class="testResult.passed ? 'text-moss' : 'text-clay'">
               {{
-                lesson.my_homework.status === "accepted"
-                  ? "Принято"
-                  : lesson.my_homework.status === "revision_requested"
-                    ? "На доработку"
-                    : "На проверке"
+                testResult.passed
+                  ? `Тест пройден, балл: ${testResult.score}%`
+                  : `Тест не пройден (балл: ${testResult.score}%). Правильные ответы не показываются — пересмотрите урок и попробуйте снова.`
               }}
-            </BaseBadge>
-          </p>
-          <p v-if="lesson.my_homework.teacher_feedback" class="mt-2">
-            Комментарий учителя: {{ lesson.my_homework.teacher_feedback }}
-          </p>
-        </div>
+            </p>
+            <p v-if="testError" class="text-sm text-clay">{{ testError }}</p>
+            <BaseButton variant="cta" :disabled="!allQuestionsAnswered || testSubmitting" @click="handleSubmitTest">
+              Отправить тест
+            </BaseButton>
+          </section>
 
-        <textarea
-          v-model="homeworkText"
-          rows="4"
-          placeholder="Текст ответа…"
-          class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-3 text-sm focus:border-accent focus:outline-none"
-        />
-        <input type="file" accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx" class="text-sm" @change="handleFileChange" />
-        <p v-if="homeworkError" class="text-sm text-red-600 dark:text-red-500">{{ homeworkError }}</p>
-        <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
-          Отправить домашку
-        </BaseButton>
-      </section>
+          <section v-if="lesson.homework_assignment" class="card space-y-3 p-4">
+            <h2 class="text-lg font-medium text-ink">Домашнее задание</h2>
+            <p class="text-ink-2">{{ lesson.homework_assignment }}</p>
+
+            <div v-if="lesson.my_homework" class="rounded-lg bg-paper-2 p-3 text-sm text-ink">
+              <p>
+                Статус:
+                <BaseBadge
+                  :tone="
+                    lesson.my_homework.status === 'accepted'
+                      ? 'success'
+                      : lesson.my_homework.status === 'revision_requested'
+                        ? 'danger'
+                        : 'warning'
+                  "
+                >
+                  {{
+                    lesson.my_homework.status === "accepted"
+                      ? "Принято"
+                      : lesson.my_homework.status === "revision_requested"
+                        ? "На доработку"
+                        : "На проверке"
+                  }}
+                </BaseBadge>
+              </p>
+              <p v-if="lesson.my_homework.teacher_feedback" class="mt-2">
+                Комментарий учителя: {{ lesson.my_homework.teacher_feedback }}
+              </p>
+            </div>
+
+            <textarea v-model="homeworkText" rows="4" placeholder="Текст ответа…" class="input" />
+            <input type="file" accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx" class="text-sm text-ink-2" @change="handleFileChange" />
+            <p v-if="homeworkError" class="text-sm text-clay">{{ homeworkError }}</p>
+            <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
+              Отправить домашку
+            </BaseButton>
+          </section>
+        </div>
+      </div>
     </template>
-  </div>
+  </PageContainer>
 </template>

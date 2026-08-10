@@ -3,6 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import secrets
+import string
+
+from app.core.category_stats import lesson_stats
 from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.slug import slugify
 from app.database import get_db
@@ -11,7 +15,12 @@ from app.models.category import Category, teacher_categories
 from app.models.user import RoleEnum, User
 from app.schemas.category import AssignTeacherIn, CategoryAdminOut, CategoryIn, CategoryOut, CategoryUpdateIn
 from app.schemas.pagination import Page
-from app.schemas.user import UserOut, UserUpdateIn
+from app.schemas.user import PasswordResetOut, UserOut, UserUpdateIn
+from app.security import hash_password, revoke_all_refresh_tokens
+
+# Excludes visually-confusable characters (0/O, 1/l/I) -- this password is
+# read off a screen and retyped by someone else, often over the phone.
+_TEMP_PASSWORD_ALPHABET = "".join(c for c in string.ascii_letters + string.digits if c not in "0O1lI")
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_role(RoleEnum.admin))])
 
@@ -45,6 +54,23 @@ async def update_user(user_id: int, payload: UserUpdateIn, db: AsyncSession = De
     return UserOut.model_validate(user)
 
 
+@router.post("/users/{user_id}/reset-password", response_model=PasswordResetOut)
+async def reset_user_password(user_id: int, db: AsyncSession = Depends(get_db)) -> PasswordResetOut:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден")
+
+    temporary_password = "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(10))
+    user.password_hash = hash_password(temporary_password)
+    await db.commit()
+
+    # A password reset should end every session the old password was
+    # logged into, not just stop working the next time it's typed.
+    await revoke_all_refresh_tokens(user_id)
+
+    return PasswordResetOut(temporary_password=temporary_password)
+
+
 @router.get("/categories", response_model=Page[CategoryAdminOut])
 async def list_categories_for_admin(
     db: AsyncSession = Depends(get_db),
@@ -56,7 +82,14 @@ async def list_categories_for_admin(
         .order_by(Category.created_at.desc(), Category.id.desc())
     )
     categories, total = await fetch_page(db, query, params)
-    return Page.of([CategoryAdminOut.model_validate(c) for c in categories], total, params.page, params.per_page)
+
+    stats = await lesson_stats(db, [c.id for c in categories])
+    result = []
+    for category in categories:
+        out = CategoryAdminOut.model_validate(category)
+        out.lesson_count, out.total_duration_seconds = stats.get(category.id, (0, 0))
+        result.append(out)
+    return Page.of(result, total, params.page, params.per_page)
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)

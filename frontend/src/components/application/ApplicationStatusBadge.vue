@@ -21,20 +21,14 @@ const label = computed(() => {
 </script>
 
 <template>
-  <span
-    v-if="status === 'pending'"
-    class="inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-gradient-to-r from-amber-500/15 to-orange-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400"
-  >
+  <span v-if="status === 'pending'" class="badge bg-marigold/20 text-ink">
     <span class="relative flex h-1.5 w-1.5">
-      <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-75" />
-      <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+      <span class="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-marigold opacity-75" />
+      <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-marigold" />
     </span>
     {{ label }}
   </span>
-  <span
-    v-else-if="status === 'approved'"
-    class="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-gradient-to-r from-emerald-500/15 to-teal-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 shadow-[0_0_14px_-4px] shadow-emerald-500/50 dark:text-emerald-400"
-  >
+  <span v-else-if="status === 'approved'" class="badge bg-moss/15 text-moss">
     <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
       <path
         fill-rule="evenodd"

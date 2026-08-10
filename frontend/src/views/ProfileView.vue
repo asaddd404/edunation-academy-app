@@ -4,6 +4,8 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import { deleteAvatar, getAvatarUrl, updateProfile, uploadAvatar } from "@/api/auth";
 import { getEntLeaderboard } from "@/api/ent";
+import PageContainer from "@/components/layout/PageContainer.vue";
+import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -162,39 +164,35 @@ async function handleDeleteAvatar() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-lg space-y-6">
-    <h1 class="text-2xl font-semibold">
-      <span class="text-gradient-brand">Профиль</span>
-    </h1>
-
-    <div v-if="auth.user" class="glass-card flex flex-col items-center gap-3 p-5">
-      <div class="rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-[3px] shadow-lg shadow-indigo-500/20">
-        <div class="rounded-full bg-card p-1">
-          <img
-            v-if="auth.user.has_avatar"
-            :src="`${getAvatarUrl(auth.user.id)}?v=${avatarCacheBust}`"
-            alt=""
-            class="h-24 w-24 rounded-full object-cover"
-          />
-          <div
-            v-else
-            class="flex h-24 w-24 items-center justify-center rounded-full bg-fg/10 text-2xl font-medium text-fg/60"
-          >
-            {{ auth.user.first_name[0] }}{{ auth.user.last_name[0] }}
-          </div>
+  <PageContainer>
+    <PageHeader title="Профиль" />
+    <div class="mx-auto max-w-lg space-y-6">
+    <div v-if="auth.user" class="card flex flex-col items-center gap-3 p-5">
+      <div class="rounded-full border-2 border-moss p-1">
+        <img
+          v-if="auth.user.has_avatar"
+          :src="`${getAvatarUrl(auth.user.id)}?v=${avatarCacheBust}`"
+          alt=""
+          class="h-24 w-24 rounded-full object-cover"
+        />
+        <div
+          v-else
+          class="flex h-24 w-24 items-center justify-center rounded-full bg-paper-2 text-2xl font-medium text-ink-2"
+        >
+          {{ auth.user.first_name[0] }}{{ auth.user.last_name[0] }}
         </div>
       </div>
 
       <span
         v-if="auth.user.role === 'student'"
-        class="inline-flex items-center rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-3 py-1 text-xs font-semibold text-white shadow-md shadow-indigo-500/20"
+        class="inline-flex items-center rounded-full bg-moss px-3 py-1 text-xs font-semibold text-moss-fg"
       >
         {{ rankLabel(myRating?.total_xp ?? 0) }} • {{ myRating?.total_xp ?? 0 }} XP
       </span>
-      <span v-else class="text-sm text-fg/50">{{ ROLE_LABEL[auth.user.role] }}</span>
+      <span v-else class="text-sm text-ink-3">{{ ROLE_LABEL[auth.user.role] }}</span>
 
       <div class="flex flex-wrap items-center justify-center gap-2">
-        <label class="cursor-pointer text-sm text-accent underline">
+        <label class="cursor-pointer text-sm text-moss underline">
           {{ auth.user.has_avatar ? "Заменить фото" : "Загрузить фото" }}
           <input
             type="file"
@@ -208,29 +206,29 @@ async function handleDeleteAvatar() {
           Удалить фото
         </BaseButton>
       </div>
-      <span v-if="avatarUploading" class="text-sm text-fg/60">Загрузка…</span>
-      <span v-if="avatarError" class="text-sm text-red-600 dark:text-red-500">{{ avatarError }}</span>
+      <span v-if="avatarUploading" class="text-sm text-ink-2">Загрузка…</span>
+      <span v-if="avatarError" class="text-sm text-clay">{{ avatarError }}</span>
     </div>
 
     <div v-if="auth.user?.role === 'student'" class="grid grid-cols-3 gap-3">
-      <div class="glass-card flex flex-col items-center gap-1 p-4 text-center">
+      <div class="card flex flex-col items-center gap-1 p-4 text-center">
         <span class="text-2xl">🎯</span>
-        <span class="text-xl font-bold">{{ myRating?.simulations_completed ?? 0 }}</span>
-        <span class="text-xs text-fg/60">Симуляций</span>
+        <span class="text-xl font-bold text-ink">{{ myRating?.simulations_completed ?? 0 }}</span>
+        <span class="text-xs text-ink-2">Симуляций</span>
       </div>
-      <div class="glass-card flex flex-col items-center gap-1 p-4 text-center">
+      <div class="card flex flex-col items-center gap-1 p-4 text-center">
         <span class="text-2xl">🏅</span>
-        <span class="text-xl font-bold">{{ myRating?.best_score ?? 0 }}</span>
-        <span class="text-xs text-fg/60">Лучший балл</span>
+        <span class="text-xl font-bold text-ink">{{ myRating?.best_score ?? 0 }}</span>
+        <span class="text-xs text-ink-2">Лучший балл</span>
       </div>
-      <div class="glass-card flex flex-col items-center gap-1 p-4 text-center">
+      <div class="card flex flex-col items-center gap-1 p-4 text-center">
         <span class="text-2xl">⚡</span>
-        <span class="text-xl font-bold">{{ myRating?.total_xp ?? 0 }}</span>
-        <span class="text-xs text-fg/60">Всего XP</span>
+        <span class="text-xl font-bold text-ink">{{ myRating?.total_xp ?? 0 }}</span>
+        <span class="text-xs text-ink-2">Всего XP</span>
       </div>
     </div>
 
-    <form class="glass-card space-y-4 p-4" @submit.prevent="handleSave">
+    <form class="card space-y-4 p-4" @submit.prevent="handleSave">
       <BaseInput v-model="form.first_name" label="Имя">
         <template #icon>
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -259,16 +257,16 @@ async function handleDeleteAvatar() {
         </template>
       </BaseInput>
 
-      <p v-if="saveError" class="text-sm text-red-600 dark:text-red-500">{{ saveError }}</p>
-      <p v-if="saveSuccess" class="text-sm text-green-700 dark:text-green-500">Изменения сохранены.</p>
+      <p v-if="saveError" class="text-sm text-clay">{{ saveError }}</p>
+      <p v-if="saveSuccess" class="text-sm text-moss">Изменения сохранены.</p>
 
       <BaseButton type="submit" variant="cta" class="w-full" :disabled="saving">Сохранить</BaseButton>
     </form>
 
-    <form class="glass-card space-y-4 p-4" @submit.prevent="handleChangePassword">
+    <form class="card space-y-4 p-4" @submit.prevent="handleChangePassword">
       <div>
-        <h2 class="text-lg font-semibold">Смена пароля</h2>
-        <p class="mt-1 text-sm text-fg/60">
+        <h2 class="text-lg font-semibold text-ink">Смена пароля</h2>
+        <p class="mt-1 text-sm text-ink-2">
           После смены пароля вы останетесь в системе на этом устройстве, а на остальных нужно будет войти заново.
         </p>
       </div>
@@ -324,12 +322,13 @@ async function handleDeleteAvatar() {
         </BaseInput>
       </div>
 
-      <p v-if="passwordError" class="text-sm text-red-600 dark:text-red-500">{{ passwordError }}</p>
-      <p v-if="passwordSuccess" class="text-sm text-green-700 dark:text-green-500">Пароль изменён.</p>
+      <p v-if="passwordError" class="text-sm text-clay">{{ passwordError }}</p>
+      <p v-if="passwordSuccess" class="text-sm text-moss">Пароль изменён.</p>
 
       <BaseButton type="submit" class="w-full" :disabled="passwordSaving || !canChangePassword">
         Сменить пароль
       </BaseButton>
     </form>
-  </div>
+    </div>
+  </PageContainer>
 </template>

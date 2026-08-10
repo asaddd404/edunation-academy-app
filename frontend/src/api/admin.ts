@@ -9,6 +9,10 @@ export function updateUser(id: number, payload: { role?: Role; is_active?: boole
   return http.patch<User>(`/admin/users/${id}`, payload).then((r) => r.data);
 }
 
+export function resetUserPassword(id: number) {
+  return http.post<{ temporary_password: string }>(`/admin/users/${id}/reset-password`).then((r) => r.data);
+}
+
 export function listCategoriesForAdmin(params?: PageParams) {
   return http.get<Page<CategoryAdmin>>("/admin/categories", { params }).then((r) => r.data);
 }

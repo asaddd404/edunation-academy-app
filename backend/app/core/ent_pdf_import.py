@@ -87,6 +87,20 @@ _GLYPH_TO_LATIN = {
     "Ә": "A", "Ғ": "G", "Қ": "K", "Ң": "N", "Ө": "O", "Ұ": "U", "Ү": "U", "Һ": "H",
 }
 
+# Cyrillic letters a typist reaches for when they mean a *Latin* label.
+# Kept apart from _GLYPH_TO_LATIN because each of these is also a letter of
+# the Cyrillic counting sequence below, so the two readings genuinely
+# disagree and only context can settle it:
+#
+#     "А) Алматы  Б) Астана  В) Шымкент"   -- counting: В is the 3rd, C
+#     "А) Никель  В) Азот    С) Кальций"   -- spelling: В is Latin B
+#
+# Both occur in real papers. Neither reading can be made the global default
+# without silently mislabelling the other kind of file, which is why
+# letter_indices() returns *every* reading and the run check in
+# split_options_in_line picks the one that continues the sequence.
+_KEYBOARD_TO_LATIN = {"А": "A", "В": "B", "Д": "D", "Е": "E"}
+
 # Every glyph that may open a marker. Membership here only makes a
 # character a *candidate*; canonicalization and the run check in
 # split_options_in_line decide whether it really is one.
@@ -125,6 +139,26 @@ def _letter_index(letter: str) -> int:
     """Position of a marker letter in the canonical A–H run, or -1."""
     canonical = canonical_letter(letter)
     return _LATIN_LETTERS.find(canonical) if canonical else -1
+
+
+def letter_indices(letter: str) -> list[int]:
+    """Every position a marker glyph could occupy, best guess first.
+
+    A Latin letter has exactly one reading. An ambiguous Cyrillic one (see
+    _KEYBOARD_TO_LATIN) has two, and this returns both rather than choosing:
+    the choice belongs to :func:`split_options_in_line`, which knows what
+    run the letter has to fit into and can therefore settle it from
+    evidence instead of from a guess about the document's typist.
+
+    The counting reading is offered first, so a caller with no run behind it
+    reproduces the historical behaviour exactly.
+    """
+    readings: list[int] = []
+    for candidate in (canonical_letter(letter), _KEYBOARD_TO_LATIN.get(letter.upper())):
+        index = _LATIN_LETTERS.find(candidate) if candidate else -1
+        if index >= 0 and index not in readings:
+            readings.append(index)
+    return readings
 
 
 def _is_cyrillic(letter: str) -> bool:
@@ -308,7 +342,26 @@ _DROP_LINE_RES = (
 # its own prompts. Rule A in run_fsm() decides which one it is. The dash
 # form insists on a space after it so the pairing key "1-C, 2-B" (never
 # spaced in practice) is not read as question 1.
-_NUMBER_MARKER_RE = re.compile(r"^\s*(\d{1,3})(?:[.)]|\s*-)\s+(?=\S)")
+#
+# The space after "." or ")" is optional, because "1.Молекула с ковалентной
+# связью" is how a good tenth of the reference file numbers its questions.
+# When it *is* omitted the next character may not be a digit: without that
+# guard "12.5%-дық олеум" opens question 12, and -- far worse -- a variant
+# header stops being recognized as one, because the unrecognized question
+# below it gets glued onto the header line (nine variants were lost this
+# way, taking their segment boundaries with them).
+_NUMBER_MARKER_RE = re.compile(r"^\s*(\d{1,3})(?:[.)]\s+|[.)](?=\D)|\s*-\s+)(?=\S)")
+# "17 Полураспад изотопа..." -- a question whose separator was lost
+# altogether. Far too loose to trust on its own (every "400 см³" and
+# "2 моль" matches it), so it is classified as a *candidate* and only the
+# numbering check in run_fsm can promote it to a real question marker.
+_BARE_NUMBER_MARKER_RE = re.compile(r"^\s*(\d{1,3})\s+(?=[^\d\s])")
+# A question number typeset on a row of its own, either because its text
+# wrapped to the next line ("39." / "Найдите массу...") or because the
+# question has no text at all and is nothing but the table under it ("37."
+# / "А) Аквакомплексы"). Both are questions; neither is recognizable from
+# the line alone, so this is weak too.
+_LONE_NUMBER_RE = re.compile(r"^\s*(\d{1,3})\s*[.)]\s*$")
 # "Вопрос 5:", "Вопрос №5.", "[5]", "№5", "5-сұрақ" -- unambiguous: a
 # prompt list never uses these, so they may open a new question from any
 # state.
@@ -332,11 +385,25 @@ _VARIANT_TRIGGER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# What separates a marker letter from the option's text. The forms are
+# graded by how much whitespace each may omit, because they differ in how
+# ambiguous they are once the whitespace is gone:
+#
+#   "A) Барий"  "A)Барий"  "A ) Барий"   -- a bracket is only ever a marker
+#   "A. Барий"  "A.Барий"                -- a full stop likewise, at a
+#                                           letter that _letter_index vets
+#   "A - Барий"                          -- a dash MUST keep its space:
+#                                           "E-mail", "н-бутан" and
+#                                           "A-Cl" are not options
+#
+# The leading "\s?" covers a marker whose bracket drifted off the letter
+# during typesetting ("А )Алюминий" -- six of them in the reference file).
+_OPTION_SEPARATOR = r"(?:\s?[).]\s*|\s?-\s+)"
 # Option marker opening a line. Lowercase is allowed here (some PDFs use
 # "а) б) в)") but NOT mid-line -- see split_options_in_line.
-_OPTION_START_RE = re.compile(rf"^\s*([{_OPTION_LETTER_CLASS}])[).\-]\s+(?=\S)")
+_OPTION_START_RE = re.compile(rf"^\s*([{_OPTION_LETTER_CLASS}]){_OPTION_SEPARATOR}(?=\S)")
 # Option marker *inside* a line: must follow whitespace and be uppercase.
-_OPTION_MIDLINE_RE = re.compile(rf"(?<=\s)([{_OPTION_LETTERS}])[).\-]\s+(?=\S)")
+_OPTION_MIDLINE_RE = re.compile(rf"(?<=\s)([{_OPTION_LETTERS}]){_OPTION_SEPARATOR}(?=\S)")
 
 # Answer-key phrases. The inflections are enumerated rather than written as
 # "Ответ\w*" so that "ответственность - это ..." cannot be read as a key.
@@ -384,6 +451,35 @@ _VARIANT_LETTER_RE = re.compile(rf"[{_OPTION_LETTERS}]")
 # ─────────────────────────────────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Flags
+#
+# What is wrong with a question, named rather than summed into a single
+# "needs review" boolean. The distinction that matters to the teacher is
+# not how confident the parser is but whether the question is *usable*: a
+# missing answer key means it cannot be saved, while an oddly-labelled
+# option means it can be saved and glanced at. Only the first kind blocks
+# saving, which is what makes "save the ready ones" a meaningful button.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Blocking: the question cannot be saved as it stands.
+FLAG_MISSING_KEY = "missing_key"
+FLAG_MISSING_OPTIONS = "missing_options"
+FLAG_MATCHING_LEFT_EMPTY = "matching_left_empty"
+FLAG_KEY_OPTION_MISMATCH = "key_option_mismatch"
+# Advisory: worth a look, saves fine.
+FLAG_DUPLICATE_OPTION_LABEL = "duplicate_option_label"
+FLAG_OPTIONS_AUTOLABELED = "options_autolabeled"
+FLAG_SINGLE_OPTION_ONLY = "single_option_only"
+FLAG_MIXED_OPTION_TYPES = "mixed_option_types"
+FLAG_NUMBER_GAP = "question_number_gap"
+FLAG_LONG_TEXT = "long_question_text"
+
+BLOCKING_FLAGS = frozenset(
+    {FLAG_MISSING_KEY, FLAG_MISSING_OPTIONS, FLAG_MATCHING_LEFT_EMPTY, FLAG_KEY_OPTION_MISMATCH}
+)
+
+
 class State(str, Enum):
     LOOKING_FOR_QUESTION = "LOOKING_FOR_QUESTION"
     READING_QUESTION_TEXT = "READING_QUESTION_TEXT"
@@ -405,6 +501,10 @@ class Line:
     text: str
     # Stretches of this line that were marked by colour in the PDF.
     marked: tuple[str, ...] = ()
+    # This line is one whole cell of a ruled table. Such a line is complete
+    # by construction -- the rule around it is where the author said it
+    # ended -- so the wrap-joiner must not merge it with its neighbours.
+    from_cell: bool = False
 
 
 @dataclass
@@ -431,6 +531,11 @@ class LineClass:
     number: str | None = None
     body: str = ""
     explicit: bool = False
+    # A question marker recognized only by a leading number with no
+    # separator at all ("17 Полураспад..."). The shape is far too common in
+    # ordinary text to be trusted here, so it is passed up as a candidate
+    # and run_fsm accepts it only where the numbering proves it.
+    weak: bool = False
     key_start: int = -1
     key_payload: str = ""
 
@@ -450,6 +555,15 @@ _MARK_GAP_TOLERANCE = 3
 _MARK_COVERAGE = 0.5
 _MARK_ANNOT_SUBTYPES = ("Highlight", "Square", "Circle", "Ink", "StrikeOut", "Underline")
 
+# How far apart two glyphs' baselines may sit and still be one line.
+# pdfplumber defaults to 3, which is *below* the baseline shift of a
+# subscript: in a chemistry paper that turns "A) FeCl₂, 3" into the two
+# lines "A) FeCl , 3" and "2", detaching the subscript from its formula and
+# leaving a fragment the FSM has to guess at. 6 reunites sub/superscripts
+# with their line while staying well under the ~12pt leading between real
+# rows, including the rows of a two-column matching table.
+_LINE_Y_TOLERANCE = 6
+
 
 @dataclass(frozen=True)
 class PdfExtract:
@@ -458,6 +572,10 @@ class PdfExtract:
     text: str
     # Line number within `text` -> the marked stretches of that line.
     marks: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    # Line numbers within `text` that are a whole table cell. Keyed the same
+    # way as `marks` so both kinds of geometry arrive by the same route and
+    # the parser stays textual -- see Line.from_cell.
+    cells: frozenset[int] = frozenset()
 
 
 @dataclass
@@ -504,6 +622,10 @@ class QuestionBlock:
     last_line: int = 0
     raw_lines: list[str] = field(default_factory=list)
     matching_hint: bool = False
+    # The left-hand column of a matching question's table, in the order it
+    # was printed. Empty for every other question type.
+    match_left_items: list[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -516,15 +638,26 @@ class ParsedQuestion:
     # document is a single unlabelled variant.
     variant_id: int = 0
     variant_label: str | None = None
+    # The number the question was printed under, within its variant. This is
+    # what a bulk answer key ("1-B, 2-C, ...") is keyed by, so it has to
+    # survive to the preview screen -- the question's position in the list
+    # is not the same thing whenever the file skipped a number.
+    question_number: int | None = None
     # "ru" / "kk". Inherited from the variant unless this question overrules
     # it on a strong signal of its own -- see question_language().
     language: str = DEFAULT_LANGUAGE
     options: list[ParsedOption] = field(default_factory=list)
+    # The left-hand column of a matching question, recovered from the table
+    # the PDF typeset it as. Empty for every other question type.
+    match_left_items: list[str] = field(default_factory=list)
     match_pairs: list[ParsedMatchRef] = field(default_factory=list)
     answer_variants: list[str] | None = None
     answer_text: str | None = None
     confidence: float = 0.0
     needs_review: bool = True
+    # Everything the teacher should look at, named. See the flag constants
+    # above: the blocking ones stop the question being saved as ready.
+    flags: list[str] = field(default_factory=list)
     parse_error: str | None = None
     raw_text: str = ""
     # Where the answer came from: written in the file ("text"), inferred
@@ -551,6 +684,13 @@ class ParseStats:
     parse_errors: list[str] = field(default_factory=list)
     variants_detected: int = 0
     variant_errors: list[VariantParseError] = field(default_factory=list)
+    # How many questions carry each flag. This is what tells a teacher
+    # whether 2000 questions need two minutes of key entry or an afternoon
+    # of repair -- a single "needs review: 2374" tells them neither.
+    by_flag: dict[str, int] = field(default_factory=dict)
+    # Repeated "Вариант №N" headers folded back into the block they belong
+    # to. A running page header prints once per page, not once per variant.
+    duplicate_variant_headers: int = 0
 
 
 @dataclass
@@ -586,6 +726,11 @@ _TYPOGRAPHY_TABLE = str.maketrans(
     }
 )
 _ZERO_WIDTH_RE = re.compile("[\u200b\u200c\u200d\ufeff]")
+# A messenger export header pasted in with the question it introduced
+# ("[16:09, 07.04.2025] ~Farangiz: 11. \u049a\u04b1\u0440\u0430\u043c\u044b\u043d\u0434\u0430 90% \u043c\u0435\u0442\u0430\u043d..."). Stripped
+# rather than dropped: the question is on the same line as the timestamp,
+# so dropping the line loses it and keeping the line hides its number.
+_CHAT_PREFIX_RE = re.compile(r"^\s*\[\d{1,2}:\d{2}[^\]]*\]\s*~?[^:]{0,40}:\s*", re.MULTILINE)
 # A table rule that survived text extraction. Only removed when it stands
 # alone or edges a line -- a "|" inside a word is part of the content.
 _TABLE_PIPE_RE = re.compile(r"(?<=\s)\|(?=\s)|^\|+|\|+$", re.MULTILINE)
@@ -600,19 +745,24 @@ def normalize_typography(text: str) -> str:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     normalized = _ZERO_WIDTH_RE.sub("", normalized)
     normalized = normalized.translate(_TYPOGRAPHY_TABLE)
+    normalized = _CHAT_PREFIX_RE.sub("", normalized)
     return _TABLE_PIPE_RE.sub("", normalized)
 
 
-def preprocess(text: str, marks: dict[int, tuple[str, ...]] | None = None) -> list[Line]:
+def preprocess(
+    text: str,
+    marks: dict[int, tuple[str, ...]] | None = None,
+    cells: frozenset[int] | None = None,
+) -> list[Line]:
     """Normalizes typography and newlines, collapses intra-line whitespace
     runs, drops whole-line scaffolding, and numbers what survives.
 
     Line numbers are assigned *after* cleaning so that a question's
     ``raw_line_range`` points at lines the teacher can actually be shown.
-    ``marks`` is keyed by the line's number *before* cleaning, and is
-    carried onto the surviving Line so the two numbering schemes never have
-    to be reconciled anywhere else. Normalization is line-count preserving,
-    so that key stays valid.
+    ``marks`` and ``cells`` are keyed by the line's number *before* cleaning
+    and are carried onto the surviving Line, so the two numbering schemes
+    never have to be reconciled anywhere else. Normalization is line-count
+    preserving, so those keys stay valid.
     """
     normalized = normalize_typography(text)
 
@@ -626,6 +776,7 @@ def preprocess(text: str, marks: dict[int, tuple[str, ...]] | None = None) -> li
                 index=len(lines),
                 text=collapsed,
                 marked=(marks or {}).get(source_index, ()),
+                from_cell=source_index in (cells or frozenset()),
             )
         )
     return lines
@@ -685,6 +836,33 @@ def classify_line(text: str) -> LineClass:
             key_payload=key_payload,
         )
 
+    # "37." with nothing after it. In the reference file this is a matching
+    # question whose stem was left blank and whose whole content is the
+    # table below, so the number is all there is to recognize it by. Weak,
+    # because a wrecked table drops bare digits on their own lines too.
+    lone = _LONE_NUMBER_RE.match(stripped)
+    if lone:
+        return LineClass(
+            kind=LineKind.QUESTION_MARKER,
+            number=lone.group(1),
+            body="",
+            weak=True,
+            key_start=key_start,
+            key_payload=key_payload,
+        )
+
+    bare = _BARE_NUMBER_MARKER_RE.match(stripped)
+    if bare:
+        return LineClass(
+            kind=LineKind.QUESTION_MARKER,
+            number=bare.group(1),
+            body=stripped[bare.end():body_end],
+            explicit=False,
+            weak=True,
+            key_start=key_start,
+            key_payload=key_payload,
+        )
+
     return LineClass(kind=LineKind.TEXT, body=stripped, key_start=key_start, key_payload=key_payload)
 
 
@@ -732,6 +910,31 @@ def _continues_previous(previous: str, current: str) -> bool:
     return not opens_a_structure(current)
 
 
+# How much text the next line must carry to be adopted as that question's
+# stem. A stray "4" above another stray "12" is a wrecked table, not a
+# question; a full sentence is a question.
+_ADOPTION_MIN_LENGTH = 12
+
+
+def _adopts_next_line(previous: str, current: str) -> bool:
+    """Whether ``previous`` is a bare question number owning ``current``.
+
+    The forward direction exists only for this one shape. Everything else
+    joins backwards (:func:`_continues_previous`), but a lone "39." has
+    nothing behind it to attach to -- and left alone it is not a question
+    marker at all, so the question loses its number and its text is
+    absorbed by the question above.
+    """
+    if not _LONE_NUMBER_RE.match(previous.strip()):
+        return False
+    current = current.strip()
+    if len(current) < _ADOPTION_MIN_LENGTH or not _CYRILLIC_RE.search(current):
+        return False
+    # Whatever follows must be prose, not another piece of structure: a
+    # number sitting above an option row is a table artefact.
+    return not opens_a_structure(current)
+
+
 def join_wrapped_lines(lines: list[Line]) -> list[Line]:
     """Glues each wrapped continuation onto the line it belongs to and
     renumbers the result, so ``raw_line_range`` counts the lines a teacher
@@ -742,15 +945,33 @@ def join_wrapped_lines(lines: list[Line]) -> list[Line]:
     """
     merged: list[Line] = []
     for line in lines:
-        if merged and _continues_previous(merged[-1].text, line.text):
+        # A table cell is already exactly as long as its author drew it, so
+        # neither joining rule applies at its edges. Without this the option
+        # "D) Бутанол-1" and the prompt of the row below it -- adjacent, both
+        # unpunctuated, neither opening a structure -- merge into one line
+        # and take the next matching pair down with them.
+        across_cell = bool(merged) and (merged[-1].from_cell or line.from_cell)
+        if merged and not across_cell and _adopts_next_line(merged[-1].text, line.text):
+            previous = merged[-1]
+            merged[-1] = Line(
+                index=previous.index,
+                text=f"{previous.text.strip()} {line.text.strip()}",
+                marked=previous.marked + line.marked,
+                from_cell=previous.from_cell,
+            )
+            continue
+        if merged and not across_cell and _continues_previous(merged[-1].text, line.text):
             previous = merged[-1]
             merged[-1] = Line(
                 index=previous.index,
                 text=f"{previous.text} {line.text.strip()}".strip(),
                 marked=previous.marked + line.marked,
+                from_cell=previous.from_cell,
             )
             continue
-        merged.append(Line(index=len(merged), text=line.text, marked=line.marked))
+        merged.append(
+            Line(index=len(merged), text=line.text, marked=line.marked, from_cell=line.from_cell)
+        )
     return merged
 
 
@@ -759,18 +980,36 @@ def join_wrapped_lines(lines: list[Line]) -> list[Line]:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def split_variants(lines: list[Line]) -> list[VariantSegment]:
+def split_variants(lines: list[Line]) -> tuple[list[VariantSegment], int]:
     """Cuts the document at each "Вариант №N" trigger.
 
-    Two properties matter more than the cutting itself: anything *before*
-    the first trigger becomes variant 0 rather than being dropped (plenty
-    of files put their first block above the first header), and each
+    Returns the segments and how many triggers were folded back in as
+    repeats. Two properties matter more than the cutting itself: anything
+    *before* the first trigger becomes variant 0 rather than being dropped
+    (plenty of files put their first block above the first header), and each
     segment keeps its lines' original numbering, so a question's
     ``raw_line_range`` still points into the whole document.
+
+    A trigger that repeats the header of the variant *already open* -- same
+    number and same wording -- is a running page header, and is dropped
+    rather than cutting the variant into one segment per page.
+
+    Both halves of that test are load-bearing. Matching on the open variant
+    rather than on every number ever seen is what lets variant 7 be variant
+    7 again in a second section of the file. Requiring the wording to match
+    too is what keeps a bilingual paper intact: "Вариант №1" and "1 нұсқа"
+    are two different variants that share a number, and a file that
+    alternates the languages prints them back to back.
     """
     segments: list[VariantSegment] = []
     current = VariantSegment(variant_id=0, label=None, lines=[])
     seen = 0
+    duplicates = 0
+
+    def same_header(label: str) -> bool:
+        if current.label is None:
+            return False
+        return re.sub(r"\s+", "", current.label).casefold() == re.sub(r"\s+", "", label).casefold()
 
     for line in lines:
         trigger = _VARIANT_TRIGGER_RE.match(line.text.strip())
@@ -778,19 +1017,21 @@ def split_variants(lines: list[Line]) -> list[VariantSegment]:
             current.lines.append(line)
             continue
 
-        if any(existing.text.strip() for existing in current.lines):
-            segments.append(current)
         seen += 1
         digits = next((group for group in trigger.groups() if group), "")
-        current = VariantSegment(
-            variant_id=int(digits) if digits else seen,
-            label=line.text.strip(),
-            lines=[],
-        )
+        variant_id = int(digits) if digits else seen
+        label = line.text.strip()
+        if variant_id and variant_id == current.variant_id and same_header(label):
+            duplicates += 1
+            continue
+
+        if any(existing.text.strip() for existing in current.lines):
+            segments.append(current)
+        current = VariantSegment(variant_id=variant_id, label=label, lines=[])
 
     if any(existing.text.strip() for existing in current.lines) or not segments:
         segments.append(current)
-    return segments
+    return segments, duplicates
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -810,6 +1051,35 @@ def _continues_the_run(index: int, previous_index: int | None) -> bool:
     if previous_index is None:
         return index <= 1
     return 0 < index - previous_index <= 2
+
+
+def _resolve_index(letter: str, previous_index: int | None) -> int:
+    """Which reading of a marker glyph the surrounding run supports, or -1.
+
+    This is where the counting/spelling ambiguity of "А В Д Е" is decided
+    (see _KEYBOARD_TO_LATIN): both readings are tried and the one that fits
+    the run wins, so the same code reads
+
+        А) Алматы   Б) Астана   В) Шымкент      -> A, B, C   (counting)
+        А) Никель   В) Азот     С) Кальций      -> A, B, C   (spelling)
+
+    correctly, without either document having to be configured. When no
+    reading fits the run the letter is not a marker at all.
+
+    An *exact* continuation is preferred over a gapped one, which is what
+    keeps the two readings apart when both are admissible: after C, the "Д"
+    of "А) В) С) Д)" reads as D (advance 1) rather than as the counting E
+    (advance 2, tolerated only when nothing better is on offer).
+    """
+    candidates = letter_indices(letter)
+    if previous_index is None:
+        opening = [index for index in candidates if index <= 1]
+        return min(opening) if opening else -1
+    for advance in (1, 2):
+        for index in candidates:
+            if index == previous_index + advance:
+                return index
+    return -1
 
 
 def split_options_in_line(text: str, previous_index: int | None = None) -> list[ParsedOption]:
@@ -841,20 +1111,101 @@ def split_options_in_line(text: str, previous_index: int | None = None) -> list[
     if not head:
         return []
 
-    head_index = _letter_index(head.group(1))
-    if head_index < 0:
+    marks = _marker_run(stripped, head, previous_index)
+    return _options_from_marks(stripped, marks)
+
+
+def repeats_a_collected_option(text: str, options: list[ParsedOption]) -> bool:
+    """Whether this line reprints an option the block already has.
+
+    A matching question is typeset as one table per prompt, and every one of
+    those tables reprints the same right-hand column -- so a two-prompt
+    question sends its four options through twice. The second cycle opens at
+    ``A)``, which no run check will accept after ``D)``, and the line is
+    then appended to option D's text: "SiO₂ A) Pt B) H₂S C) H₃PO₄".
+
+    Identical label *and* identical text is what makes it a reprint rather
+    than a fifth answer, and both are required -- a repeated label carrying
+    new text is a real (if oddly labelled) option and is kept, flagged
+    elsewhere as a duplicate label.
+    """
+    stripped = text.strip()
+    head = _OPTION_START_RE.match(stripped)
+    if not head:
+        return False
+    label = _canonical_label(_letter_index(head.group(1)))
+    body = _normalize_for_match(stripped[head.end():])
+    return any(
+        option.label == label and _normalize_for_match(option.text) == body for option in options
+    )
+
+
+def split_out_of_order_option(text: str, taken: Iterable[str]) -> list[ParsedOption]:
+    """A line opening with a marker whose letter runs *backwards*.
+
+    Papers print their options out of order more often than one would like.
+    Question 38 of the reference file is typeset
+
+        A) K₃[Fe(CN)₆]   C) H[AuCl₄]   D) H₂[SiF₆]   B) Cu(NH₃)₄₂
+
+    and the run check in :func:`split_options_in_line` -- which only ever
+    advances -- rejects that trailing ``B)``. Rejected, it is not dropped
+    but *appended to option D's text*, so the question silently loses an
+    answer and gains a corrupted one. Requiring an ascending run also
+    throws away the whole question if the rule is applied at block level,
+    which is why it is the set of labels that is checked here and not their
+    order.
+
+    A backwards letter is accepted when it fills a **hole** in the run: not
+    already taken, and below the highest label collected so far. A repeated
+    letter stays rejected, since "B. Значит, ..." opening a sentence is far
+    more likely than a second option B, and the block sorts its options by
+    label once it closes.
+    """
+    stripped = text.strip()
+    head = _OPTION_START_RE.match(stripped)
+    if not head:
+        return []
+    index = _letter_index(head.group(1))
+    if index < 0:
         return []
 
-    # (label_index, raw_letter, marker_start, text_start)
-    marks: list[tuple[int, str, int, int]] = [(head_index, head.group(1), head.start(1), head.end())]
-    for candidate in _OPTION_MIDLINE_RE.finditer(stripped, head.end()):
-        index = _letter_index(candidate.group(1))
-        if index == marks[-1][0] + 1:
-            marks.append((index, candidate.group(1), candidate.start(1), candidate.end()))
-
-    if len(marks) == 1 and not _continues_the_run(head_index, previous_index):
+    filled = {_letter_index(label) for label in taken}
+    filled.discard(-1)
+    if not filled or index in filled or index > max(filled):
         return []
+    return _options_from_marks(stripped, [(index, head.group(1), head.start(1), head.end())])
 
+
+# (label_index, raw_letter, marker_start, text_start)
+_Marker = tuple[int, str, int, int]
+
+
+def _marker_run(stripped: str, head: re.Match[str], previous_index: int | None) -> list[_Marker]:
+    """The chain of option markers a line carries, starting at ``head``.
+
+    Both readings of an ambiguous head letter are tried, better guess
+    first, and the one that yields the longer chain is kept -- so a row of
+    columns settles its own alphabet even with no options behind it.
+    """
+    best: list[_Marker] = []
+    for head_index in letter_indices(head.group(1)):
+        marks: list[_Marker] = [(head_index, head.group(1), head.start(1), head.end())]
+        for candidate in _OPTION_MIDLINE_RE.finditer(stripped, head.end()):
+            index = _resolve_index(candidate.group(1), marks[-1][0])
+            if index == marks[-1][0] + 1:
+                marks.append((index, candidate.group(1), candidate.start(1), candidate.end()))
+        # Two or more consecutive markers on one row are not a coincidence
+        # and need no context; a lone one has to continue the block's run.
+        if len(marks) > 1:
+            if len(marks) > len(best):
+                best = marks
+        elif not best and _resolve_index(head.group(1), previous_index) == head_index:
+            best = marks
+    return best
+
+
+def _options_from_marks(stripped: str, marks: list[_Marker]) -> list[ParsedOption]:
     options: list[ParsedOption] = []
     for position, (index, raw_letter, _, text_start) in enumerate(marks):
         text_end = marks[position + 1][2] if position + 1 < len(marks) else len(stripped)
@@ -866,6 +1217,217 @@ def split_options_in_line(text: str, previous_index: int | None = None) -> list[
             )
         )
     return options
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Stage 2e: matching questions, which are tables rather than lists
+#
+# A "Сопоставьте" item is typeset as a two-column table, and extracting text
+# from a table loses the thing that made it readable -- the columns. What
+# arrives is a stream of rows in which the left-hand prompt and the option
+# beside it share a physical line:
+#
+#     A) Никель
+#     Катализатор, применяемый для B) Бензол
+#     получения полиэтилена при низком
+#     давлении C) Ортофосфорная кислота
+#     D) Тетрахлорид титана
+#     A) Никель                      <- the same four options, again,
+#     ...                               because the table has a second row
+#
+# Read as a list of options (which is what every other question is) this is
+# nonsense: eight options, four of them duplicates, and the prompt text
+# swallowed into whichever option happened to precede it. Read as a table
+# it is exactly two prompts and four answers.
+#
+# The reconstruction below runs *after* the FSM has bounded the question,
+# so it never has to decide where the question starts or ends -- only how
+# to read the rows it was given. Every option cycle that restarts at A
+# begins a new row, which is the one structural invariant the extraction
+# preserves.
+# ─────────────────────────────────────────────────────────────────────────
+
+# A row whose left cell is a formula or an equation, not a prompt: option
+# markers must not be looked for in it, since "A :B -> A⁺ + :B⁻" opens with
+# something the marker regex is delighted to accept.
+_FORMULA_ROW_RE = re.compile(r"[→⇌⇄↔]|\s=\s")
+
+
+def _split_table_row(text: str, previous_index: int | None) -> tuple[str, list[ParsedOption]]:
+    """One row of a matching table, as (left-hand text, options on the row).
+
+    Either half may be empty: a row is often only a prompt fragment, or
+    only an option that the table put on a line of its own.
+    """
+    stripped = text.strip()
+    if not stripped or _FORMULA_ROW_RE.search(stripped):
+        return stripped, []
+
+    head = _OPTION_START_RE.match(stripped)
+    if head:
+        marks = _marker_run(stripped, head, previous_index)
+        if marks:
+            return "", _options_from_marks(stripped, marks)
+        return stripped, []
+
+    for candidate in _OPTION_MIDLINE_RE.finditer(stripped):
+        if _resolve_index(candidate.group(1), previous_index) < 0:
+            continue
+        marks = _marker_run(stripped, candidate, previous_index)
+        if marks:
+            return stripped[: candidate.start(1)].strip(), _options_from_marks(stripped, marks)
+    return stripped, []
+
+
+def rebuild_matching_table(block: QuestionBlock) -> None:
+    """Re-reads a matching question's rows as a table, in place.
+
+    Leaves the block untouched unless the rows really do repeat their
+    options, because that repetition is the evidence that this is a table:
+    a "Сопоставьте" question that simply lists four answers once is already
+    parsed correctly and must not be rewritten.
+
+    This is the recovery path for files whose tables are *not* ruled, where
+    the columns have to be inferred from the text. When the PDF does rule
+    them, :func:`column_ordered_table` has already separated the columns and
+    the FSM has filed the prompts directly, so there is nothing to rebuild
+    and guessing again could only make it worse.
+    """
+    if block.match_left_items:
+        return
+
+    rows = block.raw_lines[1:]
+    if not rows:
+        return
+
+    # The first row carries the question number, so it is normally the stem
+    # rather than part of the table -- but not always: plenty of items open
+    # the table on the same line they are numbered on ("40. C₉H₁₂: A) Кумол
+    # C₇H₈: B) О-ксилол"). Told apart by whether it holds options at all.
+    stem_body = classify_line(block.raw_lines[0]).body
+    if stem_body and _split_table_row(stem_body, None)[1]:
+        rows = [stem_body, *rows]
+
+    left_items: list[str] = []
+    pending: list[str] = []
+    options: dict[str, ParsedOption] = {}
+    duplicated = False
+    two_column = 0
+    previous_index: int | None = None
+
+    def flush() -> None:
+        joined = " ".join(part for part in pending if part).strip()
+        pending.clear()
+        if len(joined) >= _MIN_LEFT_ITEM_LENGTH:
+            left_items.append(joined)
+
+    for row in rows:
+        left, found = _split_table_row(row, previous_index)
+        if not found:
+            # Retry as the first option of a fresh cycle: after "D)" the run
+            # check rejects "A)", which is precisely how a new row announces
+            # itself.
+            left, found = _split_table_row(row, None)
+            if found and found[0].label in options:
+                duplicated = True
+                flush()
+
+        if left and found:
+            # Prompt and answer on one physical line: the signature of a
+            # two-column table, and a shape a plain list of options cannot
+            # produce.
+            two_column += 1
+        if left:
+            pending.append(left)
+        elif found and pending:
+            # The left column has gone quiet while the right one carries on,
+            # so the prompt that was being collected is complete. This is
+            # what separates one table row from the next when the options
+            # run only once and never restart at A.
+            flush()
+
+        for option in found:
+            if option.label in options:
+                duplicated = True
+            else:
+                options[option.label] = option
+        if found:
+            previous_index = _letter_index(found[-1].label)
+    flush()
+
+    # Three ways to know this is a table rather than a list: the options
+    # repeated (a second row), or the prompt and the answer shared a line
+    # in a question that says it is a matching one, or they shared a line
+    # *twice*. The last needs no hint word, because one such line could be
+    # an option whose text wrapped past the next marker while two is a
+    # column layout -- which is what recovers the items headed only
+    # "Соответствие..." or, like "40. C₉H₁₂: A) Кумол", nothing at all.
+    enough = duplicated or two_column >= (1 if block.matching_hint else 2)
+    if len(options) < 2 or not enough:
+        return
+
+    block.match_left_items = left_items
+    block.options = [options[label] for label in sorted(options)]
+
+
+# Shorter than this and the "prompt" is a stray character the table left
+# behind (a lone bracket, a subscript digit), not a cell worth showing.
+_MIN_LEFT_ITEM_LENGTH = 2
+
+# An option's text is short. A "marker" trailed by a paragraph is a
+# sentence that happened to start with a capital and a bracket, and the
+# recovery below must not take it.
+_MAX_RECOVERED_OPTION_LENGTH = 80
+
+
+def recover_unstarted_options(block: QuestionBlock) -> None:
+    """Options the run check refused because the run does not start at A.
+
+    :func:`split_options_in_line` will not *open* a run past B, since a lone
+    "С." begins a Russian sentence as often as it labels option three. With
+    nothing to go on that is the right default, but it costs two shapes real
+    files contain:
+
+        E) 110   F) 78   G) 94   H) 196   -- a run whose A-D half was
+                                             printed under another question
+        C) 3                              -- the one option that survived
+                                             editing (§4.5)
+
+    Both are recoverable once the block is *closed*, which is why this runs
+    here and not in the FSM: "prose or marker?" is a much easier question
+    with the whole block in hand than it is one line at a time. A line that
+    is nothing but a marker and a short payload, in a block that found no
+    options at all, is an option -- there is nothing else it could be.
+
+    Only ever runs on a block with no options, so a question that parsed
+    normally cannot be touched by it.
+    """
+    if block.options:
+        return
+
+    recovered: list[ParsedOption] = []
+    consumed: list[str] = []
+    for text in block.text_lines:
+        stripped = text.strip()
+        head = _OPTION_START_RE.match(stripped)
+        if not head:
+            continue
+        index = _letter_index(head.group(1))
+        body = stripped[head.end():].strip()
+        if index < 0 or not body or len(body) > _MAX_RECOVERED_OPTION_LENGTH:
+            continue
+        if any(option.label == _canonical_label(index) for option in recovered):
+            # A repeated label means these are not a run at all.
+            return
+        recovered.append(
+            ParsedOption(label=_canonical_label(index), text=body, raw_label=head.group(1))
+        )
+        consumed.append(text)
+
+    if not recovered:
+        return
+    block.options = sorted(recovered, key=lambda option: _letter_index(option.label))
+    block.text_lines = [text for text in block.text_lines if text not in consumed]
 
 
 def _normalize_for_match(text: str) -> str:
@@ -1017,6 +1579,46 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
     state = State.LOOKING_FOR_QUESTION
     current: QuestionBlock | None = None
     queue: deque[Line] = deque(lines)
+    # The number of the last question opened. Starts at 0 and is never
+    # carried across a call, which is what makes the numbering check work
+    # per variant: run_fsm is invoked once per segment, and every variant
+    # restarts its questions at 1 (§4.2 of the import contract).
+    last_number = 0
+    # Set once the open block turns out to number its own prompts; see the
+    # READING_OPTIONS branch below. Reset with every block.
+    prompt_list_started = False
+
+    def marker_number(cls: LineClass) -> int | None:
+        try:
+            return int(cls.number) if cls.number is not None else None
+        except ValueError:
+            return None
+
+    def continues_numbering(cls: LineClass, tolerate_gap: bool = False) -> bool:
+        """Whether this marker's number follows on from the last question.
+
+        The strict form is what promotes an otherwise untrustworthy marker
+        ("17 Полураспад изотопа...", which is shaped exactly like "400 см³
+        раствора"): a number that continues the sequence is a question
+        number, and one that does not is prose.
+        """
+        number = marker_number(cls)
+        if number is None:
+            return False
+        limit = 3 if tolerate_gap else 1
+        return last_number < number <= last_number + limit
+
+    def goes_backwards(cls: LineClass) -> bool:
+        """Whether this marker numbers something *below* the last question.
+
+        Such a number never opens a question: question numbering only ever
+        climbs. What it does mean is a list that restarts inside the current
+        block -- a matching question's prompts, or the numbered preamble
+        shared by a group of questions ("1. ... 2. ... 3. ..." sitting
+        between question 25 and question 26). Both must stay where they are.
+        """
+        number = marker_number(cls)
+        return number is not None and last_number > 0 and number <= last_number
 
     def last_option_index() -> int | None:
         if current is None or not current.options:
@@ -1031,11 +1633,21 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
         state = State.LOOKING_FOR_QUESTION
 
     def open_block(line: Line, cls: LineClass) -> QuestionBlock:
+        nonlocal last_number, prompt_list_started
+        prompt_list_started = False
         block = QuestionBlock(number=cls.number, first_line=line.index, last_line=line.index)
         if cls.body.strip():
             block.text_lines.append(cls.body.strip())
         block.raw_lines.append(line.text)
         block.matching_hint = bool(_MATCH_HINT_RE.search(cls.body))
+        number = marker_number(cls)
+        if number is not None:
+            # A jump forward means the file skipped a number, which usually
+            # means a question lost its own marker and was swallowed by the
+            # one above it -- worth telling the teacher, not worth guessing.
+            if last_number and number > last_number + 1:
+                block.flags.append(FLAG_NUMBER_GAP)
+            last_number = number
         return block
 
     def note_line(line: Line) -> None:
@@ -1068,6 +1680,45 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
     while queue:
         line = queue.popleft()
         cls = classify_line(line.text)
+
+        # A marker recognized only by its leading number is prose unless the
+        # numbering vouches for it. Demoting it here, once, keeps every
+        # state below reading `cls.kind` at face value.
+        if cls.kind is LineKind.QUESTION_MARKER and cls.weak and not continues_numbering(cls):
+            cls = LineClass(
+                kind=LineKind.TEXT,
+                body=line.text.strip(),
+                key_start=cls.key_start,
+                key_payload=cls.key_payload,
+            )
+
+        # The first number inside a matching question that does *not*
+        # continue the variant's sequence is where that question's own
+        # prompt list begins ("1. Дизентерия" under question 5). Recorded
+        # before this line is judged, so the "1." that opens the list is
+        # itself covered by the rule it establishes.
+        #
+        # A numbered line that came out of a table cell is exempt: the
+        # geometry has already proved it is a prompt, and it is filed as one
+        # below. Letting it arm this flag as well would leave the flag set
+        # for the rest of the block, and the flag vetoes the *next question's*
+        # marker -- which is how a variant ends up 39 questions long, its
+        # last one swallowed by the matching item above it.
+        #
+        # The numbering test matches the one in the branch that reads this
+        # flag, gap and all. Armed on the strict test instead, a marker that
+        # merely *skipped* a number ("36." then "38.", the 37 lost in
+        # typesetting) sets the flag on its way in and is then vetoed by it,
+        # so the one damaged question takes the whole tail of the variant
+        # down with it.
+        if (
+            cls.kind is LineKind.QUESTION_MARKER
+            and current is not None
+            and current.matching_hint
+            and not continues_numbering(cls, tolerate_gap=True)
+            and not line.from_cell
+        ):
+            prompt_list_started = True
 
         # ── READING_KEY: absorb a wrapped key, otherwise close and re-dispatch
         if state is State.READING_KEY:
@@ -1108,6 +1759,23 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
             apply_key(line, current, cls.key_payload)
             continue
 
+        # ── A table cell that is not an option is the left-hand column of a
+        # matching question: the prompt an option gets matched *to*. This is
+        # read off the geometry rather than guessed from the text, which is
+        # what makes it right even where the table printed the prompt
+        # *after* the option beside it -- a table broken across a page break
+        # does exactly that, and no reading-order rule can recover it.
+        #
+        # Requires the block to have opened with a stem of its own, so a
+        # plain question typeset inside a table keeps its stem as its stem.
+        if line.from_cell and cls.kind is not LineKind.OPTION and current.text_lines:
+            note_line(line)
+            item = line.text.strip()
+            if len(item) >= _MIN_LEFT_ITEM_LENGTH:
+                current.match_left_items.append(item)
+                current.matching_hint = True
+            continue
+
         # ── READING_QUESTION_TEXT
         if state is State.READING_QUESTION_TEXT:
             if cls.kind is LineKind.OPTION:
@@ -1118,7 +1786,28 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
                     current.options.extend(options)
                     state = State.READING_OPTIONS
                     continue
-            if cls.kind is LineKind.QUESTION_MARKER and cls.explicit:
+            # Rule A used to end here, refusing every numeric marker in this
+            # state so that a matching question's own "1. 2. 3." prompt list
+            # could not shred it. The numbering check does that job far more
+            # precisely: a prompt list restarts at 1 and so cannot continue
+            # the variant's sequence, while a genuine next question always
+            # does. What this recovers is the question that follows one
+            # whose options never parsed -- previously swallowed whole,
+            # since nothing else in this state could close a block, which is
+            # how every four-question matching tail in the reference file
+            # arrived as a single question.
+            if cls.kind is LineKind.QUESTION_MARKER and (
+                cls.explicit
+                or (
+                    continues_numbering(cls, tolerate_gap=True)
+                    and not prompt_list_started
+                    # A marker with no separator at all ("6 моль") is shaped
+                    # like the continuation of the stem above it, so it has
+                    # to clear the extra bar §4.1 sets. One that was
+                    # properly punctuated needs only the numbering.
+                    and (not cls.weak or current.matching_hint or len(current.text_lines) >= 2)
+                )
+            ):
                 close_current()
                 current = open_block(line, cls)
                 state = State.READING_QUESTION_TEXT
@@ -1135,6 +1824,18 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
         # ── READING_OPTIONS
         if cls.kind is LineKind.OPTION:
             options = split_options_in_line(line.text, last_option_index())
+            if not options and len(current.options) >= 2:
+                # A matching question reprints its options once per prompt.
+                # The reprint carries nothing new, and appending it to the
+                # last option's text is the one outcome that loses data.
+                if repeats_a_collected_option(line.text, current.options):
+                    note_line(line)
+                    continue
+                # The run went backwards. That is a printing order, not a
+                # reason to lose the option -- see split_out_of_order_option.
+                options = split_out_of_order_option(
+                    line.text, [option.label for option in current.options]
+                )
             if options:
                 apply_option_marks(options, line.marked)
                 note_line(line)
@@ -1142,7 +1843,34 @@ def run_fsm(lines: list[Line], blocks: list[QuestionBlock] | None = None) -> lis
                 continue
 
         if cls.kind is LineKind.QUESTION_MARKER:
-            starts_new = cls.explicit or (not current.matching_hint and len(current.options) >= 2)
+            starts_new = cls.explicit or (
+                # A matching question used to be unclosable by a numeric
+                # marker, so the four consecutive matching items that end
+                # every variant of the reference file arrived as one block
+                # of 33 options. It can now be closed by a number that
+                # continues the sequence, as long as no prompt list has
+                # claimed the numbering first.
+                #
+                # The gap is tolerated here for the same reason it is below:
+                # when a question loses its own marker in typesetting, the
+                # *next* one is the only thing that can close the block, and
+                # refusing it because it skipped a number costs every
+                # question to the end of the variant rather than the one
+                # that was actually damaged.
+                (continues_numbering(cls, tolerate_gap=True) and not prompt_list_started)
+                if current.matching_hint
+                # "at least two options" stands in for "this question
+                # plainly ended", and fails in both directions on a real
+                # file: a question printed with one surviving option
+                # swallows the next question whole, while a numbered
+                # preamble between two questions is read as three. A number
+                # that continues the sequence settles the first case
+                # directly; one that goes backwards settles the second.
+                else (
+                    not goes_backwards(cls)
+                    and (continues_numbering(cls, tolerate_gap=True) or len(current.options) >= 2)
+                )
+            )
             if starts_new:
                 close_current()
                 current = open_block(line, cls)
@@ -1179,12 +1907,22 @@ def extract_numbered_items(text: str) -> dict[str, str]:
     return items
 
 
-def determine_qtype(text: str, options: list[ParsedOption], key: KeyResult | None) -> str:
+def determine_qtype(
+    text: str,
+    options: list[ParsedOption],
+    key: KeyResult | None,
+    match_left_items: list[str] | None = None,
+) -> str:
     """Most specific signal wins; see the import contract for the ordering."""
     pairs = key.match_pairs if key else []
     variants = key.answer_variants if key else []
 
     if pairs:
+        return "matching"
+    # Prompts recovered from a table are as good a signal as a numbered
+    # list, and better evidence than the hint word on its own: the table
+    # only reconstructs when the options actually repeated.
+    if match_left_items and options:
         return "matching"
     if _MATCH_HINT_RE.search(text) and extract_numbered_items(text) and options:
         return "matching"
@@ -1206,6 +1944,73 @@ def determine_qtype(text: str, options: list[ParsedOption], key: KeyResult | Non
     if not options and key and key.answer_text:
         return "short_answer"
     return "unknown"
+
+
+# Past this, a stem has almost certainly absorbed something that is not the
+# question -- an editing note, a worked solution, the preamble of the group
+# it belongs to. Not cleaned automatically: every automatic rule for
+# deciding which sentence is surplus also deletes real question text on some
+# other file, and a question with an extra paragraph is repairable while a
+# question missing its condition is not.
+_LONG_TEXT_CHARS = 400
+_MANY_SENTENCES = 3
+_NUMERIC_OPTION_RE = re.compile(r"^[\d\s.,;:%°/×·+\-−()]+$")
+
+
+def _is_numeric_option(text: str) -> bool:
+    return bool(text.strip()) and bool(_NUMERIC_OPTION_RE.fullmatch(text.strip()))
+
+
+def derive_flags(
+    text: str,
+    options: list[ParsedOption],
+    qtype: str,
+    key_source: str,
+    answer_variants: list[str] | None,
+    match_left_items: list[str],
+) -> list[str]:
+    """Everything about this question the teacher should be told, named.
+
+    Replaces a single "needs review" boolean, which could say that
+    something was wrong but never what -- leaving the teacher to open all
+    two thousand questions to find the eleven with no options. The
+    distinction the names carry is whether the question is *savable*
+    (BLOCKING_FLAGS) or merely worth a glance.
+    """
+    flags: list[str] = []
+
+    if key_source == "none":
+        flags.append(FLAG_MISSING_KEY)
+
+    if qtype in ("single_choice", "multiple_choice", "matching", "unknown"):
+        if not options:
+            flags.append(FLAG_MISSING_OPTIONS)
+        elif len(options) == 1:
+            flags.append(FLAG_SINGLE_OPTION_ONLY)
+
+    labels = [option.label for option in options]
+    if len(labels) != len(set(labels)):
+        flags.append(FLAG_DUPLICATE_OPTION_LABEL)
+
+    # A key that names an option this question does not have is worse than
+    # no key: saved unchecked it marks the wrong answer correct.
+    if answer_variants and options and not set(answer_variants) & set(labels):
+        flags.append(FLAG_KEY_OPTION_MISMATCH)
+
+    # A matching question needs prompts to match *against*. They come
+    # either from the table (match_left_items) or, when the question
+    # numbered them itself, from the stem -- only having neither is a fault.
+    if qtype == "matching" and not match_left_items and not extract_numbered_items(text):
+        flags.append(FLAG_MATCHING_LEFT_EMPTY)
+
+    numeric = [_is_numeric_option(option.text) for option in options]
+    if len(options) > 2 and any(numeric) and not all(numeric):
+        flags.append(FLAG_MIXED_OPTION_TYPES)
+
+    if len(text) > _LONG_TEXT_CHARS or len(re.findall(r"[.!?]\s", text)) >= _MANY_SENTENCES:
+        flags.append(FLAG_LONG_TEXT)
+
+    return flags
 
 
 def score_confidence(
@@ -1233,6 +2038,14 @@ def score_confidence(
 # ─────────────────────────────────────────────────────────────────────────
 
 
+def _question_number(block: QuestionBlock) -> int | None:
+    """The number the block was printed under, or None if it had no marker."""
+    try:
+        return int(block.number) if block.number is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _block_text(block: QuestionBlock) -> str:
     """Everything the block was assembled from -- stem, options and key.
 
@@ -1250,6 +2063,17 @@ def _finalize_block(
     line_range = [block.first_line, block.last_line]
 
     try:
+        rebuild_matching_table(block)
+        recover_unstarted_options(block)
+        # Printed order is not meaningful -- an option's label is. A file
+        # that typeset "A) C) D) B)" means the same four answers as one that
+        # typeset them in order, and the teacher should see B in B's place.
+        # Skipped when a label repeats, because then the labels are not
+        # trustworthy enough to sort on and the printed order is the better
+        # of two bad orders.
+        labels = [option.label for option in block.options]
+        if len(labels) == len(set(labels)):
+            block.options.sort(key=lambda option: _letter_index(option.label))
         text = "\n".join(block.text_lines).strip()
         key = block.key
         key_source = "text" if key is not None and not key.is_empty() else "none"
@@ -1264,7 +2088,7 @@ def _finalize_block(
                 key = KeyResult(answer_variants=marked)
                 key_source = "highlight"
 
-        qtype = determine_qtype(text, block.options, key)
+        qtype = determine_qtype(text, block.options, key, block.match_left_items)
         confidence, needs_review = score_confidence(text, block.options, key, qtype)
 
         answer_variants: list[str] | None = None
@@ -1285,6 +2109,19 @@ def _finalize_block(
                 )
                 match_pairs.append(ParsedMatchRef(left=pair.left, right=label))
 
+        flags = block.flags + derive_flags(
+            text, block.options, qtype, key_source, answer_variants, block.match_left_items
+        )
+
+        # A question printed with exactly one option is one whose wrong
+        # answers were lost in editing, and the surviving option is
+        # overwhelmingly the right one -- so it is filled in rather than
+        # left blank. Never silently: the flag stays, review stays on, and
+        # the confidence says plainly that this is a guess worth checking.
+        if FLAG_SINGLE_OPTION_ONLY in flags and not answer_variants:
+            answer_variants = [block.options[0].label]
+            confidence = min(confidence, 0.5)
+
         return ParsedQuestion(
             id=question_id,
             raw_line_range=line_range,
@@ -1292,15 +2129,18 @@ def _finalize_block(
             text=text or raw_text,
             variant_id=segment.variant_id,
             variant_label=segment.label,
+            question_number=_question_number(block),
             # Classified from the block's raw text -- options and answer key
             # included, since a stem can be neutral while its options are not.
             language=question_language(raw_text, variant_language),
             options=block.options,
+            match_left_items=block.match_left_items,
             match_pairs=match_pairs,
             answer_variants=answer_variants,
             answer_text=key.answer_text if key else None,
             confidence=confidence,
-            needs_review=needs_review,
+            needs_review=needs_review or bool(BLOCKING_FLAGS.intersection(flags)),
+            flags=sorted(set(flags)),
             parse_error=None,
             raw_text=raw_text,
             key_source=key_source,
@@ -1313,6 +2153,7 @@ def _finalize_block(
             text=raw_text,
             variant_id=segment.variant_id,
             variant_label=segment.label,
+            question_number=_question_number(block),
             # The block could not be read, so its own signal is not to be
             # trusted -- fall back to the variant's language.
             language=variant_language,
@@ -1322,6 +2163,7 @@ def _finalize_block(
             answer_text=None,
             confidence=0.0,
             needs_review=True,
+            flags=[FLAG_MISSING_KEY, FLAG_MISSING_OPTIONS],
             parse_error=f"{type(exc).__name__}: {exc}",
             raw_text=raw_text,
         )
@@ -1337,7 +2179,9 @@ _MANY_LINES = 100_000
 
 
 def parse_ent_pdf_questions(
-    text: str, marks: dict[int, tuple[str, ...]] | None = None
+    text: str,
+    marks: dict[int, tuple[str, ...]] | None = None,
+    cells: frozenset[int] | None = None,
 ) -> ParseResult:
     """Entry point. Returns questions plus diagnostics, and never raises --
     a total failure comes back as an empty result carrying the error.
@@ -1347,13 +2191,13 @@ def parse_ent_pdf_questions(
     plus whatever the broken one yielded before it failed, plus a
     ``variant_errors`` entry naming it.
 
-    ``marks`` comes from :func:`extract_pdf_text` and is optional: passing
-    plain text parses exactly as before, which is what the tests and any
-    non-PDF caller rely on.
+    ``marks`` and ``cells`` come from :func:`extract_pdf_text` and are
+    optional: passing plain text parses exactly as before, which is what the
+    tests and any non-PDF caller rely on.
     """
     warnings: list[str] = []
     try:
-        lines = join_wrapped_lines(preprocess(text, marks))
+        lines = join_wrapped_lines(preprocess(text, marks, cells))
     except Exception as exc:  # noqa: BLE001
         logger.exception("ENT PDF import: normalization failed")
         return ParseResult(
@@ -1370,8 +2214,9 @@ def parse_ent_pdf_questions(
     if len(lines) > _MANY_LINES:
         logger.warning("ENT PDF import: unusually large document, %d lines", len(lines))
 
+    duplicate_headers = 0
     try:
-        segments = split_variants(lines)
+        segments, duplicate_headers = split_variants(lines)
     except Exception as exc:  # noqa: BLE001
         logger.exception("ENT PDF import: variant segmentation failed, parsing as one variant")
         warnings.append(f"Не удалось разделить файл на варианты: {type(exc).__name__}")
@@ -1407,6 +2252,11 @@ def parse_ent_pdf_questions(
         for block in blocks:
             questions.append(_finalize_block(block, len(questions) + 1, segment, variant_language))
 
+    by_flag: dict[str, int] = {}
+    for question in questions:
+        for flag in question.flags:
+            by_flag[flag] = by_flag.get(flag, 0) + 1
+
     return ParseResult(
         questions=questions,
         stats=ParseStats(
@@ -1416,6 +2266,8 @@ def parse_ent_pdf_questions(
             parse_errors=[q.parse_error for q in questions if q.parse_error],
             variants_detected=len(segments),
             variant_errors=variant_errors,
+            by_flag=dict(sorted(by_flag.items(), key=lambda item: -item[1])),
+            duplicate_variant_headers=duplicate_headers,
         ),
         warnings=warnings,
     )
@@ -1459,9 +2311,21 @@ class ImportPayload:
     raw_line_range: list[int] = field(default_factory=list)
     variant_id: int = 0
     variant_label: str | None = None
+    question_number: int | None = None
     language: str = DEFAULT_LANGUAGE
     parse_error: str | None = None
     key_source: str = "none"
+    # Named faults, so the preview can say *what* to look at rather than
+    # colouring two thousand cards the same shade of "check me".
+    flags: list[str] = field(default_factory=list)
+    # The prompts a matching question's options get matched to. Carried
+    # separately from `match_pairs` because the pairing itself is unknown
+    # until the teacher supplies the key -- the prompts are what they need
+    # to see in order to supply it.
+    match_left_items: list[str] = field(default_factory=list)
+    # (label, raw_label, text) for the right-hand column of a matching
+    # question -- the candidates each prompt is paired with.
+    match_options: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 def to_import_payload(question: ParsedQuestion) -> ImportPayload:
@@ -1480,8 +2344,11 @@ def to_import_payload(question: ParsedQuestion) -> ImportPayload:
             raw_line_range=question.raw_line_range,
             variant_id=question.variant_id,
             variant_label=question.variant_label,
+            question_number=question.question_number,
             language=question.language,
             parse_error=question.parse_error or f"{type(exc).__name__}: {exc}",
+            flags=question.flags,
+            match_left_items=question.match_left_items,
         )
 
 
@@ -1493,6 +2360,7 @@ def _to_import_payload(question: ParsedQuestion) -> ImportPayload:
     choice_labels: list[tuple[str, str]] = []
     pairs: list[tuple[str, str]] = []
     variants: list[str] = []
+    match_options: list[tuple[str, str, str]] = []
 
     if qtype in ("single", "multiple"):
         correct = set(question.answer_variants or [])
@@ -1522,6 +2390,18 @@ def _to_import_payload(question: ParsedQuestion) -> ImportPayload:
                 (prompt, option.text)
                 for prompt, option in zip(prompts.values(), question.options)
             ]
+        # The right-hand column travels in a field of its own rather than in
+        # `choices`. It has to travel: without it a "Сопоставьте" card
+        # arrives showing its prompts and nothing to attach them to, and the
+        # teacher cannot answer it at all. But it is not an answer, and
+        # EntQuestionIn rejects `choices` on a matching question -- so
+        # putting it there would cost the property that an imported question
+        # can be posted straight back, which is the one thing keeping the
+        # preview's "confident" badge honest.
+        match_options = [
+            (option.label, option.raw_label or option.label, option.text)
+            for option in question.options
+        ]
     elif qtype == "short_answer":
         variants = [v.strip() for v in re.split(r"[,/]", question.answer_text or "") if v.strip()]
 
@@ -1555,9 +2435,13 @@ def _to_import_payload(question: ParsedQuestion) -> ImportPayload:
         raw_line_range=question.raw_line_range,
         variant_id=question.variant_id,
         variant_label=question.variant_label,
+        question_number=question.question_number,
         language=question.language,
         parse_error=question.parse_error,
         key_source=question.key_source,
+        flags=question.flags,
+        match_left_items=question.match_left_items,
+        match_options=match_options,
     )
 
 
@@ -1698,24 +2582,206 @@ def _marked_runs(line: dict, regions: list[tuple[float, float, float, float]]) -
     return tuple(run.strip() for run in runs if run.strip())
 
 
+# ── Ruled two-column option tables ──────────────────────────────────────
+#
+# A "Сопоставьте" item is typeset as a ruled table: the left cell holds the
+# prompt, the right column holds the option run. Text extraction reads a
+# table row back in *x* order, which interleaves the two columns on every
+# physical line --
+#
+#     A) Никель Катализатор, применяемый для B) Бензол получения полиэтилена
+#
+# -- and once that string exists neither half is recoverable, because the
+# boundary between "Никель" and "Катализатор," is invisible in the text:
+# no regex can know where the option ended and the prompt resumed. The
+# columns are still present in the *geometry*, so they are read column-first
+# here, before the text is flattened, and everything downstream then sees
+# the shape it already handles -- prompt lines, then A) B) C) D).
+#
+# This is the one place in the pipeline that looks at layout to decide
+# reading order. It is confined to tables that are demonstrably option
+# tables (see below) precisely so the rest of the document keeps parsing
+# from text alone.
+
+# How many options it takes to believe the right-hand column is an option
+# run rather than data that happens to start with a capital letter.
+_MIN_TABLE_OPTIONS = 2
+
+
+def _cell_lines(cell: str | None) -> list[str]:
+    return [part.strip() for part in (cell or "").split("\n") if part.strip()]
+
+
+def column_ordered_table(
+    rows: list[list[str | None]], prompts: list[str] | None = None
+) -> list[str] | None:
+    """A ruled option table's cells, prompts first and options after.
+
+    The shape this recovers is the one the rest of the parser already
+    expects of a matching question -- stem, then the prompts, then ``A)``
+    through ``D)`` -- so nothing downstream has to know tables exist.
+
+    Returns ``None`` for any table the reordering would *damage*, which is
+    the important half of the contract: a single-column box (this file rules
+    one around some question stems), or a table whose right-hand column is
+    not an option run at all -- a data table inside a question, whose rows
+    mean what they mean only when read across. Those keep the ordinary x
+    order, exactly as before.
+
+    ``prompts`` is the left-hand column already split into items by
+    :func:`left_column_prompts`, which can tell two prompts from one wrapped
+    prompt because it still has the geometry. Without it the cell's own line
+    breaks are used, which is right only when the cell holds a single item.
+    """
+    if not rows or max((len(row) for row in rows), default=0) < 2:
+        return None
+
+    options: list[str] = []
+    for row in rows:
+        for entry in _cell_lines(row[-1]):
+            # The right-hand column is a *list*: one cell routinely holds
+            # all four options, one per typeset line. A line that does not
+            # open a new option is the previous one's wrapped tail.
+            if options and not _OPTION_START_RE.match(entry):
+                options[-1] = f"{options[-1]} {entry}"
+            else:
+                options.append(entry)
+
+    # The evidence that this is a prompt/options table rather than data: the
+    # right-hand column reads as a run of option markers. A data table fails
+    # on its first cell and keeps its reading order.
+    if len(options) < _MIN_TABLE_OPTIONS or not all(_OPTION_START_RE.match(o) for o in options):
+        return None
+
+    if prompts is None:
+        prompts = [" ".join(_cell_lines(row[0])) for row in rows]
+    return [prompt for prompt in prompts if prompt] + options
+
+
+# A wrapped line sits about 1.2 line heights below the one it continues; a
+# new prompt is pushed down the cell to meet the option it pairs with and
+# lands at three or more. The two populations in the reference file are
+# 1.15-1.3 and 3.7-6.1, so anywhere between them does -- 2 is the midpoint
+# in log terms and needs no per-document calibration.
+_PROMPT_GAP_RATIO = 2.0
+
+
+def left_column_prompts(page: object, table: object) -> list[str] | None:
+    """The left-hand column of a table, one entry per prompt.
+
+    Exists because the extracted *text* of that column is genuinely
+    ambiguous and no rule over it can be right in both directions:
+
+        "Этиленгликоль"                     -- two prompts, one line each
+        "Глицерин"
+
+        "Катализатор, применяемый для"      -- one prompt, three lines
+        "получения полиэтилена при низком"
+        "давлении"
+
+    Same shape, opposite meaning, and the file has hundreds of each. What
+    tells them apart is not in the characters but in the leading, so it is
+    read here while the geometry still exists. Returns ``None`` if the
+    layout cannot be read, which drops the caller back to the cell's own
+    line breaks.
+    """
+    try:
+        columns = list(getattr(table, "columns", None) or [])
+        x0, top, _, bottom = (float(value) for value in table.bbox)
+        if len(columns) < 2:
+            return None
+        divider = float(columns[1].bbox[0])
+        if divider <= x0:
+            return None
+        lines = page.crop((x0, top, divider, bottom)).extract_text_lines(  # type: ignore[attr-defined]
+            y_tolerance=_LINE_Y_TOLERANCE
+        )
+    except Exception:  # noqa: BLE001 -- fall back to the text, never fail the page
+        logger.exception("ENT PDF import: could not measure a table's left column")
+        return None
+
+    prompts: list[str] = []
+    previous_top: float | None = None
+    for line in lines:
+        text = (line.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            line_top = float(line["top"])
+            height = float(line["bottom"]) - line_top
+        except (KeyError, TypeError, ValueError):
+            return None
+        continues = (
+            prompts
+            and previous_top is not None
+            and height > 0
+            and (line_top - previous_top) <= _PROMPT_GAP_RATIO * height
+        )
+        if continues:
+            prompts[-1] = f"{prompts[-1]} {text}"
+        else:
+            prompts.append(text)
+        previous_top = line_top
+    return prompts
+
+
+def _option_tables(page: object) -> list[tuple[tuple[float, float, float, float], list[str]]]:
+    """Every table on the page that must be read column-first, with its box."""
+    found: list[tuple[tuple[float, float, float, float], list[str]]] = []
+    for table in getattr(page, "find_tables", lambda: [])() or []:
+        try:
+            rows = table.extract() or []
+            bbox = tuple(float(v) for v in table.bbox)
+        except Exception:  # noqa: BLE001 -- a malformed table must not sink the page
+            logger.exception("ENT PDF import: could not read a table, leaving it as text")
+            continue
+        ordered = column_ordered_table(rows, left_column_prompts(page, table))
+        if ordered and len(bbox) == 4:
+            found.append((bbox, ordered))  # type: ignore[arg-type]
+    return found
+
+
+def _line_inside(line: dict, bbox: tuple[float, float, float, float]) -> bool:
+    """Whether a text line belongs to a table that will re-emit it itself.
+
+    Tested on the line's vertical *midpoint* so a row whose glyphs overshoot
+    the rule by a point is still claimed by its table -- leaving it to the
+    ordinary path would print it twice, once interleaved and once in
+    column order.
+    """
+    x0, top, x1, bottom = bbox
+    try:
+        middle = (float(line["top"]) + float(line["bottom"])) / 2
+    except (KeyError, TypeError, ValueError):
+        return False
+    return top <= middle <= bottom and float(line.get("x1", 0)) > x0 and float(line.get("x0", 0)) < x1
+
+
 def extract_pdf_text(data: bytes) -> PdfExtract:
     """Reads the text layer plus whatever the teacher marked by colour.
 
     ``marks`` is keyed by line number within ``text`` so the parser can
     stay purely textual: geometry is resolved here, once, and everything
     downstream just asks which runs of a given line were marked.
+
+    Ruled two-column option tables are the one exception to "read the page
+    top to bottom": their cells are emitted column-first (see
+    :func:`column_ordered_table`), spliced back in at the table's own
+    vertical position so the document's order is otherwise untouched.
     """
     import pdfplumber
 
     pages_text: list[str] = []
     marks: dict[int, tuple[str, ...]] = {}
+    cells: set[int] = set()
     line_number = 0
 
     with pdfplumber.open(BytesIO(data)) as pdf:
         for page in pdf.pages:
             try:
                 regions = _marking_regions(page)
-                lines = page.extract_text_lines()
+                lines = page.extract_text_lines(y_tolerance=_LINE_Y_TOLERANCE)
+                tables = _option_tables(page)
             except Exception:  # noqa: BLE001 -- fall back to plain text for this page
                 logger.exception("ENT PDF import: could not read layout of a page, using plain text")
                 page_text = page.extract_text() or ""
@@ -1723,14 +2789,45 @@ def extract_pdf_text(data: bytes) -> PdfExtract:
                 line_number += len(page_text.split("\n"))
                 continue
 
+            # (vertical position, tie-break, text, marked runs, is a cell).
+            # Built as one list and sorted so a table's column-ordered lines
+            # land exactly where the table sat, between the question above
+            # and the one below it.
+            entries: list[tuple[float, int, str, tuple[str, ...], bool]] = []
+
+            for bbox, texts in tables:
+                # Marks inside the table are recovered from the lines it
+                # replaces: the cells carry no chars of their own once
+                # extracted, but a highlighted option is still the same
+                # string, so a run that survives as a substring is re-attached.
+                claimed = [line for line in lines if _line_inside(line, bbox)]
+                runs = [run for line in claimed for run in _marked_runs(line, regions)]
+                for offset, text in enumerate(texts):
+                    matched = tuple(run for run in runs if run and run in text)
+                    entries.append((bbox[1], offset, text, matched, True))
+
             for line in lines:
-                text = line.get("text") or ""
+                if any(_line_inside(line, bbox) for bbox, _ in tables):
+                    continue
+                entries.append(
+                    (
+                        float(line.get("top") or 0.0),
+                        0,
+                        line.get("text") or "",
+                        # Runs directly, with no `regions` guard: coloured ink
+                        # is a mark on its own and leaves no region behind.
+                        _marked_runs(line, regions),
+                        False,
+                    )
+                )
+
+            entries.sort(key=lambda entry: (entry[0], entry[1]))
+            for _, _, text, runs, is_cell in entries:
                 pages_text.append(text)
-                # Runs directly, with no `regions` guard: coloured ink is a
-                # mark on its own and leaves no region behind.
-                runs = _marked_runs(line, regions)
                 if runs:
                     marks[line_number] = runs
+                if is_cell:
+                    cells.add(line_number)
                 line_number += 1
 
-    return PdfExtract(text="\n".join(pages_text), marks=marks)
+    return PdfExtract(text="\n".join(pages_text), marks=marks, cells=frozenset(cells))

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Eye, EyeOff, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from "@lucide/vue";
 import { computed, reactive, ref } from "vue";
 import { onMounted } from "vue";
 
@@ -16,24 +17,34 @@ import {
   uploadEntQuestionImage,
 } from "@/api/ent";
 import EntPdfImportModal from "@/components/ent/EntPdfImportModal.vue";
+import EntQuestionForm from "@/components/ent/EntQuestionForm.vue";
+import PageContainer from "@/components/layout/PageContainer.vue";
+import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
-import BaseInput from "@/components/ui/BaseInput.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useModalFocusTrap } from "@/composables/useModalFocusTrap";
 import type { EntQuestionTeacher, EntQuestionType, EntSubject, ExamLanguage } from "@/types";
-import { EXAM_LANGUAGES, LANGUAGE_FLAG, LANGUAGE_LABEL } from "@/utils/examLanguage";
+import { blankQuestionForm, buildEntQuestionPayload, isQuestionFormValid, type QuestionForm } from "@/utils/entQuestionForm";
+import { EXAM_LANGUAGES, LANGUAGE_LABEL } from "@/utils/examLanguage";
 
 // Dense card rows, not table rows -- bigger than the app's usual page size
 // of 20 so a teacher isn't clicking through pagination constantly, but
 // still well under the backend's 100 cap so the DOM stays light.
 const QUESTIONS_PER_PAGE = 50;
 
-const QTYPE_LABEL: Record<EntQuestionType, string> = {
-  single: "Один правильный ответ",
-  multiple: "Несколько правильных ответов",
+// Short form for the question-card badges (the select above uses the fuller
+// wording; the card is dense and only has room for a couple of words).
+const QTYPE_BADGE: Record<EntQuestionType, string> = {
+  single: "Одиночный выбор",
+  multiple: "Множественный выбор",
   matching: "Сопоставление",
   short_answer: "Краткий ответ",
+};
+
+const LANG_BADGE: Record<ExamLanguage, string> = {
+  ru: "RU",
+  kk: "KZ",
 };
 
 const subjects = ref<EntSubject[]>([]);
@@ -41,17 +52,32 @@ const loading = ref(true);
 const newSubjectName = ref("");
 
 const openSubjectId = ref<number | null>(null);
+const selectedSubject = computed(() => subjects.value.find((s) => s.id === openSubjectId.value) ?? null);
+
+function hasQuotas(subject: EntSubject): boolean {
+  return (
+    subject.single_choice_count + subject.multiple_choice_count + subject.matching_count + subject.short_answer_count >
+    0
+  );
+}
+
 const questionsBySubject = reactive<Record<number, EntQuestionTeacher[]>>({});
 const questionsLoading = ref(false);
 // Pagination state per subject -- more than one subject's questions can be
-// cached at once (a teacher expands, collapses, expands another), so this
-// can't be a single shared object or switching back to an already-cached
-// subject would show the wrong page/total.
+// cached at once (a teacher switches between subjects in the sidebar), so
+// this can't be a single shared object or switching back to an
+// already-cached subject would show the wrong page/total.
 const questionsPageBySubject = reactive<Record<number, { page: number; total: number; pages: number }>>({});
 function questionsPageFor(subjectId: number) {
   return questionsPageBySubject[subjectId] ?? { page: 1, total: 0, pages: 0 };
 }
+// Which question is being edited in place (its card swaps its display for
+// `editForm`), and the form data for it -- separate from `questionForms`
+// (the always-visible "new question" form at the bottom of the list) so
+// opening an edit never clobbers whatever the teacher was drafting there.
 const editingQuestionId = ref<number | null>(null);
+const editForm = ref<QuestionForm | null>(null);
+const editFileInputKey = ref(0);
 
 const renamingSubjectId = ref<number | null>(null);
 const renameValue = ref("");
@@ -63,6 +89,18 @@ const showPdfImportModal = ref(false);
 // filtering is done by the API, so a subject with 400 Russian questions does
 // not ship them all to draw a Kazakh list.
 const bankLanguage = ref<ExamLanguage | "all">("all");
+
+// Client-side filter over whatever page is currently loaded -- there is no
+// search endpoint, so this narrows what's on screen rather than querying
+// the whole bank.
+const searchQuery = ref("");
+const filteredQuestions = computed<EntQuestionTeacher[]>(() => {
+  if (!selectedSubject.value) return [];
+  const list = questionsBySubject[selectedSubject.value.id] ?? [];
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((item) => item.text.toLowerCase().includes(q));
+});
 
 async function loadQuestions(subjectId: number, page = 1) {
   const res = await listSubjectQuestions(
@@ -97,10 +135,10 @@ function showToast(message: string, tone: "error" | "info" = "info", ms = 4000) 
   toastTimer = setTimeout(() => (toast.value = null), ms);
 }
 
-// ── Bulk selection: scoped to whichever subject is currently expanded.
-// Cleared (with a notice) whenever the language filter or the open subject
-// changes, so a selection never silently carries over onto a different set
-// of questions than the one the teacher is looking at.
+// ── Bulk selection: scoped to whichever subject is currently open in the
+// main panel. Cleared (with a notice) whenever the language filter or the
+// open subject changes, so a selection never silently carries over onto a
+// different set of questions than the one the teacher is looking at.
 const selectedIds = reactive(new Set<number>());
 const lastClickedIndex = ref<number | null>(null);
 
@@ -110,8 +148,12 @@ function clearSelection(notify = false) {
   lastClickedIndex.value = null;
 }
 
-function toggleQuestionSelection(subjectId: number, index: number, event: MouseEvent) {
-  const list = questionsBySubject[subjectId];
+// Indexed against `filteredQuestions` (what's actually on screen), so a
+// shift-click range and "select all" only ever touch visible rows -- a
+// search that's hiding most of the list shouldn't let "select all" sweep up
+// questions the teacher can't currently see.
+function toggleQuestionSelection(index: number, event: MouseEvent) {
+  const list = filteredQuestions.value;
   const question = list[index];
   if (event.shiftKey && lastClickedIndex.value !== null) {
     const [start, end] = [lastClickedIndex.value, index].sort((a, b) => a - b);
@@ -124,18 +166,14 @@ function toggleQuestionSelection(subjectId: number, index: number, event: MouseE
   lastClickedIndex.value = index;
 }
 
-function visibleQuestions(subjectId: number): EntQuestionTeacher[] {
-  return questionsBySubject[subjectId] ?? [];
-}
-
-function allVisibleSelected(subjectId: number): boolean {
-  const list = visibleQuestions(subjectId);
+function allVisibleSelected(): boolean {
+  const list = filteredQuestions.value;
   return list.length > 0 && list.every((q) => selectedIds.has(q.id));
 }
 
-function toggleSelectAllVisible(subjectId: number) {
-  const list = visibleQuestions(subjectId);
-  if (allVisibleSelected(subjectId)) {
+function toggleSelectAllVisible() {
+  const list = filteredQuestions.value;
+  if (allVisibleSelected()) {
     for (const q of list) selectedIds.delete(q.id);
   } else {
     for (const q of list) selectedIds.add(q.id);
@@ -177,9 +215,11 @@ async function confirmBulkDelete() {
   try {
     const result = await bulkDeleteEntQuestions(ids);
     const deleted = new Set(result.deleted);
+    const removedQuestions = questionsBySubject[subjectId].filter((q) => deleted.has(q.id));
     questionsBySubject[subjectId] = questionsBySubject[subjectId].filter((q) => !deleted.has(q.id));
-    const subject = subjects.value.find((s) => s.id === subjectId);
-    if (subject) subject.question_count = Math.max(0, subject.question_count - deleted.size);
+    const byLanguage: Partial<Record<ExamLanguage, number>> = {};
+    for (const q of removedQuestions) byLanguage[q.language] = (byLanguage[q.language] ?? 0) + 1;
+    adjustQuestionTotals(subjectId, byLanguage);
     clearSelection();
     bulkDeleteModalOpen.value = false;
     if (result.failed.length > 0) {
@@ -198,6 +238,7 @@ async function setBankLanguage(value: ExamLanguage | "all") {
   if (bankLanguage.value === value) return;
   bankLanguage.value = value;
   clearSelection(true);
+  searchQuery.value = "";
   // Everything cached was fetched under the previous filter.
   for (const key of Object.keys(questionsBySubject)) delete questionsBySubject[Number(key)];
   for (const key of Object.keys(questionsPageBySubject)) delete questionsPageBySubject[Number(key)];
@@ -253,20 +294,6 @@ async function saveQuotas() {
   }
 }
 
-interface QuestionForm {
-  qtype: EntQuestionType;
-  text: string;
-  language: ExamLanguage;
-  maxScore: number;
-  /** Newly picked file, uploaded only after the question row itself is saved. */
-  imageFile: File | null;
-  /** Whether the question being edited already has an image on the server. */
-  hasImage: boolean;
-  choices: { text: string; isCorrect: boolean }[];
-  matchPairs: { promptText: string; answerText: string }[];
-  answerVariants: string[];
-}
-
 // The image URL is stable per question, so the browser would keep showing the
 // old file after a re-upload -- bump this to bust the cache.
 const imageVersion = ref(0);
@@ -277,27 +304,11 @@ function questionImageUrl(questionId: number): string {
   return `${getEntQuestionImageUrl(questionId)}?v=${imageVersion.value}`;
 }
 
-function blankForm(): QuestionForm {
-  return {
-    qtype: "single",
-    text: "",
-    // A new question defaults to whichever language the bank is filtered to,
-    // so adding three Kazakh questions in a row doesn't mean setting the
-    // dropdown three times.
-    language: bankLanguage.value === "all" ? "ru" : bankLanguage.value,
-    maxScore: 1,
-    imageFile: null,
-    hasImage: false,
-    choices: [
-      { text: "", isCorrect: true },
-      { text: "", isCorrect: false },
-    ],
-    matchPairs: [
-      { promptText: "", answerText: "" },
-      { promptText: "", answerText: "" },
-    ],
-    answerVariants: [""],
-  };
+// A new question defaults to whichever language the bank is filtered to, so
+// adding three Kazakh questions in a row doesn't mean setting the dropdown
+// three times.
+function newQuestionForm(): QuestionForm {
+  return blankQuestionForm(bankLanguage.value === "all" ? "ru" : bankLanguage.value);
 }
 
 const questionForms = reactive<Record<number, QuestionForm>>({});
@@ -319,8 +330,8 @@ async function handleCreateSubject() {
   // instead of leaving the teacher to figure out that clicking its
   // name is what reveals it.
   openSubjectId.value = subject.id;
-  editingQuestionId.value = null;
-  if (!questionForms[subject.id]) questionForms[subject.id] = blankForm();
+  cancelEditQuestion();
+  if (!questionForms[subject.id]) questionForms[subject.id] = newQuestionForm();
   await loadQuestions(subject.id);
 }
 
@@ -345,15 +356,13 @@ async function handleRenameSubject(subjectId: number) {
   await load();
 }
 
-async function toggleSubject(subjectId: number) {
+async function selectSubject(subjectId: number) {
   clearSelection();
-  if (openSubjectId.value === subjectId) {
-    openSubjectId.value = null;
-    return;
-  }
+  searchQuery.value = "";
+  if (openSubjectId.value === subjectId) return;
   openSubjectId.value = subjectId;
-  editingQuestionId.value = null;
-  if (!questionForms[subjectId]) questionForms[subjectId] = blankForm();
+  cancelEditQuestion();
+  if (!questionForms[subjectId]) questionForms[subjectId] = newQuestionForm();
   if (!questionsBySubject[subjectId]) {
     questionsLoading.value = true;
     await loadQuestions(subjectId);
@@ -361,10 +370,15 @@ async function toggleSubject(subjectId: number) {
   }
 }
 
-function startEditQuestion(subjectId: number, question: EntQuestionTeacher) {
+// ── In-place question editing ─────────────────────────────────────────────
+// The card itself becomes the form (see the template): no separate editor
+// panel, and critically, nothing scrolls the page to reach it -- the whole
+// point is that a click on a card near the top of a long list doesn't dump
+// the teacher at the bottom of the page.
+function startEditQuestion(question: EntQuestionTeacher) {
   editingQuestionId.value = question.id;
-  const fallback = blankForm();
-  questionForms[subjectId] = {
+  const fallback = blankQuestionForm(question.language);
+  editForm.value = {
     qtype: question.qtype,
     text: question.text,
     language: question.language,
@@ -381,114 +395,89 @@ function startEditQuestion(subjectId: number, question: EntQuestionTeacher) {
   };
 }
 
-function cancelEditQuestion(subjectId: number) {
+function cancelEditQuestion() {
   editingQuestionId.value = null;
-  questionForms[subjectId] = blankForm();
+  editForm.value = null;
+  editFileInputKey.value += 1;
+}
+
+function onNewImagePicked(subjectId: number, file: File | null) {
+  questionForms[subjectId].imageFile = file;
+}
+
+function onEditImagePicked(file: File | null) {
+  if (editForm.value) editForm.value.imageFile = file;
+}
+
+async function handleRemoveNewImage(subjectId: number) {
+  questionForms[subjectId].imageFile = null;
   fileInputKey.value += 1;
 }
 
-function onImagePicked(subjectId: number, event: Event) {
-  const input = event.target as HTMLInputElement;
-  questionForms[subjectId].imageFile = input.files?.[0] ?? null;
-}
-
-async function handleRemoveImage(subjectId: number) {
-  const form = questionForms[subjectId];
+async function handleRemoveEditImage(subjectId: number) {
+  if (!editForm.value || editingQuestionId.value === null) return;
+  const form = editForm.value;
+  const questionId = editingQuestionId.value;
   form.imageFile = null;
-  fileInputKey.value += 1;
+  editFileInputKey.value += 1;
 
   // A not-yet-saved pick is dropped locally; an image already on the server
-  // needs the question to exist, which only holds while editing.
-  if (editingQuestionId.value !== null && form.hasImage) {
-    await deleteEntQuestionImage(editingQuestionId.value);
+  // needs a DELETE of its own.
+  if (form.hasImage) {
+    await deleteEntQuestionImage(questionId);
     form.hasImage = false;
     imageVersion.value += 1;
     await loadQuestions(subjectId, questionsPageFor(subjectId).page);
   }
 }
 
-function onQtypeChange(subjectId: number) {
+async function handleCreateQuestion(subjectId: number) {
   const form = questionForms[subjectId];
-  if (form.qtype === "multiple" || form.qtype === "matching") {
-    form.maxScore = 2;
-  } else if (form.maxScore === 2 && form.qtype !== "single" && form.qtype !== "short_answer") {
-    form.maxScore = 1;
+  if (!isQuestionFormValid(form)) return;
+
+  const saved = await createSubjectQuestion(subjectId, buildEntQuestionPayload(form));
+  if (form.imageFile) {
+    await uploadEntQuestionImage(saved.id, form.imageFile);
+    imageVersion.value += 1;
   }
+
+  questionForms[subjectId] = newQuestionForm();
+  fileInputKey.value += 1;
+  await loadQuestions(subjectId, questionsPageFor(subjectId).page);
+  await load();
 }
 
-function addChoice(subjectId: number) {
-  const form = questionForms[subjectId];
-  if (form.choices.length < 8) form.choices.push({ text: "", isCorrect: false });
-}
+async function handleUpdateQuestion(subjectId: number) {
+  if (editingQuestionId.value === null || !editForm.value) return;
+  const form = editForm.value;
+  if (!isQuestionFormValid(form)) return;
+  const questionId = editingQuestionId.value;
 
-function addMatchPair(subjectId: number) {
-  questionForms[subjectId].matchPairs.push({ promptText: "", answerText: "" });
-}
-
-function addAnswerVariant(subjectId: number) {
-  questionForms[subjectId].answerVariants.push("");
-}
-
-function isFormValid(form: QuestionForm): boolean {
-  if (!form.text.trim()) return false;
-  if (form.qtype === "single") {
-    return (
-      form.choices.length >= 2 &&
-      form.choices.every((c) => c.text.trim()) &&
-      form.choices.filter((c) => c.isCorrect).length === 1
-    );
-  }
-  if (form.qtype === "multiple") {
-    return (
-      form.choices.length >= 2 &&
-      form.choices.every((c) => c.text.trim()) &&
-      form.choices.filter((c) => c.isCorrect).length >= 2
-    );
-  }
-  if (form.qtype === "matching") {
-    return form.matchPairs.length >= 2 && form.matchPairs.every((p) => p.promptText.trim() && p.answerText.trim());
-  }
-  return form.answerVariants.some((v) => v.trim());
-}
-
-async function handleSaveQuestion(subjectId: number) {
-  const form = questionForms[subjectId];
-  if (!isFormValid(form)) return;
-
-  const payload = {
-    qtype: form.qtype,
-    text: form.text,
-    language: form.language,
-    max_score: form.maxScore,
-    choices:
-      form.qtype === "single" || form.qtype === "multiple"
-        ? form.choices.map((c) => ({ text: c.text, is_correct: c.isCorrect }))
-        : undefined,
-    match_pairs:
-      form.qtype === "matching"
-        ? form.matchPairs.map((p) => ({ prompt_text: p.promptText, answer_text: p.answerText }))
-        : undefined,
-    answer_variants:
-      form.qtype === "short_answer" ? form.answerVariants.filter((v) => v.trim()) : undefined,
-  };
-
-  // The image rides on the question row, so a brand-new question has to exist
-  // before its file can be attached.
-  const saved =
-    editingQuestionId.value !== null
-      ? await updateSubjectQuestion(editingQuestionId.value, payload)
-      : await createSubjectQuestion(subjectId, payload);
-
+  const saved = await updateSubjectQuestion(questionId, buildEntQuestionPayload(form));
   if (form.imageFile) {
     await uploadEntQuestionImage(saved.id, form.imageFile);
     imageVersion.value += 1;
   }
 
   editingQuestionId.value = null;
-  questionForms[subjectId] = blankForm();
-  fileInputKey.value += 1;
+  editForm.value = null;
   await loadQuestions(subjectId, questionsPageFor(subjectId).page);
   await load();
+}
+
+function adjustQuestionTotals(subjectId: number, byLanguage: Partial<Record<ExamLanguage, number>>) {
+  const subject = subjects.value.find((s) => s.id === subjectId);
+  const removedCount = Object.values(byLanguage).reduce((sum, n) => sum + (n ?? 0), 0);
+  if (subject) {
+    subject.question_count = Math.max(0, subject.question_count - removedCount);
+    subject.ru_count = Math.max(0, subject.ru_count - (byLanguage.ru ?? 0));
+    subject.kk_count = Math.max(0, subject.kk_count - (byLanguage.kk ?? 0));
+  }
+  const page = questionsPageBySubject[subjectId];
+  if (page) {
+    page.total = Math.max(0, page.total - removedCount);
+    page.pages = Math.max(1, Math.ceil(page.total / QUESTIONS_PER_PAGE));
+  }
 }
 
 async function handleDeleteQuestion(subjectId: number, questionId: number) {
@@ -500,43 +489,43 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
   if (index === -1) return;
   const [removed] = list.splice(index, 1);
   selectedIds.delete(questionId);
-  const subject = subjects.value.find((s) => s.id === subjectId);
-  if (subject) subject.question_count = Math.max(0, subject.question_count - 1);
-  if (editingQuestionId.value === questionId) cancelEditQuestion(subjectId);
+  adjustQuestionTotals(subjectId, { [removed.language]: 1 });
+  if (editingQuestionId.value === questionId) cancelEditQuestion();
 
   try {
     await deleteEntQuestion(questionId);
   } catch {
     list.splice(index, 0, removed);
-    if (subject) subject.question_count += 1;
+    adjustQuestionTotals(subjectId, { [removed.language]: -1 });
     showToast("Не удалось удалить вопрос", "error");
   }
+}
+
+// A saved question with no markable answer (no correct choice ticked, fewer
+// than two matching pairs, no accepted short-answer text) is a genuine
+// "needs review" state -- it would score nothing for a student who reaches
+// it, most likely because a PDF import saved it with its answer key still
+// missing. This is the one legitimate `.marker-edge` case in this view.
+function questionNeedsReview(q: EntQuestionTeacher): boolean {
+  if (q.qtype === "single" || q.qtype === "multiple") return !q.choices.some((c) => c.is_correct);
+  if (q.qtype === "matching") return q.match_pairs.length < 2;
+  return q.answer_variants.length === 0;
+}
+
+function questionCardClass(q: EntQuestionTeacher): string {
+  if (editingQuestionId.value === q.id) return "border-moss ring-1 ring-moss/40";
+  if (selectedIds.has(q.id)) return "border-moss/50 bg-moss/10";
+  if (questionNeedsReview(q)) return "marker-edge hover:border-line-strong";
+  return "hover:border-line-strong";
 }
 </script>
 
 <template>
-  <div>
-    <h1 class="mb-2 text-2xl font-semibold">Банк вопросов ЕНТ-симулятора</h1>
-    <p class="mb-6 text-sm text-fg/60">
-      Сначала добавьте предмет, затем откройте его карточку кнопкой «Вопросы» — там же добавляются и редактируются
-      вопросы всех типов (один/несколько ответов, сопоставление, короткий ответ).
-    </p>
-
-    <form
-      class="mb-6 flex flex-col gap-3 rounded-xl border border-fg/10 p-4 sm:flex-row sm:items-end"
-      @submit.prevent="handleCreateSubject"
-    >
-      <BaseInput v-model="newSubjectName" label="Новый предмет" class="flex-1" />
-      <BaseButton type="submit">Добавить предмет</BaseButton>
-      <BaseButton
-        type="button"
-        variant="secondary"
-        :disabled="!subjects.length"
-        @click="showPdfImportModal = true"
-      >
-        Импорт из PDF
-      </BaseButton>
-    </form>
+  <PageContainer>
+    <PageHeader
+      title="Банк вопросов ЕНТ-симулятора"
+      subtitle="Выберите предмет слева, затем добавляйте и редактируйте вопросы всех типов — один/несколько ответов, сопоставление, короткий ответ."
+    />
 
     <EntPdfImportModal
       v-if="showPdfImportModal"
@@ -546,89 +535,158 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
       @saved="handlePdfImportSaved"
     />
 
-    <p v-if="loading" class="text-fg/60">Загрузка…</p>
+    <div v-if="loading" class="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div class="w-full shrink-0 lg:w-80">
+        <div class="h-72 animate-pulse rounded-xl bg-paper-2" />
+      </div>
+      <div class="min-w-0 flex-1 space-y-3">
+        <div class="h-40 animate-pulse rounded-xl bg-paper-2" />
+        <div class="h-24 animate-pulse rounded-xl bg-paper-2" />
+        <div class="h-24 animate-pulse rounded-xl bg-paper-2" />
+      </div>
+    </div>
 
-    <div v-else class="space-y-4">
-      <div v-for="subject in subjects" :key="subject.id" class="rounded-xl border border-fg/10 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex flex-1 items-center gap-2">
-            <template v-if="renamingSubjectId === subject.id">
-              <input
-                v-model="renameValue"
-                class="rounded-lg border border-fg/20 bg-transparent px-2 py-1 text-lg font-medium"
-                @keyup.enter="handleRenameSubject(subject.id)"
-                @keyup.escape="cancelRenameSubject"
-              />
-              <BaseButton @click="handleRenameSubject(subject.id)">Сохранить</BaseButton>
-              <BaseButton variant="secondary" @click="cancelRenameSubject">Отмена</BaseButton>
-            </template>
-            <template v-else>
-              <span class="text-lg font-medium">{{ subject.name }}</span>
-              <button class="text-sm text-fg/50 hover:text-fg" @click="startRenameSubject(subject)">
-                Переименовать
-              </button>
-              <BaseBadge tone="neutral">{{ subject.question_count }} вопросов</BaseBadge>
-              <BaseBadge v-if="subject.question_count > 0" tone="neutral">
-                🇷🇺 {{ subject.ru_count }} / 🇰🇿 {{ subject.kk_count }}
-              </BaseBadge>
-              <BaseBadge :tone="subject.is_active ? 'success' : 'warning'">
-                {{ subject.is_active ? "активен" : "скрыт" }}
-              </BaseBadge>
-              <BaseBadge
-                v-if="
-                  subject.single_choice_count +
-                    subject.multiple_choice_count +
-                    subject.matching_count +
-                    subject.short_answer_count >
-                  0
-                "
-                tone="neutral"
-              >
-                квоты: {{ subject.single_choice_count }}/{{ subject.multiple_choice_count }}/{{
-                  subject.matching_count
-                }}/{{ subject.short_answer_count }}
-              </BaseBadge>
-            </template>
+    <div v-else class="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <!-- ── Sidebar: subject list + switcher ─────────────────────────── -->
+      <aside class="w-full shrink-0 lg:w-80">
+        <div class="card p-4">
+          <form class="mb-3 flex items-center gap-2" @submit.prevent="handleCreateSubject">
+            <input v-model="newSubjectName" placeholder="Новый предмет" class="input min-h-11 min-w-0 flex-1" />
+            <button
+              type="submit"
+              class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-moss text-moss-fg transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="!newSubjectName.trim()"
+              aria-label="Добавить предмет"
+              title="Добавить предмет"
+            >
+              <Plus :size="18" :stroke-width="2" />
+            </button>
+          </form>
+
+          <BaseButton
+            variant="secondary"
+            type="button"
+            class="mb-4 w-full"
+            :disabled="!subjects.length"
+            @click="showPdfImportModal = true"
+          >
+            <UploadCloud :size="16" :stroke-width="1.8" />
+            Импорт из PDF
+          </BaseButton>
+
+          <div class="space-y-1">
+            <button
+              v-for="subject in subjects"
+              :key="subject.id"
+              type="button"
+              class="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+              :class="openSubjectId === subject.id ? 'bg-paper-2 text-ink' : 'text-ink-2 hover:bg-paper-2'"
+              @click="selectSubject(subject.id)"
+            >
+              <span class="flex min-w-0 items-center gap-2">
+                <span
+                  class="h-1.5 w-1.5 shrink-0 rounded-full"
+                  :class="subject.is_active ? 'bg-moss' : 'bg-line-strong'"
+                />
+                <span class="truncate font-medium">{{ subject.name }}</span>
+              </span>
+              <span class="shrink-0 text-xs text-ink-3">{{ subject.question_count }}</span>
+            </button>
+            <p v-if="!subjects.length" class="px-1 py-2 text-sm text-ink-2">
+              Пока нет ни одного предмета.
+            </p>
           </div>
-          <BaseButton variant="secondary" @click="toggleSubject(subject.id)">
-            {{ openSubjectId === subject.id ? "Свернуть" : "Вопросы" }}
-          </BaseButton>
-          <BaseButton variant="secondary" @click="openQuotaModal(subject)">Настроить структуру</BaseButton>
-          <BaseButton variant="secondary" @click="handleToggleActive(subject)">
-            {{ subject.is_active ? "Скрыть" : "Показать" }}
-          </BaseButton>
+        </div>
+      </aside>
+
+      <!-- ── Main panel ────────────────────────────────────────────────── -->
+      <section class="min-w-0 flex-1 space-y-4">
+        <div
+          v-if="!selectedSubject"
+          class="flex h-64 items-center justify-center rounded-xl border border-dashed border-line text-sm text-ink-3"
+        >
+          Выберите предмет слева
         </div>
 
-        <div v-if="openSubjectId === subject.id" class="mt-4 space-y-4 border-t border-fg/10 pt-4">
-          <!-- ── Language tabs: filter the bank itself, server-side ────── -->
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-xs text-fg/50">Язык вопросов:</span>
-            <button
-              type="button"
-              class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
-              :class="
-                bankLanguage === 'all'
-                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
-              "
-              @click="setBankLanguage('all')"
-            >
-              Все
-            </button>
-            <button
-              v-for="language in EXAM_LANGUAGES"
-              :key="language"
-              type="button"
-              class="rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150"
-              :class="
-                bankLanguage === language
-                  ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                  : 'bg-fg/5 text-fg/60 hover:bg-fg/10 hover:text-fg'
-              "
-              @click="setBankLanguage(language)"
-            >
-              {{ LANGUAGE_FLAG[language] }} Только {{ LANGUAGE_LABEL[language] }}
-            </button>
+        <template v-else>
+          <!-- Subject control panel -->
+          <div class="card p-5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex min-w-0 flex-1 items-center gap-2">
+                <template v-if="renamingSubjectId === selectedSubject.id">
+                  <input
+                    v-model="renameValue"
+                    class="input min-h-11 w-auto px-2 py-1 text-lg font-medium"
+                    @keyup.enter="handleRenameSubject(selectedSubject.id)"
+                    @keyup.escape="cancelRenameSubject"
+                  />
+                  <BaseButton @click="handleRenameSubject(selectedSubject.id)">Сохранить</BaseButton>
+                  <BaseButton variant="secondary" @click="cancelRenameSubject">Отмена</BaseButton>
+                </template>
+                <template v-else>
+                  <h2 class="truncate text-lg font-semibold text-ink">
+                    {{ selectedSubject.name }}
+                  </h2>
+                  <button
+                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
+                    aria-label="Переименовать предмет"
+                    title="Переименовать"
+                    @click="startRenameSubject(selectedSubject)"
+                  >
+                    <Pencil :size="14" :stroke-width="1.8" />
+                  </button>
+                </template>
+              </div>
+              <div class="flex shrink-0 items-center gap-2">
+                <button
+                  class="flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+                  @click="openQuotaModal(selectedSubject)"
+                >
+                  <SlidersHorizontal :size="14" :stroke-width="1.8" />
+                  Структура
+                </button>
+                <button
+                  class="flex min-h-11 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+                  @click="handleToggleActive(selectedSubject)"
+                >
+                  <Eye v-if="selectedSubject.is_active" :size="14" :stroke-width="1.8" />
+                  <EyeOff v-else :size="14" :stroke-width="1.8" />
+                  {{ selectedSubject.is_active ? "Активен" : "Скрыт" }}
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <BaseBadge tone="neutral">RU {{ selectedSubject.ru_count }}</BaseBadge>
+              <BaseBadge tone="neutral">KZ {{ selectedSubject.kk_count }}</BaseBadge>
+              <BaseBadge v-if="hasQuotas(selectedSubject)" tone="neutral">
+                квоты {{ selectedSubject.single_choice_count }}/{{ selectedSubject.multiple_choice_count }}/{{
+                  selectedSubject.matching_count
+                }}/{{ selectedSubject.short_answer_count }}
+              </BaseBadge>
+            </div>
+
+            <!-- ── Language filter: strict text toggles ─────────────────── -->
+            <div class="mt-4 inline-flex overflow-hidden rounded-lg border border-line">
+              <button
+                type="button"
+                class="min-h-11 px-3 py-1.5 text-xs font-medium transition-colors"
+                :class="bankLanguage === 'all' ? 'bg-moss text-moss-fg' : 'bg-transparent text-ink-2 hover:bg-paper-2'"
+                @click="setBankLanguage('all')"
+              >
+                Все
+              </button>
+              <button
+                v-for="language in EXAM_LANGUAGES"
+                :key="language"
+                type="button"
+                class="min-h-11 border-l border-line px-3 py-1.5 text-xs font-medium transition-colors"
+                :class="bankLanguage === language ? 'bg-moss text-moss-fg' : 'bg-transparent text-ink-2 hover:bg-paper-2'"
+                @click="setBankLanguage(language)"
+              >
+                {{ LANG_BADGE[language] }}
+              </button>
+            </div>
           </div>
 
           <!-- Only the very first open of a subject shows the plain loading
@@ -636,38 +694,59 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
                existing list mounted -- dimmed, not removed -- so the
                document height never collapses and the scroll position never
                gets reclamped to a shorter page. -->
-          <p v-if="questionsLoading && !questionsBySubject[subject.id]" class="text-sm text-fg/60">
-            Загрузка вопросов…
-          </p>
+          <div v-if="questionsLoading && !questionsBySubject[selectedSubject.id]" class="space-y-2">
+            <div v-for="n in 4" :key="n" class="h-20 animate-pulse rounded-xl bg-paper-2" />
+          </div>
           <template v-else>
-            <div
-              :class="{ 'pointer-events-none opacity-50 transition-opacity duration-150': questionsLoading }"
-            >
-              <div v-if="questionsBySubject[subject.id]?.length" class="flex items-center gap-2 text-sm text-fg/60">
+            <div :class="{ 'pointer-events-none opacity-50 transition-opacity duration-150': questionsLoading }">
+              <!-- ── Search + compact match counter ─────────────────────── -->
+              <div v-if="questionsBySubject[selectedSubject.id]?.length" class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div class="relative min-w-0 flex-1">
+                  <Search :size="15" :stroke-width="1.8" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
+                  <input
+                    v-model="searchQuery"
+                    type="text"
+                    placeholder="Поиск по тексту вопроса..."
+                    class="input pl-9"
+                  />
+                </div>
+                <span class="shrink-0 whitespace-nowrap rounded-lg bg-paper-2 px-2.5 py-1 text-xs font-medium text-ink-2">
+                  Найдено: {{ filteredQuestions.length }}
+                </span>
+              </div>
+
+              <div
+                v-if="filteredQuestions.length"
+                class="mb-3 flex flex-wrap items-center gap-2 text-sm text-ink-2"
+              >
                 <input
                   type="checkbox"
-                  :checked="allVisibleSelected(subject.id)"
+                  class="h-4 w-4 accent-moss"
+                  :checked="allVisibleSelected()"
                   aria-label="Выбрать все вопросы на экране"
-                  @click.stop="toggleSelectAllVisible(subject.id)"
+                  @click.stop="toggleSelectAllVisible()"
                 />
-                <span>Выбрать все на этом экране ({{ questionsBySubject[subject.id].length }})</span>
+                <span>Выбрать все на этом экране ({{ filteredQuestions.length }})</span>
                 <span
-                  v-if="questionsPageFor(subject.id).total > questionsBySubject[subject.id].length"
-                  class="text-fg/40"
+                  v-if="questionsPageFor(selectedSubject.id).total > questionsBySubject[selectedSubject.id].length"
+                  class="text-ink-3"
                 >
-                  из {{ questionsPageFor(subject.id).total }} по текущему фильтру
+                  из {{ questionsPageFor(selectedSubject.id).total }} по текущему фильтру
                 </span>
               </div>
 
               <!-- ── Sticky bulk-action bar: only takes space once something is selected ── -->
               <div
                 v-if="selectedIds.size > 0"
-                class="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm"
+                class="sticky top-2 z-10 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-moss/30 bg-moss/10 px-3 py-2 text-sm"
               >
-                <span class="font-medium">Выбрано: {{ selectedIds.size }}</span>
-                <div class="flex items-center gap-2">
-                  <button type="button" class="text-fg/60 hover:text-fg" @click="clearSelection()">Снять выбор</button>
-                  <BaseButton variant="danger" :disabled="selectedIds.size === 0" @click="openBulkDeleteModal">
+                <span class="font-medium text-ink">Выбрано: {{ selectedIds.size }}</span>
+                <div class="flex items-center gap-3">
+                  <button type="button" class="text-ink-2 hover:text-ink" @click="clearSelection()">
+                    Снять выбор
+                  </button>
+                  <BaseButton variant="danger" class="!px-3 !py-1.5 !text-xs" :disabled="selectedIds.size === 0" @click="openBulkDeleteModal">
+                    <Trash2 :size="14" :stroke-width="1.8" />
                     Удалить выбранные ({{ selectedIds.size }})
                   </BaseButton>
                 </div>
@@ -675,248 +754,143 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
 
               <ul class="space-y-2">
                 <li
-                  v-for="(q, index) in questionsBySubject[subject.id]"
+                  v-for="(q, index) in filteredQuestions"
                   :key="q.id"
-                  class="flex items-start justify-between gap-3 rounded-lg border border-fg/10 p-3 text-sm"
-                  :class="{ 'border-indigo-500/50 bg-indigo-500/5': selectedIds.has(q.id) }"
+                  class="card p-5 transition-all"
+                  :class="questionCardClass(q)"
                 >
-                  <div class="flex min-w-0 gap-3">
-                    <input
-                      type="checkbox"
-                      class="mt-1 shrink-0"
-                      :checked="selectedIds.has(q.id)"
-                      :aria-label="`Выбрать вопрос: ${q.text}`"
-                      @click.stop="toggleQuestionSelection(subject.id, index, $event)"
-                    />
-                    <img
-                      v-if="q.has_image"
-                      :src="questionImageUrl(q.id)"
-                      alt=""
-                      class="h-16 w-24 shrink-0 rounded-lg border border-fg/10 object-cover"
-                    />
-                    <div class="min-w-0">
-                      <BaseBadge tone="neutral">{{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}</BaseBadge>
-                      <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
-                      <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
-                      <p class="mt-1">{{ q.text }}</p>
+                  <!-- ── In-place edit: the card itself becomes the form, so
+                       saving/cancelling never moves the scroll position. ── -->
+                  <EntQuestionForm
+                    v-if="editingQuestionId === q.id && editForm"
+                    :form="editForm"
+                    mode="edit"
+                    :image-url="q.has_image ? questionImageUrl(q.id) : null"
+                    :file-input-key="editFileInputKey"
+                    @save="handleUpdateQuestion(selectedSubject.id)"
+                    @cancel="cancelEditQuestion"
+                    @image-picked="onEditImagePicked"
+                    @remove-image="handleRemoveEditImage(selectedSubject.id)"
+                  />
+                  <div v-else class="flex items-start justify-between gap-3">
+                    <div class="flex min-w-0 gap-3">
+                      <input
+                        type="checkbox"
+                        class="mt-1 h-4 w-4 shrink-0 accent-moss"
+                        :checked="selectedIds.has(q.id)"
+                        :aria-label="`Выбрать вопрос: ${q.text}`"
+                        @click.stop="toggleQuestionSelection(index, $event)"
+                      />
+                      <img
+                        v-if="q.has_image"
+                        :src="questionImageUrl(q.id)"
+                        alt=""
+                        class="h-16 w-24 shrink-0 rounded-lg border border-line object-cover"
+                      />
+                      <div class="min-w-0">
+                        <div class="mb-1.5 flex flex-wrap items-center gap-1.5">
+                          <BaseBadge tone="neutral">{{ LANG_BADGE[q.language] }}</BaseBadge>
+                          <BaseBadge tone="neutral">{{ QTYPE_BADGE[q.qtype] }}</BaseBadge>
+                          <BaseBadge tone="neutral">{{ q.max_score }} балл{{ q.max_score > 1 ? "а" : "" }}</BaseBadge>
+                          <BaseBadge v-if="questionNeedsReview(q)" tone="warning">Нет ответа</BaseBadge>
+                        </div>
+                        <p class="text-sm text-ink-2">{{ q.text }}</p>
+                      </div>
+                    </div>
+                    <div class="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        class="flex h-11 w-11 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
+                        aria-label="Редактировать вопрос"
+                        title="Редактировать"
+                        @click="startEditQuestion(q)"
+                      >
+                        <Pencil :size="16" :stroke-width="1.8" />
+                      </button>
+                      <button
+                        type="button"
+                        class="flex h-11 w-11 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-clay/10 hover:text-clay"
+                        aria-label="Удалить вопрос"
+                        title="Удалить вопрос"
+                        @click="handleDeleteQuestion(selectedSubject.id, q.id)"
+                      >
+                        <Trash2 :size="16" :stroke-width="1.8" />
+                      </button>
                     </div>
                   </div>
-                  <div class="flex shrink-0 gap-2">
-                    <BaseButton variant="secondary" @click="startEditQuestion(subject.id, q)">Редактировать</BaseButton>
-                    <button
-                      type="button"
-                      class="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
-                      aria-label="Удалить вопрос"
-                      title="Удалить вопрос"
-                      @click="handleDeleteQuestion(subject.id, q.id)"
-                    >
-                      🗑
-                    </button>
+                </li>
+                <li v-if="!questionsBySubject[selectedSubject.id]?.length" class="list-none">
+                  <div class="card flex flex-col items-center gap-2 px-6 py-10 text-center">
+                    <span class="text-2xl">📭</span>
+                    <p class="text-ink-2">
+                      {{
+                        bankLanguage === "all"
+                          ? "Вопросов пока нет."
+                          : `Вопросов на языке «${LANGUAGE_LABEL[bankLanguage]}» пока нет.`
+                      }}
+                    </p>
                   </div>
                 </li>
-                <li v-if="!questionsBySubject[subject.id]?.length" class="text-sm text-fg/60">
-                  {{
-                    bankLanguage === "all"
-                      ? "Вопросов пока нет."
-                      : `Вопросов на языке «${LANGUAGE_LABEL[bankLanguage]}» пока нет.`
-                  }}
+                <li
+                  v-else-if="!filteredQuestions.length"
+                  class="text-sm text-ink-2"
+                >
+                  Совпадений по запросу «{{ searchQuery }}» не найдено.
                 </li>
               </ul>
             </div>
 
             <PaginationControls
-              :page="questionsPageFor(subject.id).page"
-              :pages="questionsPageFor(subject.id).pages"
-              :total="questionsPageFor(subject.id).total"
-              @change="changeQuestionsPage(subject.id, $event)"
+              :page="questionsPageFor(selectedSubject.id).page"
+              :pages="questionsPageFor(selectedSubject.id).pages"
+              :total="questionsPageFor(selectedSubject.id).total"
+              @change="changeQuestionsPage(selectedSubject.id, $event)"
             />
           </template>
 
-          <div class="space-y-3 rounded-lg bg-fg/5 p-4">
-            <p class="text-sm font-medium">
-              {{ editingQuestionId !== null ? "Редактирование вопроса" : "Новый вопрос" }}
-            </p>
-
-            <label class="block text-sm">
-              <span class="mb-1.5 block font-medium text-fg/80">Тип вопроса</span>
-              <select
-                v-model="questionForms[subject.id].qtype"
-                class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
-                @change="onQtypeChange(subject.id)"
-              >
-                <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
-              </select>
-            </label>
-
-            <label class="block text-sm">
-              <span class="mb-1.5 block font-medium text-fg/80">Язык вопроса</span>
-              <select
-                v-model="questionForms[subject.id].language"
-                class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
-              >
-                <option v-for="language in EXAM_LANGUAGES" :key="language" :value="language">
-                  {{ LANGUAGE_FLAG[language] }} {{ LANGUAGE_LABEL[language] }}
-                </option>
-              </select>
-            </label>
-
-            <BaseInput v-model="questionForms[subject.id].text" label="Текст вопроса" />
-
-            <div class="text-sm">
-              <span class="mb-1.5 block font-medium text-fg/80">Изображение к вопросу (необязательно)</span>
-              <div class="flex flex-wrap items-center gap-3">
-                <img
-                  v-if="questionForms[subject.id].hasImage && editingQuestionId !== null"
-                  :src="questionImageUrl(editingQuestionId)"
-                  alt=""
-                  class="h-20 w-28 rounded-lg border border-fg/10 object-cover"
-                />
-                <input
-                  :key="fileInputKey"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  class="text-sm text-fg/70 file:mr-3 file:rounded-lg file:border-0 file:bg-fg/10 file:px-3 file:py-2 file:text-sm file:text-fg hover:file:bg-fg/15"
-                  @change="onImagePicked(subject.id, $event)"
-                />
-                <BaseButton
-                  v-if="questionForms[subject.id].imageFile || questionForms[subject.id].hasImage"
-                  variant="secondary"
-                  @click="handleRemoveImage(subject.id)"
-                >
-                  Убрать изображение
-                </BaseButton>
-              </div>
-              <p v-if="questionForms[subject.id].imageFile" class="mt-1.5 text-xs text-fg/50">
-                Выбрано: {{ questionForms[subject.id].imageFile?.name }} — загрузится при сохранении вопроса.
-              </p>
-              <p class="mt-1.5 text-xs text-fg/50">jpg, png или webp, до 5 МБ.</p>
-            </div>
-
-            <label class="block text-sm" v-if="questionForms[subject.id].qtype !== 'multiple' && questionForms[subject.id].qtype !== 'matching'">
-              <span class="mb-1.5 block font-medium text-fg/80">Баллы за вопрос</span>
-              <select
-                v-model.number="questionForms[subject.id].maxScore"
-                class="w-full rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-fg"
-              >
-                <option :value="1">1</option>
-                <option :value="2">2 (профильный)</option>
-              </select>
-            </label>
-            <p v-else class="text-sm text-fg/60">Баллы: 2 (2 — всё верно, 1 — частично, 0 — иначе)</p>
-
-            <template v-if="questionForms[subject.id].qtype === 'single' || questionForms[subject.id].qtype === 'multiple'">
-              <div v-for="(choice, i) in questionForms[subject.id].choices" :key="i" class="flex items-center gap-2">
-                <input
-                  v-if="questionForms[subject.id].qtype === 'single'"
-                  type="radio"
-                  :name="`correct-${subject.id}`"
-                  :checked="choice.isCorrect"
-                  @change="questionForms[subject.id].choices.forEach((c, ci) => (c.isCorrect = ci === i))"
-                />
-                <input v-else type="checkbox" v-model="choice.isCorrect" />
-                <input
-                  v-model="choice.text"
-                  placeholder="Вариант ответа"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-                />
-              </div>
-              <BaseButton variant="secondary" @click="addChoice(subject.id)">+ вариант</BaseButton>
-            </template>
-
-            <template v-else-if="questionForms[subject.id].qtype === 'matching'">
-              <div v-for="(pair, i) in questionForms[subject.id].matchPairs" :key="i" class="flex items-center gap-2">
-                <input
-                  v-model="pair.promptText"
-                  placeholder="Слева (вопрос)"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-                />
-                <input
-                  v-model="pair.answerText"
-                  placeholder="Справа (правильная пара)"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-                />
-              </div>
-              <BaseButton variant="secondary" @click="addMatchPair(subject.id)">+ пара</BaseButton>
-            </template>
-
-            <template v-else>
-              <div v-for="(_, i) in questionForms[subject.id].answerVariants" :key="i" class="flex items-center gap-2">
-                <input
-                  v-model="questionForms[subject.id].answerVariants[i]"
-                  placeholder="Принимаемый ответ"
-                  class="flex-1 rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-                />
-              </div>
-              <BaseButton variant="secondary" @click="addAnswerVariant(subject.id)">+ вариант написания</BaseButton>
-            </template>
-
-            <div class="flex gap-2">
-              <BaseButton :disabled="!isFormValid(questionForms[subject.id])" @click="handleSaveQuestion(subject.id)">
-                {{ editingQuestionId !== null ? "Сохранить изменения" : "Сохранить вопрос" }}
-              </BaseButton>
-              <BaseButton v-if="editingQuestionId !== null" variant="secondary" @click="cancelEditQuestion(subject.id)">
-                Отмена
-              </BaseButton>
-            </div>
+          <div class="card p-5">
+            <EntQuestionForm
+              :form="questionForms[selectedSubject.id]"
+              mode="create"
+              :file-input-key="fileInputKey"
+              @save="handleCreateQuestion(selectedSubject.id)"
+              @image-picked="onNewImagePicked(selectedSubject.id, $event)"
+              @remove-image="handleRemoveNewImage(selectedSubject.id)"
+            />
           </div>
-        </div>
-      </div>
-      <p v-if="!subjects.length" class="text-fg/60">Пока нет ни одного предмета.</p>
+        </template>
+      </section>
     </div>
 
     <!-- ── Subject structure (qtype quota) modal ─────────────────────── -->
     <div
       v-if="quotaModalSubject"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       @click.self="closeQuotaModal"
     >
-      <div ref="quotaModalRef" role="dialog" aria-modal="true" class="w-full max-w-md rounded-2xl border border-border bg-card p-5">
-        <h2 class="mb-1 text-lg font-semibold">Структура предмета «{{ quotaModalSubject.name }}»</h2>
-        <p class="mb-4 text-sm text-fg/60">
+      <div ref="quotaModalRef" role="dialog" aria-modal="true" class="card max-h-[90dvh] w-full max-w-md overflow-y-auto p-5">
+        <h2 class="mb-1 text-lg font-semibold text-ink">Структура предмета «{{ quotaModalSubject.name }}»</h2>
+        <p class="mb-4 text-sm text-ink-2">
           Сколько вопросов каждого типа брать при генерации симуляции. Если всё оставить по 0, предмет останется в
           старом режиме — случайная выборка без учёта типа.
         </p>
 
         <div class="space-y-3">
           <label class="block text-sm">
-            <span class="mb-1.5 block font-medium text-fg/80">Один правильный ответ (single choice)</span>
-            <input
-              v-model.number="quotaForm.single_choice_count"
-              type="number"
-              min="0"
-              max="100"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-            />
+            <span class="mb-1.5 block font-medium text-ink-2">Один правильный ответ (single choice)</span>
+            <input v-model.number="quotaForm.single_choice_count" type="number" min="0" max="100" class="input min-h-11" />
           </label>
           <label class="block text-sm">
-            <span class="mb-1.5 block font-medium text-fg/80">Несколько правильных ответов (multiple choice)</span>
-            <input
-              v-model.number="quotaForm.multiple_choice_count"
-              type="number"
-              min="0"
-              max="100"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-            />
+            <span class="mb-1.5 block font-medium text-ink-2">Несколько правильных ответов (multiple choice)</span>
+            <input v-model.number="quotaForm.multiple_choice_count" type="number" min="0" max="100" class="input min-h-11" />
           </label>
           <label class="block text-sm">
-            <span class="mb-1.5 block font-medium text-fg/80">Сопоставление (matching)</span>
-            <input
-              v-model.number="quotaForm.matching_count"
-              type="number"
-              min="0"
-              max="100"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-            />
+            <span class="mb-1.5 block font-medium text-ink-2">Сопоставление (matching)</span>
+            <input v-model.number="quotaForm.matching_count" type="number" min="0" max="100" class="input min-h-11" />
           </label>
           <label class="block text-sm">
-            <span class="mb-1.5 block font-medium text-fg/80">Краткий ответ (short answer)</span>
-            <input
-              v-model.number="quotaForm.short_answer_count"
-              type="number"
-              min="0"
-              max="100"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-3 py-2 text-sm"
-            />
+            <span class="mb-1.5 block font-medium text-ink-2">Краткий ответ (short answer)</span>
+            <input v-model.number="quotaForm.short_answer_count" type="number" min="0" max="100" class="input min-h-11" />
           </label>
         </div>
 
@@ -930,28 +904,28 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
     <!-- ── Bulk-delete confirmation. No backdrop-click close: this is the one
          action in this screen that can wipe out real work, so closing it
          has to be a deliberate click, not a stray click near the edge. ── -->
-    <div v-if="bulkDeleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div v-if="bulkDeleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div
         ref="bulkDeleteModalRef"
         role="dialog"
         aria-modal="true"
-        class="w-full max-w-md rounded-2xl border border-border bg-card p-5"
+        class="card max-h-[90dvh] w-full max-w-md overflow-y-auto p-5"
       >
-        <h2 class="mb-1 text-lg font-semibold">Удалить выбранные вопросы?</h2>
-        <p class="mb-4 text-sm text-fg/60">
+        <h2 class="mb-1 text-lg font-semibold text-ink">Удалить выбранные вопросы?</h2>
+        <p class="mb-4 text-sm text-ink-2">
           Будет удалено вопросов: <strong>{{ selectedIds.size }}</strong
           >. Это действие нельзя отменить.
         </p>
 
         <label v-if="needsTypedConfirm" class="mb-4 block text-sm">
-          <span class="mb-1.5 block font-medium text-fg/80">
+          <span class="mb-1.5 block font-medium text-ink-2">
             Введите количество удаляемых вопросов ({{ selectedIds.size }}) для подтверждения
           </span>
           <input
             v-model="bulkDeleteConfirmText"
             type="text"
             inputmode="numeric"
-            class="w-full rounded-lg border border-fg/20 bg-card px-3 py-2 text-sm text-fg"
+            class="input min-h-11"
             @keyup.enter="canConfirmBulkDelete && confirmBulkDelete()"
           />
         </label>
@@ -969,11 +943,11 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
     <!-- ── Toast ──────────────────────────────────────────────────────── -->
     <div
       v-if="toast"
-      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2.5 text-sm shadow-lg"
-      :class="toast.tone === 'error' ? 'bg-red-600 text-white' : 'bg-fg text-bg'"
+      class="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2.5 text-sm shadow-lg"
+      :class="toast.tone === 'error' ? 'bg-clay text-white' : 'bg-moss text-moss-fg'"
       role="status"
     >
       {{ toast.message }}
     </div>
-  </div>
+  </PageContainer>
 </template>

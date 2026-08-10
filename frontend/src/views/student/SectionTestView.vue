@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { getSectionTest, submitSectionTestAttempt } from "@/api/sections";
+import PageContainer from "@/components/layout/PageContainer.vue";
+import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { AnswerPayload, SectionTest, TestAttemptResult } from "@/types";
@@ -85,26 +87,35 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-2xl space-y-6">
-    <p v-if="loading" class="text-fg/60">Загрузка…</p>
-    <p v-else-if="loadError" class="text-red-600 dark:text-red-500">{{ loadError }}</p>
-    <template v-else-if="test">
-      <div>
-        <h1 class="mb-2 text-2xl font-semibold">Тест раздела</h1>
-        <BaseBadge :tone="test.is_passed ? 'success' : 'neutral'">
-          {{ test.is_passed ? "Пройден" : "Не пройден" }}
-        </BaseBadge>
-      </div>
+  <PageContainer>
+    <div v-if="loading" class="space-y-6">
+      <div class="h-8 w-2/3 animate-pulse rounded-lg bg-paper-2"></div>
+      <div class="h-64 w-full max-w-[42rem] animate-pulse rounded-2xl bg-paper-2"></div>
+    </div>
 
-      <section class="space-y-4 rounded-2xl border border-border bg-card p-4 transition-all duration-200">
+    <div v-else-if="loadError" class="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+      <p class="text-clay">{{ loadError }}</p>
+      <BaseButton variant="secondary" @click="load">Повторить</BaseButton>
+    </div>
+
+    <template v-else-if="test">
+      <PageHeader title="Тест раздела">
+        <template #actions>
+          <BaseBadge :tone="test.is_passed ? 'success' : 'neutral'">
+            {{ test.is_passed ? "Пройден" : "Не пройден" }}
+          </BaseBadge>
+        </template>
+      </PageHeader>
+
+      <section class="max-w-[42rem] card space-y-4 p-4">
         <div v-for="question in test.questions" :key="question.id" class="space-y-2">
-          <p class="font-medium">{{ question.text }}</p>
+          <p class="text-body-lg font-medium text-ink">{{ question.text }}</p>
 
           <template v-if="question.qtype === 'single'">
             <label
               v-for="choice in question.choices"
               :key="choice.id"
-              class="flex items-center gap-2 rounded-lg border border-fg/10 px-3 py-2 text-sm"
+              class="flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
             >
               <input
                 type="radio"
@@ -120,7 +131,7 @@ async function handleSubmit() {
             <label
               v-for="choice in question.choices"
               :key="choice.id"
-              class="flex items-center gap-2 rounded-lg border border-fg/10 px-3 py-2 text-sm"
+              class="flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
             >
               <input
                 type="checkbox"
@@ -132,9 +143,9 @@ async function handleSubmit() {
 
           <template v-else-if="question.qtype === 'matching'">
             <div v-for="prompt in question.match_prompts" :key="prompt.id" class="flex items-center gap-2 text-sm">
-              <span class="w-1/2">{{ prompt.text }}</span>
+              <span class="w-1/2 text-ink">{{ prompt.text }}</span>
               <select
-                class="w-1/2 rounded-lg border border-border bg-card px-3 py-2 text-fg"
+                class="input w-1/2"
                 @change="setMatchPair(question.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
               >
                 <option value="" disabled selected>Выберите пару</option>
@@ -147,23 +158,23 @@ async function handleSubmit() {
             <input
               type="text"
               placeholder="Ваш ответ"
-              class="w-full rounded-lg border border-fg/20 bg-transparent px-4 py-2.5 text-sm"
+              class="input"
               @input="setShortAnswer(question.id, ($event.target as HTMLInputElement).value)"
             />
           </template>
         </div>
-        <p v-if="result" class="text-sm" :class="result.passed ? 'text-green-700 dark:text-green-500' : 'text-red-600 dark:text-red-500'">
+        <p v-if="result" class="text-sm" :class="result.passed ? 'text-moss' : 'text-clay'">
           {{
             result.passed
               ? `Тест пройден, балл: ${result.score}%`
               : `Тест не пройден (балл: ${result.score}%). Правильные ответы не показываются — пересмотрите уроки раздела и попробуйте снова.`
           }}
         </p>
-        <p v-if="submitError" class="text-sm text-red-600 dark:text-red-500">{{ submitError }}</p>
+        <p v-if="submitError" class="text-sm text-clay">{{ submitError }}</p>
         <BaseButton variant="cta" :disabled="!allQuestionsAnswered || submitting" @click="handleSubmit">
           Отправить тест
         </BaseButton>
       </section>
     </template>
-  </div>
+  </PageContainer>
 </template>
