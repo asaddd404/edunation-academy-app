@@ -13,8 +13,7 @@
     <script>
       (function () {
         var stored = localStorage.getItem("edunation_theme");
-        var theme = stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-        if (theme === "dark") document.documentElement.classList.add("dark");
+        if (stored === "dark") document.documentElement.classList.add("dark");
       })();
     </script>
   </head>

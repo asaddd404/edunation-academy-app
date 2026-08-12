@@ -3,8 +3,9 @@
 @tailwind utilities;
 
 :root {
-  /* Light theme: warm "тёплая школа" palette. See §2 of the design spec --
-     deliberately not the cream+terracotta AI-default, not cold indigo. */
+  /* Light theme: clean white. Page background and card background are the
+     same pure white (--sand === --paper) -- cards separate from the page
+     purely by --line borders, not by a background-shade difference. */
   --ink: 43 38 34;
   --ink-2: 107 98 88;
   /* Darkened from an earlier 150/140/128 -- that only cleared 3.3:1 against
@@ -12,11 +13,11 @@
      actually used on (not just exempt placeholders). 120/110/98 clears
      ~5:1 while staying visibly lighter than --ink-2. */
   --ink-3: 120 110 98;
-  --sand: 250 247 242;
+  --sand: 255 255 255;
   --paper: 255 255 255;
-  --paper-2: 245 241 234;
-  --line: 232 225 214;
-  --line-strong: 214 204 190;
+  --paper-2: 244 244 245;
+  --line: 228 228 231;
+  --line-strong: 212 212 216;
   --moss: 71 102 61;
   --moss-fg: 255 255 255;
   --marigold: 224 163 62;
