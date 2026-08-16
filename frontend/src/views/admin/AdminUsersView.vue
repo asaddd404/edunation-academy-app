@@ -3,6 +3,7 @@ import { Ban, Copy, KeyRound, Search, UserCheck, X } from "@lucide/vue";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import * as adminApi from "@/api/admin";
+import ActivityBadge from "@/components/shared/ActivityBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useModalFocusTrap } from "@/composables/useModalFocusTrap";
@@ -222,6 +223,8 @@ async function copyPassword() {
             </span>
           </div>
 
+          <ActivityBadge :total-seconds="user.today_activity_seconds" class="w-fit" />
+
           <select
             :value="user.role"
             :disabled="updatingUserId === user.id"
@@ -268,6 +271,7 @@ async function copyPassword() {
               <th class="px-4 py-3 font-medium">Пользователь</th>
               <th class="px-4 py-3 font-medium">Роль</th>
               <th class="px-4 py-3 font-medium">Статус</th>
+              <th class="px-4 py-3 font-medium">Активность</th>
               <th class="px-4 py-3 text-right font-medium">Действия</th>
             </tr>
           </thead>
@@ -298,6 +302,9 @@ async function copyPassword() {
                 </span>
               </td>
               <td class="px-4 py-3">
+                <ActivityBadge :total-seconds="user.today_activity_seconds" />
+              </td>
+              <td class="px-4 py-3">
                 <div class="flex justify-end gap-1.5">
                   <button
                     type="button"
@@ -324,7 +331,7 @@ async function copyPassword() {
               </td>
             </tr>
             <tr v-if="!filteredUsers.length">
-              <td colspan="4" class="px-4 py-10 text-center text-sm text-ink-3">Ничего не найдено.</td>
+              <td colspan="5" class="px-4 py-10 text-center text-sm text-ink-3">Ничего не найдено.</td>
             </tr>
           </tbody>
         </table>

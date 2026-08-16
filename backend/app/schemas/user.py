@@ -17,6 +17,10 @@ class UserOut(BaseModel):
     is_active: bool
     has_avatar: bool = False
     created_at: datetime
+    # Not an ORM attribute of User -- filled in by the caller (today's
+    # UserDailyActivity row, if any) after model_validate(), not read from
+    # the User instance itself.
+    today_activity_seconds: int = 0
 
 
 class UserUpdateIn(BaseModel):

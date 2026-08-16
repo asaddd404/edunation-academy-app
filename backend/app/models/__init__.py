@@ -18,6 +18,7 @@ from app.models.section import Section
 from app.models.student_rating import StudentRating
 from app.models.test_attempt import TestAttempt
 from app.models.user import RoleEnum, User
+from app.models.user_activity import UserDailyActivity
 
 __all__ = [
     "Application",
@@ -47,4 +48,5 @@ __all__ = [
     "StudentRating",
     "TestAttempt",
     "User",
+    "UserDailyActivity",
 ]

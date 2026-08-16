@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { Target, Trophy, Zap } from "@lucide/vue";
 import { isAxiosError } from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 
 import { deleteAvatar, getAvatarUrl, updateProfile, uploadAvatar } from "@/api/auth";
+import { getMyTodayActivity } from "@/api/activity";
 import { getEntLeaderboard } from "@/api/ent";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
@@ -10,6 +12,8 @@ import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import { useAuthStore } from "@/stores/auth";
 import type { EntLeaderboardEntry } from "@/types";
+import { formatActivityDuration } from "@/utils/activity";
+import { ROLE_LABEL } from "@/utils/roleLabel";
 
 const auth = useAuthStore();
 
@@ -29,11 +33,9 @@ const avatarCacheBust = ref(0);
 
 const myRating = ref<EntLeaderboardEntry | null>(null);
 
-const ROLE_LABEL: Record<string, string> = {
-  student: "Ученик",
-  teacher: "Учитель",
-  admin: "Администратор",
-};
+const DAILY_NORM_SECONDS = 1800;
+const todayActivitySeconds = ref(0);
+const activityProgress = computed(() => Math.min(100, (todayActivitySeconds.value / DAILY_NORM_SECONDS) * 100));
 
 const RANK_TIERS: { min: number; label: string }[] = [
   { min: 5000, label: "Легенда" },
@@ -49,6 +51,8 @@ function rankLabel(xp: number): string {
 
 onMounted(async () => {
   if (auth.user?.role !== "student") return;
+  const today = await getMyTodayActivity();
+  todayActivitySeconds.value = today.total_seconds;
   try {
     const leaderboard = await getEntLeaderboard(1);
     myRating.value = leaderboard.me;
@@ -212,20 +216,31 @@ async function handleDeleteAvatar() {
 
     <div v-if="auth.user?.role === 'student'" class="grid grid-cols-3 gap-3">
       <div class="card flex flex-col items-center gap-1 p-4 text-center">
-        <span class="text-2xl">🎯</span>
+        <Target :size="22" :stroke-width="1.7" class="text-moss" />
         <span class="text-xl font-bold text-ink">{{ myRating?.simulations_completed ?? 0 }}</span>
         <span class="text-xs text-ink-2">Симуляций</span>
       </div>
       <div class="card flex flex-col items-center gap-1 p-4 text-center">
-        <span class="text-2xl">🏅</span>
+        <Trophy :size="22" :stroke-width="1.7" class="text-moss" />
         <span class="text-xl font-bold text-ink">{{ myRating?.best_score ?? 0 }}</span>
         <span class="text-xs text-ink-2">Лучший балл</span>
       </div>
       <div class="card flex flex-col items-center gap-1 p-4 text-center">
-        <span class="text-2xl">⚡</span>
+        <Zap :size="22" :stroke-width="1.7" class="text-moss" />
         <span class="text-xl font-bold text-ink">{{ myRating?.total_xp ?? 0 }}</span>
         <span class="text-xs text-ink-2">Всего XP</span>
       </div>
+    </div>
+
+    <div v-if="auth.user?.role === 'student'" class="card space-y-2 p-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-medium text-ink">Активность сегодня</h2>
+        <span class="text-sm font-semibold text-ink">{{ formatActivityDuration(todayActivitySeconds) }}</span>
+      </div>
+      <div class="h-2 w-full overflow-hidden rounded-full bg-paper-2">
+        <div class="h-full rounded-full bg-moss transition-all duration-500" :style="{ width: `${activityProgress}%` }" />
+      </div>
+      <p class="text-xs text-ink-2">Дневная норма — 30 минут.</p>
     </div>
 
     <form class="card space-y-4 p-4" @submit.prevent="handleSave">

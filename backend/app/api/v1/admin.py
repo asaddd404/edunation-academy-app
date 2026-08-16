@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,7 @@ from app.database import get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
 from app.models.user import RoleEnum, User
+from app.models.user_activity import UserDailyActivity
 from app.schemas.category import AssignTeacherIn, CategoryAdminOut, CategoryIn, CategoryOut, CategoryUpdateIn
 from app.schemas.pagination import Page
 from app.schemas.user import PasswordResetOut, UserOut, UserUpdateIn
@@ -35,7 +38,22 @@ async def list_users(
     if role is not None:
         query = query.where(User.role == role)
     users, total = await fetch_page(db, query, params)
-    return Page.of([UserOut.model_validate(u) for u in users], total, params.page, params.per_page)
+
+    today_seconds: dict[int, int] = {}
+    if users:
+        rows = await db.execute(
+            select(UserDailyActivity.user_id, UserDailyActivity.total_seconds).where(
+                UserDailyActivity.date == date.today(),
+                UserDailyActivity.user_id.in_([u.id for u in users]),
+            )
+        )
+        today_seconds = dict(rows.all())
+
+    items = [
+        UserOut.model_validate(u).model_copy(update={"today_activity_seconds": today_seconds.get(u.id, 0)})
+        for u in users
+    ]
+    return Page.of(items, total, params.page, params.per_page)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
