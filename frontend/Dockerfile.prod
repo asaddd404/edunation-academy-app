@@ -1,0 +1,32 @@
+# Production frontend: build the SPA to static files, then hand them to Caddy,
+# which also terminates TLS and proxies /api to the backend.
+#
+# The dev image (Dockerfile) runs a Vite dev server and must not be used in
+# production: it ships source maps, watches the filesystem, and serves
+# unminified modules.
+
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+COPY . .
+
+# Vite inlines VITE_* variables at build time, so this has to be present as a
+# real environment variable during `vite build` -- not supplied at runtime.
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+# `npm run build` is `vue-tsc -b && vite build`. Type-checking is a
+# development-time gate (and runs on every change locally); doing it again
+# here only risks an out-of-memory kill on a 2 GB server, where vue-tsc is by
+# far the heaviest step. Build the bundle only.
+RUN npx vite build
+
+
+FROM caddy:2-alpine
+
+COPY --from=build /app/dist /srv
+COPY Caddyfile /etc/caddy/Caddyfile

@@ -1,0 +1,81 @@
+# Production stack. Run with:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# Differences from the development compose that matter:
+#   * no source bind-mounts and no --reload -- the image is the artifact;
+#   * postgres/redis are not published to the host, so they are reachable only
+#     from inside the compose network (on a public VPS, exposing 5432 is how
+#     databases get found and brute-forced);
+#   * uploads live in a named volume instead of the source tree, so a rebuild
+#     or a `git pull` cannot wipe lesson videos and images;
+#   * the frontend is prebuilt static served by Caddy, which also handles TLS.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        # Baked into the bundle at build time. Relative on purpose -- Caddy
+        # serves the app and the API on one origin, so this needs no domain.
+        VITE_API_BASE_URL: /api/v1
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Certificates survive container rebuilds; without this, every deploy
+      # re-requests them and quickly hits Let's Encrypt rate limits.
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
+  caddydata:
+  caddyconfig:

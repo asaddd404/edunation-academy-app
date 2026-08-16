@@ -14,8 +14,12 @@ frontend/.env
 *.tsbuildinfo
 
 # Env
+# `.env` alone does not match `.env.prod`, which holds the live database
+# password and JWT secret -- ignore every .env* and re-allow the templates.
 .env
+.env.*
 !.env.example
+!.env.prod.example
 
 # Logs
 *.log

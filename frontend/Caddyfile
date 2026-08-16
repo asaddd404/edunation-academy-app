@@ -1,0 +1,48 @@
+# Edge server for production.
+#
+# Caddy rather than nginx specifically for the certificates: it obtains and
+# renews Let's Encrypt certs automatically from the domain name alone, with no
+# certbot, no renewal cron, and no chance of the site silently going insecure
+# in 90 days. Everything else here mirrors nginx/nginx.dev.conf.
+#
+# {$DOMAIN} and {$ACME_EMAIL} come from the environment (see .env.prod).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	# The API, including video playback (/api/v1/video/...) and uploads.
+	handle /api/* {
+		# Lesson videos go up to MAX_VIDEO_FILE_SIZE (2 GB) in
+		# app/core/video.py; the default cap would reject them.
+		request_body {
+			max_size 2100MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	# Everything else is the SPA. try_files sends unknown paths to index.html
+	# so client-side routes (/catalog, /lessons/70) survive a hard refresh.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Hashed asset filenames change on every build, so they can be cached hard.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# index.html must not be cached, or a deploy leaves clients on old bundles.
+	@html path /index.html /
+	header @html Cache-Control "no-cache"
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
