@@ -142,7 +142,29 @@ async def list_category_sections(
             .order_by(Section.order_index)
         )
     ).all()
-    return [SectionOut.model_validate(s) for s in sections]
+
+    # One grouped query for the whole course rather than a count per lesson:
+    # a course with 11 lessons would otherwise fire 11 extra round-trips just
+    # to render the builder's readiness chips.
+    lesson_ids = [lesson.id for section in sections for lesson in section.lessons]
+    counts: dict[int, int] = {}
+    if lesson_ids:
+        rows = await db.execute(
+            select(Question.lesson_id, func.count())
+            .where(Question.lesson_id.in_(lesson_ids))
+            .group_by(Question.lesson_id)
+        )
+        counts = {lesson_id: total for lesson_id, total in rows}
+
+    out: list[SectionOut] = []
+    for section in sections:
+        payload = SectionOut.model_validate(section)
+        by_id = {lesson.id: lesson for lesson in section.lessons}
+        for summary in payload.lessons:
+            summary.question_count = counts.get(summary.id, 0)
+            summary.has_homework = bool((by_id[summary.id].homework_assignment or "").strip())
+        out.append(payload)
+    return out
 
 
 @router.post("/teacher/categories/{category_id}/sections", response_model=SectionOut, status_code=status.HTTP_201_CREATED)

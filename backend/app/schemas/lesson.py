@@ -44,6 +44,12 @@ class LessonSummaryOut(BaseModel):
     is_unlocked: bool = False
     is_passed: bool = False
     video_status: str = "none"
+    # Filled in only by the teacher's course-builder listing, so a lesson's
+    # readiness (video / questions / homework) is visible without expanding
+    # every row. The student-facing paths leave the defaults, which costs
+    # them nothing.
+    question_count: int = 0
+    has_homework: bool = False
 
 
 class VideoTicketOut(BaseModel):

@@ -73,6 +73,9 @@ export interface LessonSummary {
   is_unlocked: boolean;
   is_passed: boolean;
   video_status: VideoStatus;
+  /** Populated only in the teacher course-builder listing; 0/false elsewhere. */
+  question_count: number;
+  has_homework: boolean;
 }
 
 export interface Section {

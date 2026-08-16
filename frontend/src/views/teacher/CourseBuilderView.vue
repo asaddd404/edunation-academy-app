@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { FolderOpen } from "@lucide/vue";
+import {
+  ChevronDown,
+  CircleCheck,
+  FileText,
+  FolderOpen,
+  ListChecks,
+  Pencil,
+  Plus,
+  Trash2,
+  Video,
+} from "@lucide/vue";
 import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
@@ -20,7 +30,8 @@ import RichTextEditor from "@/components/richtext/RichTextEditor.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
-import type { Category, Section, VideoStatus } from "@/types";
+import type { Category, LessonSummary, Section, VideoStatus } from "@/types";
+import { pluralRu } from "@/utils/subjectTheme";
 
 const route = useRoute();
 const categoryId = Number(route.params.id);
@@ -60,6 +71,56 @@ const videoStatusLabel: Record<VideoStatus, string> = {
   ready: "Видео готово",
   failed: "Ошибка обработки",
 };
+
+// Lessons start collapsed. Previously every lesson rendered its video
+// controls and its whole question bank inline, so an 11-lesson course was a
+// wall of forms with no way to see the course as a whole.
+const openLessonIds = ref<Set<number>>(new Set());
+const openSectionTestIds = ref<Set<number>>(new Set());
+
+function toggleIn(set: Set<number>, id: number) {
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  // Reassign so the Set change is picked up by reactivity.
+  return new Set(set);
+}
+
+function toggleLesson(id: number) {
+  openLessonIds.value = toggleIn(openLessonIds.value, id);
+}
+function toggleSectionTest(id: number) {
+  openSectionTestIds.value = toggleIn(openSectionTestIds.value, id);
+}
+
+/** What a teacher needs to know about a lesson without opening it. */
+function lessonChips(lesson: LessonSummary) {
+  return [
+    {
+      key: "video",
+      icon: Video,
+      label: lesson.video_status === "ready" ? "Видео" : videoStatusLabel[lesson.video_status],
+      done: lesson.video_status === "ready",
+      pending: lesson.video_status === "processing",
+      failed: lesson.video_status === "failed",
+    },
+    {
+      key: "questions",
+      icon: ListChecks,
+      label: lesson.question_count ? `${lesson.question_count} вопр.` : "Нет вопросов",
+      done: lesson.question_count > 0,
+    },
+    {
+      key: "homework",
+      icon: FileText,
+      label: lesson.has_homework ? "Домашка" : "Без домашки",
+      done: lesson.has_homework,
+    },
+  ];
+}
+
+function lessonIsReady(lesson: LessonSummary): boolean {
+  return lesson.video_status === "ready" && lesson.question_count > 0;
+}
 
 async function load() {
   loading.value = true;
@@ -318,109 +379,267 @@ async function handleCreateLesson(sectionId: number) {
           <BaseButton type="submit">Добавить</BaseButton>
         </form>
 
-        <div v-for="section in sections" :key="section.id" class="card p-4">
-          <div v-if="!sectionEditForms[section.id]?.open" class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div class="min-w-0">
-              <h2 class="text-lg font-medium text-ink">{{ section.title }}</h2>
-              <p v-if="section.description" class="text-sm text-ink-2">{{ section.description }}</p>
+        <div v-for="(section, sectionIndex) in sections" :key="section.id" class="card overflow-hidden">
+          <!-- ── Заголовок раздела ─────────────────────────────────── -->
+          <div
+            v-if="!sectionEditForms[section.id]?.open"
+            class="flex flex-col gap-3 border-b border-line bg-paper-2/50 p-4 sm:flex-row sm:items-start sm:justify-between"
+          >
+            <div class="flex min-w-0 gap-3">
+              <span
+                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-moss/10 text-sm font-bold text-moss"
+              >
+                {{ sectionIndex + 1 }}
+              </span>
+              <div class="min-w-0">
+                <h2 class="text-lg font-semibold text-ink">{{ section.title }}</h2>
+                <p v-if="section.description" class="mt-0.5 text-sm text-ink-2">{{ section.description }}</p>
+                <p class="mt-1 text-xs text-ink-3">
+                  {{ section.lessons.length }}
+                  {{ pluralRu(section.lessons.length, ["урок", "урока", "уроков"]) }}
+                </p>
+              </div>
             </div>
-            <div class="flex shrink-0 flex-wrap gap-3">
-              <button class="text-sm text-ink-3 hover:text-ink" @click="startEditSection(section)">Редактировать</button>
-              <button class="text-sm text-clay hover:brightness-110" @click="handleDeleteSection(section.id)">
+            <!-- Каждая кнопка называет свой объект: на странице три уровня
+                 редактирования, и одинаковое «Редактировать» не давало понять,
+                 что именно откроется. -->
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <button
+                class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-ink-2 transition-all duration-200 hover:border-moss/50 hover:text-ink"
+                @click="startEditSection(section)"
+              >
+                <Pencil :size="14" :stroke-width="1.8" />
+                Название раздела
+              </button>
+              <button
+                class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-clay transition-all duration-200 hover:border-clay/40"
+                @click="handleDeleteSection(section.id)"
+              >
+                <Trash2 :size="14" :stroke-width="1.8" />
                 Удалить раздел
               </button>
             </div>
           </div>
-          <div v-else class="mb-3 space-y-2 rounded-lg bg-paper-2 p-3">
+
+          <div v-else class="space-y-3 border-b border-line bg-paper-2 p-4">
+            <p class="text-sm font-medium text-ink">Редактирование раздела</p>
             <BaseInput v-model="sectionEditForms[section.id].title" label="Название раздела" />
-            <BaseInput v-model="sectionEditForms[section.id].description" label="Описание" />
+            <BaseInput v-model="sectionEditForms[section.id].description" label="Описание раздела" />
             <div class="flex gap-2">
-              <BaseButton @click="saveSection(section.id)">Сохранить</BaseButton>
+              <BaseButton @click="saveSection(section.id)">Сохранить раздел</BaseButton>
               <BaseButton variant="secondary" @click="cancelEditSection(section.id)">Отмена</BaseButton>
             </div>
           </div>
 
-          <ul class="mb-3 space-y-3">
-            <li v-for="lesson in section.lessons" :key="lesson.id" class="rounded-lg border border-line p-3">
-              <div v-if="!lessonEditForms[lesson.id]?.open" class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p class="min-w-0 font-medium text-ink">{{ lesson.title }}</p>
-                <div class="flex shrink-0 flex-wrap gap-3">
-                  <button class="text-sm text-ink-3 hover:text-ink" @click="startEditLesson(lesson.id)">Редактировать</button>
-                  <button class="text-sm text-clay hover:brightness-110" @click="handleDeleteLesson(lesson.id)">
-                    Удалить
-                  </button>
-                </div>
-              </div>
-              <div v-else class="mb-3 space-y-2 rounded-lg bg-paper-2 p-3">
+          <div class="p-4">
+
+          <p v-if="!section.lessons.length" class="mb-3 rounded-lg border border-dashed border-line-strong p-6 text-center text-sm text-ink-3">
+            В разделе пока нет уроков
+          </p>
+
+          <ul v-else class="mb-3 space-y-2">
+            <li v-for="(lesson, lessonIndex) in section.lessons" :key="lesson.id" class="overflow-hidden rounded-xl border border-line">
+              <!-- Свёрнутая строка: всё состояние урока видно сразу, без
+                   раскрытия — есть ли видео, вопросы и домашнее задание. -->
+              <button
+                v-if="!lessonEditForms[lesson.id]?.open"
+                type="button"
+                class="flex w-full items-center gap-3 p-3 text-left transition-colors duration-200 hover:bg-paper-2"
+                :aria-expanded="openLessonIds.has(lesson.id)"
+                @click="toggleLesson(lesson.id)"
+              >
+                <span
+                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                  :class="lessonIsReady(lesson) ? 'bg-moss/15 text-moss' : 'bg-paper-2 text-ink-3'"
+                >
+                  {{ lessonIndex + 1 }}
+                </span>
+
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-medium text-ink">{{ lesson.title }}</span>
+                  <span class="mt-1 flex flex-wrap gap-1.5">
+                    <span
+                      v-for="chip in lessonChips(lesson)"
+                      :key="chip.key"
+                      class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium"
+                      :class="
+                        chip.failed
+                          ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                          : chip.pending
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-500'
+                            : chip.done
+                              ? 'bg-moss/10 text-moss'
+                              : 'bg-paper-2 text-ink-3'
+                      "
+                    >
+                      <component :is="chip.icon" :size="11" :stroke-width="2" />
+                      {{ chip.label }}
+                    </span>
+                  </span>
+                </span>
+
+                <CircleCheck
+                  v-if="lessonIsReady(lesson)"
+                  :size="16"
+                  :stroke-width="2"
+                  class="shrink-0 text-moss"
+                  aria-label="Урок готов"
+                />
+                <ChevronDown
+                  :size="17"
+                  :stroke-width="2"
+                  class="shrink-0 text-ink-3 transition-transform duration-200"
+                  :class="openLessonIds.has(lesson.id) ? 'rotate-180' : ''"
+                />
+              </button>
+              <!-- Форма редактирования материалов урока -->
+              <div v-else class="space-y-3 border-t border-line bg-paper-2 p-4">
+                <p class="text-sm font-medium text-ink">Материалы урока</p>
                 <p v-if="lessonEditForms[lesson.id].loading" class="text-sm text-ink-2">Загрузка…</p>
                 <template v-else>
                   <BaseInput v-model="lessonEditForms[lesson.id].title" label="Название урока" />
-                  <RichTextEditor v-model="lessonEditForms[lesson.id].description" label="Описание/теория" />
+                  <RichTextEditor v-model="lessonEditForms[lesson.id].description" label="Описание и теория (видит ученик под видео)" />
                   <RichTextEditor
                     v-model="lessonEditForms[lesson.id].homework"
-                    label="Задание для домашней работы"
+                    label="Домашнее задание"
                     min-height="8rem"
                   />
                   <div class="flex gap-2">
-                    <BaseButton @click="saveLesson(lesson.id)">Сохранить</BaseButton>
+                    <BaseButton @click="saveLesson(lesson.id)">Сохранить урок</BaseButton>
                     <BaseButton variant="secondary" @click="cancelEditLesson(lesson.id)">Отмена</BaseButton>
                   </div>
                 </template>
               </div>
 
-              <template v-if="!lessonEditForms[lesson.id]?.open">
-                <div class="mb-3 flex flex-wrap items-center gap-2">
-                  <BaseBadge :tone="videoStatusTone[lesson.video_status]">{{ videoStatusLabel[lesson.video_status] }}</BaseBadge>
-                  <label class="cursor-pointer text-sm text-moss underline">
-                    {{ lesson.video_status === "none" ? "Загрузить видео" : "Заменить видео" }}
-                    <input
-                      type="file"
-                      accept="video/*"
-                      class="hidden"
-                      :disabled="videoUploadState[lesson.id]?.uploading"
-                      @change="handleVideoFileChange(lesson.id, $event)"
-                    />
-                  </label>
-                  <BaseButton
-                    v-if="lesson.video_status !== 'none'"
-                    variant="secondary"
-                    :disabled="videoUploadState[lesson.id]?.uploading"
-                    @click="handleDeleteVideo(lesson.id)"
+              <!-- Раскрытая карточка урока: три чётко названных блока вместо
+                   сплошной ленты форм. -->
+              <div v-if="openLessonIds.has(lesson.id) && !lessonEditForms[lesson.id]?.open" class="border-t border-line">
+                <div class="flex flex-wrap gap-2 border-b border-line bg-paper-2/40 p-3">
+                  <button
+                    class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-ink-2 transition-all duration-200 hover:border-moss/50 hover:text-ink"
+                    @click="startEditLesson(lesson.id)"
                   >
-                    Удалить видео
-                  </BaseButton>
-                  <span v-if="videoUploadState[lesson.id]?.uploading" class="text-sm text-ink-2">
-                    Загрузка: {{ videoUploadState[lesson.id].progress }}%
-                  </span>
-                  <span v-if="videoUploadState[lesson.id]?.error" class="text-sm text-clay">
-                    {{ videoUploadState[lesson.id].error }}
-                  </span>
+                    <Pencil :size="14" :stroke-width="1.8" />
+                    Название, теория, домашка
+                  </button>
+                  <button
+                    class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-clay transition-all duration-200 hover:border-clay/40"
+                    @click="handleDeleteLesson(lesson.id)"
+                  >
+                    <Trash2 :size="14" :stroke-width="1.8" />
+                    Удалить урок
+                  </button>
                 </div>
 
-                <div class="mt-3">
-                  <p class="mb-2 text-sm font-medium text-ink-2">Мини-тест урока</p>
-                  <QuestionBank :lesson-id="lesson.id" />
+                <div class="space-y-4 p-3">
+                  <section>
+                    <p class="mb-2 flex items-center gap-1.5 text-sm font-medium text-ink">
+                      <Video :size="15" :stroke-width="1.8" class="text-ink-3" />
+                      Видеоурок
+                    </p>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <BaseBadge :tone="videoStatusTone[lesson.video_status]">
+                        {{ videoStatusLabel[lesson.video_status] }}
+                      </BaseBadge>
+                      <label
+                        class="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-ink-2 transition-all duration-200 hover:border-moss/50 hover:text-ink"
+                      >
+                        <Plus :size="14" :stroke-width="2" />
+                        {{ lesson.video_status === "none" ? "Загрузить видео" : "Заменить видео" }}
+                        <input
+                          type="file"
+                          accept="video/*"
+                          class="hidden"
+                          :disabled="videoUploadState[lesson.id]?.uploading"
+                          @change="handleVideoFileChange(lesson.id, $event)"
+                        />
+                      </label>
+                      <button
+                        v-if="lesson.video_status !== 'none'"
+                        class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-clay transition-all duration-200 hover:border-clay/40 disabled:opacity-50"
+                        :disabled="videoUploadState[lesson.id]?.uploading"
+                        @click="handleDeleteVideo(lesson.id)"
+                      >
+                        <Trash2 :size="14" :stroke-width="1.8" />
+                        Удалить видео
+                      </button>
+                    </div>
+                    <div v-if="videoUploadState[lesson.id]?.uploading" class="mt-2">
+                      <div class="h-1.5 overflow-hidden rounded-full bg-paper-2">
+                        <div
+                          class="h-full rounded-full bg-moss transition-[width] duration-300"
+                          :style="{ width: `${videoUploadState[lesson.id].progress}%` }"
+                        />
+                      </div>
+                      <p class="mt-1 text-xs text-ink-3">
+                        Загрузка: {{ videoUploadState[lesson.id].progress }}%. После загрузки видео
+                        обрабатывается — страницу можно закрыть.
+                      </p>
+                    </div>
+                    <p v-if="videoUploadState[lesson.id]?.error" class="mt-2 text-sm text-clay">
+                      {{ videoUploadState[lesson.id].error }}
+                    </p>
+                  </section>
+
+                  <section class="border-t border-line pt-3">
+                    <p class="mb-2 flex items-center gap-1.5 text-sm font-medium text-ink">
+                      <ListChecks :size="15" :stroke-width="1.8" class="text-ink-3" />
+                      Мини-тест урока
+                      <span class="font-normal text-ink-3">— ученик проходит после видео</span>
+                    </p>
+                    <QuestionBank :lesson-id="lesson.id" />
+                  </section>
                 </div>
-              </template>
+              </div>
             </li>
           </ul>
 
-          <BaseButton variant="secondary" @click="openLessonForm(section.id)">Добавить урок</BaseButton>
+          <button
+            class="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-dashed border-line-strong px-3 text-sm font-medium text-ink-2 transition-all duration-200 hover:border-moss/50 hover:text-ink"
+            @click="openLessonForm(section.id)"
+          >
+            <Plus :size="15" :stroke-width="2" />
+            Добавить урок в раздел
+          </button>
 
-          <div v-if="lessonForms[section.id]?.open" class="mt-3 space-y-2 rounded-lg bg-paper-2 p-3">
+          <div v-if="lessonForms[section.id]?.open" class="mt-3 space-y-3 rounded-xl border border-line bg-paper-2 p-4">
+            <p class="text-sm font-medium text-ink">Новый урок</p>
             <BaseInput v-model="lessonForms[section.id].title" label="Название урока" />
-            <RichTextEditor v-model="lessonForms[section.id].description" label="Описание/теория" />
+            <RichTextEditor v-model="lessonForms[section.id].description" label="Описание и теория (видит ученик под видео)" />
             <RichTextEditor
               v-model="lessonForms[section.id].homework"
-              label="Задание для домашней работы"
+              label="Домашнее задание"
               min-height="8rem"
             />
-            <BaseButton @click="handleCreateLesson(section.id)">Сохранить урок</BaseButton>
+            <p class="text-caption text-ink-3">Видео и вопросы можно добавить сразу после сохранения.</p>
+            <BaseButton @click="handleCreateLesson(section.id)">Создать урок</BaseButton>
           </div>
 
-          <div class="mt-4 border-t border-line pt-4">
-            <p class="mb-2 text-sm text-ink-2">Тест раздела (открывается после всех уроков)</p>
-            <QuestionBank :section-id="section.id" />
+          <!-- Тест раздела свёрнут: это отдельная сущность от уроков, и
+               развёрнутый банк вопросов раньше удваивал длину каждой секции. -->
+          <div class="mt-4 overflow-hidden rounded-xl border border-line">
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 p-3 text-left transition-colors duration-200 hover:bg-paper-2"
+              :aria-expanded="openSectionTestIds.has(section.id)"
+              @click="toggleSectionTest(section.id)"
+            >
+              <ListChecks :size="15" :stroke-width="1.8" class="shrink-0 text-ink-3" />
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-ink">Итоговый тест раздела</span>
+                <span class="block text-xs text-ink-3">Открывается ученику после всех уроков раздела</span>
+              </span>
+              <ChevronDown
+                :size="17"
+                :stroke-width="2"
+                class="shrink-0 text-ink-3 transition-transform duration-200"
+                :class="openSectionTestIds.has(section.id) ? 'rotate-180' : ''"
+              />
+            </button>
+            <div v-if="openSectionTestIds.has(section.id)" class="border-t border-line p-3">
+              <QuestionBank :section-id="section.id" />
+            </div>
+          </div>
           </div>
         </div>
       </div>
