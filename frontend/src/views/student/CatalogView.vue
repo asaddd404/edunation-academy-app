@@ -1,21 +1,213 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
-import { getCategoryImageUrl } from "@/api/categories";
-import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
+import { listSections } from "@/api/sections";
 import PageContainer from "@/components/layout/PageContainer.vue";
+import CatalogMobileNav from "@/components/catalog/CatalogMobileNav.vue";
+import MillerColumn from "@/components/catalog/MillerColumn.vue";
+import type { MillerItem } from "@/components/catalog/MillerColumn.vue";
+import { useMediaQuery } from "@/composables/useMediaQuery";
+import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import { useApplicationsStore } from "@/stores/applications";
 import { useCategoriesStore } from "@/stores/categories";
-import { capitalize, pluralRu, subjectTheme } from "@/utils/subjectTheme";
+import type { Section } from "@/types";
+import { capitalize } from "@/utils/subjectTheme";
 
+const route = useRoute();
+const router = useRouter();
 const categories = useCategoriesStore();
 const applications = useApplicationsStore();
-const applyingId = ref<number | null>(null);
-const search = ref("");
-const activeTag = ref<string | null>(null);
 
-onMounted(() => categories.fetchAll());
+const search = ref(typeof route.query.q === "string" ? route.query.q : "");
+const applyingId = ref<number | null>(null);
+
+const sections = ref<Section[]>([]);
+const sectionsLoading = ref(false);
+const sectionsCategoryId = ref<number | null>(null);
+
+const selectedCategoryId = computed(() => {
+  const raw = route.query.category;
+  const id = Number(raw);
+  return typeof raw === "string" && !Number.isNaN(id) ? id : null;
+});
+const selectedSectionId = computed(() => {
+  const raw = route.query.section;
+  const id = Number(raw);
+  return typeof raw === "string" && !Number.isNaN(id) ? id : null;
+});
+
+const selectedCategory = computed(
+  () => categories.list.find((c) => c.id === selectedCategoryId.value) ?? null,
+);
+const selectedSection = computed(
+  () => sections.value.find((s) => s.id === selectedSectionId.value) ?? null,
+);
+
+categories.fetchAll();
+
+async function loadSections(categoryId: number) {
+  sectionsLoading.value = true;
+  sectionsCategoryId.value = categoryId;
+  try {
+    sections.value = await listSections(categoryId);
+  } finally {
+    sectionsLoading.value = false;
+  }
+}
+
+watch(
+  selectedCategory,
+  (category) => {
+    if (category && category.my_application_status === "approved") {
+      loadSections(category.id);
+    } else {
+      sections.value = [];
+      sectionsCategoryId.value = null;
+    }
+  },
+  { immediate: true },
+);
+
+const filteredCategories = computed(() => {
+  const query = search.value.trim().toLowerCase();
+  if (!query) return categories.list;
+  return categories.list.filter(
+    (c) => c.name.toLowerCase().includes(query) || (c.description ?? "").toLowerCase().includes(query),
+  );
+});
+
+const categoryItems = computed<MillerItem[]>(() =>
+  filteredCategories.value.map((c) => ({
+    id: c.id,
+    label: capitalize(c.name),
+    kind: "folder",
+    meta:
+      c.my_application_status === "approved"
+        ? `${c.lesson_count} ур.`
+        : c.my_application_status === "pending"
+          ? "заявка отправлена"
+          : undefined,
+  })),
+);
+
+const sectionItems = computed<MillerItem[]>(() =>
+  sections.value.map((s) => ({
+    id: s.id,
+    label: s.title,
+    kind: "folder",
+    meta: `${s.lessons.length} ур.`,
+  })),
+);
+
+const TEST_ITEM_PREFIX = "test-";
+
+const lessonItems = computed<MillerItem[]>(() => {
+  const section = selectedSection.value;
+  if (!section) return [];
+  const items: MillerItem[] = section.lessons.map((lesson) => ({
+    id: lesson.id,
+    label: lesson.title,
+    kind: "leaf",
+    locked: !lesson.is_unlocked,
+    done: lesson.is_passed,
+  }));
+  if (section.has_test) {
+    items.push({
+      id: `${TEST_ITEM_PREFIX}${section.id}`,
+      label: "Тест раздела",
+      kind: "leaf",
+      locked: !section.is_test_unlocked,
+      done: section.is_test_passed,
+    });
+  }
+  return items;
+});
+
+function setQuery(next: Record<string, string | undefined>) {
+  const query = { ...route.query, ...next };
+  Object.keys(query).forEach((key) => {
+    if (query[key] === undefined) delete query[key];
+  });
+  router.push({ path: "/catalog", query });
+}
+
+function selectCategory(id: number | string) {
+  setQuery({ category: String(id), section: undefined });
+}
+
+function selectSection(id: number | string) {
+  setQuery({ section: String(id) });
+}
+
+function selectLesson(id: number | string) {
+  const raw = String(id);
+  if (raw.startsWith(TEST_ITEM_PREFIX)) {
+    const sectionId = raw.slice(TEST_ITEM_PREFIX.length);
+    router.push(`/sections/${sectionId}/test`);
+  } else {
+    router.push(`/lessons/${raw}`);
+  }
+}
+
+const isDesktop = useMediaQuery("(min-width: 768px)");
+
+/** Levels the phone view drills through. Built from the same computed item
+ * lists the desktop columns use, so the two never show different content. */
+const mobileLevels = computed(() => {
+  const levels: { title: string; items: MillerItem[]; loading?: boolean; emptyText?: string }[] = [
+    {
+      title: "Предметы",
+      items: categoryItems.value,
+      loading: categories.loading,
+      emptyText: "Ничего не найдено",
+    },
+  ];
+  // A category the student has no approved application for has nothing to
+  // drill into -- the apply card is rendered instead of a third level.
+  if (selectedCategory.value?.my_application_status === "approved") {
+    levels.push({
+      title: capitalize(selectedCategory.value.name),
+      items: sectionItems.value,
+      loading: sectionsLoading.value,
+      emptyText: "Разделы пока не добавлены",
+    });
+  }
+  if (selectedSection.value) {
+    levels.push({
+      title: selectedSection.value.title,
+      items: lessonItems.value,
+      emptyText: "Уроки пока не добавлены",
+    });
+  }
+  return levels;
+});
+
+const mobileCrumbs = computed(() => {
+  const crumbs: string[] = [];
+  if (selectedCategory.value) crumbs.push(capitalize(selectedCategory.value.name));
+  if (selectedSection.value) crumbs.push(selectedSection.value.title);
+  return crumbs;
+});
+
+function handleMobileSelect(id: number | string) {
+  const depth = mobileLevels.value.length;
+  if (depth === 1) selectCategory(id);
+  else if (depth === 2) selectSection(id);
+  else selectLesson(id);
+}
+
+function goBack() {
+  if (selectedSectionId.value !== null) setQuery({ section: undefined });
+  else if (selectedCategoryId.value !== null) setQuery({ category: undefined, section: undefined });
+}
+
+// A search typed at one level would otherwise silently hide items at the
+// next one the student drills into.
+watch([selectedCategoryId, selectedSectionId], () => {
+  if (!isDesktop.value) search.value = "";
+});
 
 async function handleApply(categoryId: number) {
   applyingId.value = categoryId;
@@ -27,136 +219,105 @@ async function handleApply(categoryId: number) {
     applyingId.value = null;
   }
 }
-
-function lessonsLabel(count: number): string {
-  return `${count} ${pluralRu(count, ["урок", "урока", "уроков"])}`;
-}
-
-function hoursLabel(seconds: number): string | null {
-  if (!seconds) return null;
-  const hours = Math.max(1, Math.round(seconds / 3600));
-  return `${hours} ${pluralRu(hours, ["час", "часа", "часов"])}`;
-}
-
-const tags = computed(() => {
-  const names = [...new Set(categories.list.map((c) => capitalize(c.name)))].sort((a, b) => a.localeCompare(b, "ru"));
-  return names.slice(0, 8);
-});
-
-const filtered = computed(() => {
-  const query = search.value.trim().toLowerCase();
-  return categories.list.filter((c) => {
-    const matchesTag = !activeTag.value || capitalize(c.name) === activeTag.value;
-    const matchesQuery = !query || c.name.toLowerCase().includes(query) || (c.description ?? "").toLowerCase().includes(query);
-    return matchesTag && matchesQuery;
-  });
-});
 </script>
 
 <template>
   <PageContainer>
-    <div class="mb-8 overflow-hidden rounded-2xl border border-line bg-paper px-6 py-10 sm:px-10">
-      <h1 class="font-display text-display-lg text-ink">Каталог предметов</h1>
-      <p class="mt-2 max-w-xl text-sm text-ink-2 sm:text-base">
-        Выбирай предмет, подавай заявку и открывай уроки, тесты и симуляции ЕНТ — всё в одном месте.
-      </p>
+    <!-- Phone: one level at a time. The apply card still renders below when
+         the chosen category has no approved application. -->
+    <template v-if="!isDesktop">
+      <CatalogMobileNav
+        :levels="mobileLevels"
+        :crumbs="mobileCrumbs"
+        :search="search"
+        @select="handleMobileSelect"
+        @back="goBack"
+        @update:search="search = $event"
+      />
 
-      <div class="mt-6 flex flex-col gap-3">
-        <input v-model="search" type="search" placeholder="Найти предмет…" class="input w-full max-w-md" />
-        <div class="flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors"
-            :class="
-              activeTag === null
-                ? 'border-transparent bg-moss text-moss-fg'
-                : 'border-line text-ink-2 hover:border-line-strong hover:text-ink'
-            "
-            @click="activeTag = null"
-          >
-            Все
-          </button>
-          <button
-            v-for="tag in tags"
-            :key="tag"
-            type="button"
-            class="rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors"
-            :class="
-              activeTag === tag
-                ? 'border-transparent bg-moss text-moss-fg'
-                : 'border-line text-ink-2 hover:border-line-strong hover:text-ink'
-            "
-            @click="activeTag = activeTag === tag ? null : tag"
-          >
-            {{ tag }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="categories.loading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-      <div v-for="n in 6" :key="n" class="h-64 animate-pulse rounded-xl bg-paper-2" />
-    </div>
-    <div v-else-if="!filtered.length" class="card flex flex-col items-center gap-3 px-6 py-12 text-center">
-      <span class="text-3xl">🔍</span>
-      <p class="font-medium text-ink">Ничего не найдено</p>
-      <p class="max-w-xs text-sm text-ink-2">Попробуйте изменить запрос или сбросить фильтр по предмету.</p>
-      <BaseButton
-        variant="secondary"
-        @click="
-          search = '';
-          activeTag = null;
-        "
-      >
-        Сбросить фильтры
-      </BaseButton>
-    </div>
-    <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 items-stretch">
       <div
-        v-for="category in filtered"
-        :key="category.id"
-        class="card flex flex-col overflow-hidden transition-transform hover:-translate-y-0.5"
+        v-if="selectedCategory && selectedCategory.my_application_status !== 'approved'"
+        class="card mt-4 flex flex-col items-start gap-3 p-4"
       >
-        <img
-          v-if="category.has_image"
-          :src="getCategoryImageUrl(category.id)"
-          alt=""
-          class="h-32 w-full object-cover"
-        />
-        <div v-else class="flex h-32 w-full items-center justify-center bg-moss/15 text-5xl">
-          {{ subjectTheme(category.name, category.id).icon }}
+        <ApplicationStatusBadge :status="selectedCategory.my_application_status" />
+        <p class="text-sm text-ink-2">
+          {{
+            selectedCategory.my_application_status === "pending"
+              ? "Заявка на рассмотрении у преподавателя."
+              : "Подайте заявку, чтобы открыть разделы и уроки этого предмета."
+          }}
+        </p>
+        <BaseButton
+          v-if="selectedCategory.my_application_status !== 'pending'"
+          variant="cta"
+          class="min-h-12 w-full"
+          :disabled="applyingId === selectedCategory.id"
+          @click="handleApply(selectedCategory.id)"
+        >
+          Подать заявку
+        </BaseButton>
+      </div>
+    </template>
+
+    <template v-else>
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="font-display text-display-lg text-ink">Каталог предметов</h1>
+          <p class="mt-1 text-sm text-ink-2">Выбирай предмет → раздел → урок.</p>
         </div>
+        <input v-model="search" type="search" placeholder="Найти предмет…" class="input w-full sm:w-64" />
+      </div>
 
-        <div class="flex flex-1 flex-col gap-3 p-5">
-          <div class="flex items-start justify-between gap-2">
-            <h2 class="text-lg font-semibold text-ink">{{ capitalize(category.name) }}</h2>
-            <ApplicationStatusBadge :status="category.my_application_status" />
-          </div>
-          <p v-if="category.description" class="line-clamp-2 text-sm text-ink-2">{{ category.description }}</p>
+      <div class="flex w-full items-start gap-6 overflow-x-auto scroll-smooth pb-6">
+      <MillerColumn
+        title="Предметы"
+        :items="categoryItems"
+        :selected-id="selectedCategoryId"
+        :loading="categories.loading"
+        empty-text="Ничего не найдено"
+        @select="selectCategory"
+      />
 
-          <div class="flex flex-wrap gap-1.5 text-xs">
-            <span class="rounded-full bg-paper-2 px-2.5 py-1 font-medium text-ink-2">
-              {{ lessonsLabel(category.lesson_count) }}
-            </span>
-            <span v-if="hoursLabel(category.total_duration_seconds)" class="rounded-full bg-paper-2 px-2.5 py-1 font-medium text-ink-2">
-              ~{{ hoursLabel(category.total_duration_seconds) }}
-            </span>
-          </div>
-
-          <router-link v-if="category.my_application_status === 'approved'" :to="`/categories/${category.id}`" class="mt-auto">
-            <BaseButton class="w-full">Открыть</BaseButton>
-          </router-link>
+      <div v-if="selectedCategory && selectedCategory.my_application_status !== 'approved'" class="miller-column">
+        <h2 class="miller-column-title">{{ capitalize(selectedCategory.name) }}</h2>
+        <div class="miller-column-card flex flex-col items-start gap-3 p-4">
+          <ApplicationStatusBadge :status="selectedCategory.my_application_status" />
+          <p class="text-sm text-ink-2">
+            {{
+              selectedCategory.my_application_status === "pending"
+                ? "Заявка на рассмотрении у преподавателя."
+                : "Подайте заявку, чтобы открыть разделы и уроки этого предмета."
+            }}
+          </p>
           <BaseButton
-            v-else
+            v-if="selectedCategory.my_application_status !== 'pending'"
             variant="cta"
-            class="mt-auto w-full"
-            :disabled="category.my_application_status === 'pending' || applyingId === category.id"
-            @click="handleApply(category.id)"
+            :disabled="applyingId === selectedCategory.id"
+            @click="handleApply(selectedCategory.id)"
           >
             Подать заявку
           </BaseButton>
         </div>
       </div>
-    </div>
+
+      <MillerColumn
+        v-if="selectedCategory && selectedCategory.my_application_status === 'approved'"
+        title="Разделы"
+        :items="sectionItems"
+        :selected-id="selectedSectionId"
+        :loading="sectionsLoading"
+        empty-text="Разделы пока не добавлены"
+        @select="selectSection"
+      />
+
+        <MillerColumn
+          v-if="selectedSection"
+          title="Уроки"
+          :items="lessonItems"
+          empty-text="Уроки пока не добавлены"
+          @select="selectLesson"
+        />
+      </div>
+    </template>
   </PageContainer>
 </template>
