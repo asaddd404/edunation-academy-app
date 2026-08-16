@@ -10,14 +10,17 @@ import {
   submitEntSimulation,
 } from "@/api/ent";
 import PageContainer from "@/components/layout/PageContainer.vue";
+import SmartText from "@/components/shared/SmartText.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
+import { useExamTimer } from "@/composables/useExamTimer";
 import type {
   EntQuestionStudent,
   EntSimulation,
   EntSimulationAnswerPayload,
   EntSimulationResult,
 } from "@/types";
+import { optionLetter, scorePercent, scoreTone } from "@/utils/examOptions";
 import { capitalize } from "@/utils/subjectTheme";
 
 const route = useRoute();
@@ -39,9 +42,12 @@ const questionCardRef = ref<HTMLElement | null>(null);
 // with viewport (padding + font size) -- measure it instead of guessing.
 const headerOffset = ref(0);
 
-const remainingSeconds = ref<number | null>(null);
-let timerHandle: number | undefined;
 let submitting = false;
+
+// handleSubmit is a hoisted function declaration, so this reference is safe
+// even though it's defined further down the file.
+const { label: timerLabel, isCritical: timeIsCritical, start: startTimer, stop: stopTimer } =
+  useExamTimer(handleSubmit);
 
 function measureHeader() {
   headerOffset.value = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
@@ -49,18 +55,6 @@ function measureHeader() {
 
 const questions = computed<EntQuestionStudent[]>(() => exam.value?.questions ?? []);
 const currentQuestion = computed<EntQuestionStudent | null>(() => questions.value[currentIndex.value] ?? null);
-
-const timerLabel = computed(() => {
-  if (remainingSeconds.value === null) return null;
-  const total = remainingSeconds.value;
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const mm = h > 0 ? m.toString().padStart(2, "0") : m.toString();
-  return `${h > 0 ? `${h}:` : ""}${mm}:${s.toString().padStart(2, "0")}`;
-});
-
-const timeIsCritical = computed(() => remainingSeconds.value !== null && remainingSeconds.value <= 60);
 
 function isAnswered(question: EntQuestionStudent): boolean {
   const answer = answers[question.id];
@@ -79,6 +73,7 @@ function isAnswered(question: EntQuestionStudent): boolean {
 
 const answeredCount = computed(() => questions.value.filter(isAnswered).length);
 const unansweredCount = computed(() => questions.value.length - answeredCount.value);
+const answeredPercent = computed(() => scorePercent(answeredCount.value, questions.value.length));
 
 interface SubjectGroup {
   subjectName: string;
@@ -160,35 +155,13 @@ function handleKeydown(event: KeyboardEvent) {
   else if (event.key === "ArrowLeft") goPrev();
 }
 
-function stopTimer() {
-  if (timerHandle !== undefined) {
-    clearInterval(timerHandle);
-    timerHandle = undefined;
-  }
-}
-
-function startTimer() {
-  stopTimer();
-  if (remainingSeconds.value === null) return;
-  timerHandle = window.setInterval(() => {
-    if (remainingSeconds.value === null) return;
-    remainingSeconds.value -= 1;
-    if (remainingSeconds.value <= 0) {
-      remainingSeconds.value = 0;
-      stopTimer();
-      handleSubmit();
-    }
-  }, 1000);
-}
-
 async function load() {
   phase.value = "loading";
   try {
     exam.value = await getEntSimulation(simulationId);
-    remainingSeconds.value = exam.value.remaining_seconds;
     currentIndex.value = 0;
     phase.value = "exam";
-    if (exam.value.is_timed) startTimer();
+    startTimer(exam.value.is_timed ? exam.value.remaining_seconds : null);
   } catch (e) {
     if (isAxiosError(e) && e.response?.status === 409) {
       try {
@@ -266,6 +239,45 @@ async function handleSubmit() {
   }
 }
 
+const resultPercent = computed(() =>
+  result.value ? scorePercent(result.value.total_score, result.value.max_score) : 0,
+);
+
+const RING_CIRCUMFERENCE = 2 * Math.PI * 52;
+const ringDashOffset = computed(() => RING_CIRCUMFERENCE * (1 - resultPercent.value / 100));
+
+const TONE_TEXT: Record<string, string> = {
+  success: "text-green-700 dark:text-green-500",
+  warning: "text-amber-700 dark:text-amber-500",
+  danger: "text-red-600 dark:text-red-400",
+};
+const TONE_STROKE: Record<string, string> = {
+  success: "stroke-green-600 dark:stroke-green-500",
+  warning: "stroke-amber-600 dark:stroke-amber-500",
+  danger: "stroke-red-500 dark:stroke-red-400",
+};
+const TONE_BAR: Record<string, string> = {
+  success: "bg-green-600 dark:bg-green-500",
+  warning: "bg-amber-600 dark:bg-amber-500",
+  danger: "bg-red-500 dark:bg-red-400",
+};
+
+/** Per-subject totals for the result screen -- the single overall number
+ * hides which subject actually cost the points. */
+const resultBySubject = computed(() => {
+  const bySubject = new Map<string, { name: string; score: number; max: number }>();
+  for (const answer of result.value?.answers ?? []) {
+    const row = bySubject.get(answer.subject_name) ?? { name: answer.subject_name, score: 0, max: 0 };
+    row.score += answer.score_awarded;
+    row.max += answer.max_score;
+    bySubject.set(answer.subject_name, row);
+  }
+  return [...bySubject.values()].map((row) => {
+    const percent = scorePercent(row.score, row.max);
+    return { ...row, percent, tone: scoreTone(percent) };
+  });
+});
+
 function timingLabel(r: EntSimulationResult): string {
   if (!r.is_timed) return "Без ограничения по времени";
   return r.time_expired ? "С таймером — время вышло" : "С таймером — уложился в срок";
@@ -298,21 +310,39 @@ function timingLabel(r: EntSimulationResult): string {
             <p class="truncate text-xs text-ink-3">{{ capitalize(currentQuestion.subject_name) }}</p>
           </div>
 
-          <div class="flex shrink-0 items-center gap-3">
-            <div class="text-right">
-              <p class="text-xs text-ink-3">Отвечено</p>
-              <p class="text-sm font-medium text-ink">{{ answeredCount }} / {{ questions.length }}</p>
+          <div class="flex shrink-0 items-center gap-2.5">
+            <div class="hidden text-right sm:block">
+              <p class="text-[10px] uppercase tracking-wide text-ink-3">Отвечено</p>
+              <p class="text-sm font-semibold tabular-nums text-ink">{{ answeredCount }} / {{ questions.length }}</p>
             </div>
             <div
               v-if="timerLabel"
-              class="rounded-xl bg-paper-2 px-3 py-2 text-center tabular-nums transition-colors duration-300"
-              :class="timeIsCritical ? 'text-clay' : 'text-ink'"
+              class="flex items-center gap-2 rounded-xl px-3 py-2 tabular-nums transition-colors duration-300"
+              :class="
+                timeIsCritical
+                  ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+                  : 'bg-paper-2 text-ink'
+              "
             >
-              <p class="text-[10px] uppercase tracking-wide opacity-60">Осталось</p>
-              <p class="text-lg font-bold leading-none">{{ timerLabel }}</p>
+              <svg class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+                <circle cx="10" cy="11" r="7" />
+                <path d="M10 8v3.5l2 1.5M7.5 2h5" stroke-linecap="round" />
+              </svg>
+              <span class="text-lg font-bold leading-none" :class="timeIsCritical ? 'animate-pulse' : ''">
+                {{ timerLabel }}
+              </span>
             </div>
             <BaseBadge v-else tone="neutral">Без таймера</BaseBadge>
           </div>
+        </div>
+
+        <!-- Overall progress: the palette below only covers the active
+             subject, so this is the one place the whole exam is visible. -->
+        <div class="mt-2.5 h-1.5 overflow-hidden rounded-full bg-paper-2">
+          <div
+            class="h-full rounded-full bg-moss transition-[width] duration-300 ease-out"
+            :style="{ width: `${answeredPercent}%` }"
+          />
         </div>
 
         <!-- Subject tabs: one horizontal row, active tab in solid moss.
@@ -339,8 +369,10 @@ function timingLabel(r: EntSimulationResult): string {
         </div>
 
         <!-- Question chips: only the active subject's questions, so the grid
-             never grows past one subject's worth of numbers. -->
-        <div v-if="activeGroup" class="mt-3 flex flex-wrap gap-1.5">
+             never grows past one subject's worth of numbers. Capped in height
+             on a phone -- 40 chips at 36px would otherwise push the question
+             itself off screen -- and scrolls inside its own box. -->
+        <div v-if="activeGroup" class="mt-3 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto sm:max-h-none sm:overflow-visible">
           <button
             v-for="(entry, localIndex) in activeGroup.entries"
             :key="entry.question.id"
@@ -370,7 +402,7 @@ function timingLabel(r: EntSimulationResult): string {
             <span>{{ currentQuestion.max_score }} балл(а)</span>
           </div>
 
-          <p class="text-body-lg font-medium text-ink">{{ currentQuestion.text }}</p>
+          <p class="text-body-lg font-medium text-ink"><SmartText :text="currentQuestion.text" /></p>
 
           <img
             v-if="currentQuestion.has_image"
@@ -382,55 +414,95 @@ function timingLabel(r: EntSimulationResult): string {
           <div class="space-y-2">
             <template v-if="currentQuestion.qtype === 'single'">
               <label
-                v-for="choice in currentQuestion.choices"
+                v-for="(choice, i) in currentQuestion.choices"
                 :key="choice.id"
-                class="flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm text-ink transition-colors duration-150"
+                class="group/opt flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-sm text-ink transition-all duration-150"
                 :class="
                   isChoiceSelected(currentQuestion.id, choice.id)
-                    ? 'border-marigold bg-marigold/15'
-                    : 'border-line hover:border-line-strong'
+                    ? 'border-moss bg-moss/10 shadow-sm'
+                    : 'border-line hover:border-moss/50 hover:bg-paper-2'
                 "
               >
+                <!-- The native control stays in the DOM (keyboard, screen
+                     readers, form semantics) but the lettered badge is what
+                     the student actually sees and clicks. -->
                 <input
                   type="radio"
+                  class="sr-only"
                   :name="`q-${currentQuestion.id}`"
                   :value="choice.id"
                   :checked="isChoiceSelected(currentQuestion.id, choice.id)"
                   @change="setSingleChoice(currentQuestion.id, choice.id)"
                 />
-                {{ choice.text }}
+                <span
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-colors duration-150"
+                  :class="
+                    isChoiceSelected(currentQuestion.id, choice.id)
+                      ? 'bg-moss text-moss-fg'
+                      : 'bg-paper-2 text-ink-2 group-hover/opt:bg-line'
+                  "
+                >
+                  {{ optionLetter(i) }}
+                </span>
+                <span class="flex-1">{{ choice.text }}</span>
               </label>
             </template>
 
             <template v-else-if="currentQuestion.qtype === 'multiple'">
               <label
-                v-for="choice in currentQuestion.choices"
+                v-for="(choice, i) in currentQuestion.choices"
                 :key="choice.id"
-                class="flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm text-ink transition-colors duration-150"
+                class="group/opt flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-sm text-ink transition-all duration-150"
                 :class="
                   isChoiceChecked(currentQuestion.id, choice.id)
-                    ? 'border-marigold bg-marigold/15'
-                    : 'border-line hover:border-line-strong'
+                    ? 'border-moss bg-moss/10 shadow-sm'
+                    : 'border-line hover:border-moss/50 hover:bg-paper-2'
                 "
               >
                 <input
                   type="checkbox"
+                  class="sr-only"
                   :checked="isChoiceChecked(currentQuestion.id, choice.id)"
                   @change="
                     toggleMultipleChoice(currentQuestion.id, choice.id, ($event.target as HTMLInputElement).checked)
                   "
                 />
-                {{ choice.text }}
+                <!-- Square badge, unlike the single-choice one, so "выберите
+                     несколько" is readable from the shape alone. -->
+                <span
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-2 text-sm font-semibold transition-colors duration-150"
+                  :class="
+                    isChoiceChecked(currentQuestion.id, choice.id)
+                      ? 'border-moss bg-moss text-moss-fg'
+                      : 'border-line-strong bg-paper text-ink-2 group-hover/opt:border-moss/50'
+                  "
+                >
+                  {{ optionLetter(i) }}
+                </span>
+                <span class="flex-1">{{ choice.text }}</span>
               </label>
             </template>
 
             <template v-else-if="currentQuestion.qtype === 'matching'">
               <div
-                v-for="prompt in currentQuestion.match_prompts"
+                v-for="(prompt, i) in currentQuestion.match_prompts"
                 :key="prompt.id"
-                class="flex flex-col gap-2 rounded-xl border border-line px-4 py-3 text-sm sm:flex-row sm:items-center"
+                class="flex flex-col gap-2 rounded-xl border px-3.5 py-3 text-sm transition-colors duration-150 sm:flex-row sm:items-center"
+                :class="selectedPair(currentQuestion.id, prompt.id) ? 'border-moss/50 bg-moss/5' : 'border-line'"
               >
-                <span class="text-ink sm:w-1/2">{{ prompt.text }}</span>
+                <span class="flex flex-1 items-center gap-3">
+                  <span
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-colors duration-150"
+                    :class="
+                      selectedPair(currentQuestion.id, prompt.id)
+                        ? 'bg-moss text-moss-fg'
+                        : 'bg-paper-2 text-ink-2'
+                    "
+                  >
+                    {{ optionLetter(i) }}
+                  </span>
+                  <span class="text-ink">{{ prompt.text }}</span>
+                </span>
                 <select
                   class="input sm:w-1/2"
                   :value="selectedPair(currentQuestion.id, prompt.id)"
@@ -459,7 +531,8 @@ function timingLabel(r: EntSimulationResult): string {
         <!-- ── Navigation ────────────────────────────────────────────── -->
         <div class="flex items-center justify-between gap-3">
           <BaseButton variant="secondary" :disabled="currentIndex === 0" @click="goPrev">← Назад</BaseButton>
-          <span class="text-xs text-ink-3">← → для перехода</span>
+          <!-- Keyboard hint only where there is a keyboard to use it. -->
+          <span class="hidden text-xs text-ink-3 sm:inline">← → для перехода</span>
           <BaseButton
             variant="secondary"
             :disabled="currentIndex === questions.length - 1"
@@ -485,7 +558,11 @@ function timingLabel(r: EntSimulationResult): string {
     </template>
 
     <div v-else-if="phase === 'exam'" class="card mx-auto flex max-w-[42rem] flex-col items-center gap-3 px-6 py-12 text-center">
-      <span class="text-3xl">🗂️</span>
+      <span class="flex h-14 w-14 items-center justify-center rounded-full bg-paper-2 text-ink-3">
+        <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M4 7h6l2 2h8v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7Z" stroke-linejoin="round" />
+        </svg>
+      </span>
       <p class="font-medium text-ink">В этой попытке не осталось вопросов</p>
       <p class="max-w-xs text-sm text-ink-2">
         Похоже, вопросы для этой симуляции были удалены после её начала. Начните новую попытку в ЕНТ-тренажёре.
@@ -495,33 +572,86 @@ function timingLabel(r: EntSimulationResult): string {
 
     <template v-else-if="phase === 'result' && result">
       <div class="mx-auto max-w-[42rem] space-y-6">
-        <div>
-          <h1 class="mb-2 font-display text-display-lg text-ink">Результат</h1>
-          <div class="flex flex-wrap items-center gap-2">
-            <BaseBadge tone="success">{{ result.total_score }} / {{ result.max_score }} баллов</BaseBadge>
-            <BaseBadge :tone="result.time_expired ? 'danger' : 'neutral'">{{ timingLabel(result) }}</BaseBadge>
-            <span class="rounded-full bg-moss px-2.5 py-1 text-xs font-semibold text-moss-fg">+{{ result.xp_earned }} XP</span>
+        <section class="card overflow-hidden">
+          <div class="flex flex-col items-center gap-5 p-6 text-center sm:flex-row sm:text-left">
+            <div class="relative h-32 w-32 shrink-0">
+              <svg class="h-full w-full -rotate-90" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="52" fill="none" stroke-width="10" class="stroke-paper-2" />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="52"
+                  fill="none"
+                  stroke-width="10"
+                  stroke-linecap="round"
+                  :class="TONE_STROKE[scoreTone(resultPercent)]"
+                  :stroke-dasharray="RING_CIRCUMFERENCE"
+                  :stroke-dashoffset="ringDashOffset"
+                  style="transition: stroke-dashoffset 900ms cubic-bezier(0.16, 1, 0.3, 1)"
+                />
+              </svg>
+              <div class="absolute inset-0 flex flex-col items-center justify-center">
+                <span class="text-3xl font-bold tabular-nums" :class="TONE_TEXT[scoreTone(resultPercent)]">
+                  {{ resultPercent }}%
+                </span>
+                <span class="text-xs text-ink-3">{{ result.total_score }} / {{ result.max_score }}</span>
+              </div>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <h1 class="font-display text-display-sm text-ink">Результат</h1>
+              <div class="mt-2 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                <span class="rounded-full bg-moss px-3 py-1 text-sm font-semibold text-moss-fg">
+                  +{{ result.xp_earned }} XP
+                </span>
+                <BaseBadge :tone="result.time_expired ? 'danger' : 'neutral'">{{ timingLabel(result) }}</BaseBadge>
+              </div>
+              <div class="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <router-link to="/ent" class="btn-primary px-4 py-2 text-sm">Пройти ещё раз</router-link>
+                <router-link to="/ent/leaderboard" class="btn-ghost px-4 py-2 text-sm">Рейтинг</router-link>
+              </div>
+            </div>
           </div>
-          <router-link
-            class="mt-2 inline-block text-sm text-moss underline underline-offset-2 hover:opacity-70"
-            to="/ent/leaderboard"
-          >
-            Смотреть рейтинг
-          </router-link>
-        </div>
+
+          <div v-if="resultBySubject.length > 1" class="border-t border-line px-6 py-4">
+            <p class="mb-3 text-xs uppercase tracking-wide text-ink-3">По предметам</p>
+            <div class="space-y-2.5">
+              <div v-for="row in resultBySubject" :key="row.name" class="flex items-center gap-3 text-sm">
+                <span class="w-28 shrink-0 truncate text-ink-2 sm:w-40">{{ capitalize(row.name) }}</span>
+                <div class="h-2 flex-1 overflow-hidden rounded-full bg-paper-2">
+                  <div
+                    class="h-full rounded-full transition-[width] duration-700 ease-out"
+                    :class="TONE_BAR[row.tone]"
+                    :style="{ width: `${row.percent}%` }"
+                  />
+                </div>
+                <span class="w-14 shrink-0 text-right tabular-nums text-ink">{{ row.score }}/{{ row.max }}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <p class="text-sm font-medium text-ink">Разбор ответов</p>
 
         <section
           v-for="answer in result.answers"
           :key="answer.question_id"
-          class="card space-y-2 p-4"
+          class="card space-y-2 border-l-[3px] p-4"
+          :class="
+            answer.is_correct
+              ? 'border-l-green-600 dark:border-l-green-500'
+              : answer.score_awarded > 0
+                ? 'border-l-amber-600 dark:border-l-amber-500'
+                : 'border-l-red-500 dark:border-l-red-400'
+          "
         >
           <div class="flex items-center gap-2 text-xs text-ink-3">
-            <BaseBadge tone="neutral">{{ answer.subject_name }}</BaseBadge>
+            <BaseBadge tone="neutral">{{ capitalize(answer.subject_name) }}</BaseBadge>
             <BaseBadge :tone="answer.is_correct ? 'success' : answer.score_awarded > 0 ? 'warning' : 'danger'">
               {{ answer.score_awarded }} / {{ answer.max_score }}
             </BaseBadge>
           </div>
-          <p class="text-body-lg font-medium text-ink">{{ answer.text }}</p>
+          <p class="text-body-lg font-medium text-ink"><SmartText :text="answer.text" /></p>
 
           <img
             v-if="answer.has_image"
@@ -530,13 +660,24 @@ function timingLabel(r: EntSimulationResult): string {
             class="max-h-72 w-full rounded-xl border border-line object-contain"
           />
 
-          <ul v-if="answer.choices.length" class="space-y-1 text-sm">
+          <ul v-if="answer.choices.length" class="space-y-1.5 text-sm">
             <li
-              v-for="choice in answer.choices"
+              v-for="(choice, i) in answer.choices"
               :key="choice.id"
-              :class="choice.is_correct ? 'text-moss' : 'text-ink-2'"
+              class="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
+              :class="choice.is_correct ? 'bg-green-600/10' : ''"
             >
-              {{ choice.is_correct ? "✓" : "·" }} {{ choice.text }}
+              <span
+                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+                :class="
+                  choice.is_correct
+                    ? 'bg-green-600 text-white dark:bg-green-500 dark:text-zinc-900'
+                    : 'bg-paper-2 text-ink-3'
+                "
+              >
+                {{ optionLetter(i) }}
+              </span>
+              <span :class="choice.is_correct ? 'font-medium text-ink' : 'text-ink-2'">{{ choice.text }}</span>
             </li>
           </ul>
 

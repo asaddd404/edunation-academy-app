@@ -23,6 +23,7 @@ export interface User {
   is_active: boolean;
   has_avatar: boolean;
   created_at: string;
+  today_activity_seconds: number;
 }
 
 export interface Category {
@@ -473,15 +474,19 @@ export interface EntSimulationSummary {
   xp_earned: number | null;
 }
 
+export type LeaderboardPeriod = "week" | "month" | "all";
+
 export interface EntLeaderboardEntry {
   rank: number;
   student_id: number;
   first_name: string;
   last_name: string;
+  /** For a period board this is XP earned *within* that period, not lifetime. */
   total_xp: number;
   simulations_completed: number;
   best_score: number;
   is_me: boolean;
+  has_avatar: boolean;
 }
 
 export interface EntLeaderboard {

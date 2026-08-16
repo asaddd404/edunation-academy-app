@@ -1,5 +1,6 @@
 import random
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -404,19 +405,63 @@ async def get_simulation_result(
     return _result_out(simulation)
 
 
+LeaderboardPeriod = Literal["week", "month", "all"]
+
+_PERIOD_DAYS: dict[str, int] = {"week": 7, "month": 30}
+
+
+def _period_totals_query(cutoff: datetime):
+    """Per-student totals over submitted attempts since `cutoff`.
+
+    `StudentRating` only ever holds the lifetime aggregate, so a week/month
+    board has to be summed from the attempts themselves. `xp_earned` is frozen
+    on each attempt at submit time, which is what makes this equal to the
+    running total when the window covers everything."""
+    return (
+        select(
+            EntSimulation.student_id.label("student_id"),
+            func.coalesce(func.sum(EntSimulation.xp_earned), 0).label("total_xp"),
+            func.count().label("simulations_completed"),
+            func.coalesce(func.max(EntSimulation.total_score), 0).label("best_score"),
+        )
+        .where(
+            EntSimulation.status == EntSimulationStatus.submitted,
+            EntSimulation.submitted_at.is_not(None),
+            EntSimulation.submitted_at >= cutoff,
+        )
+        .group_by(EntSimulation.student_id)
+    )
+
+
 @router.get("/leaderboard", response_model=EntLeaderboardOut)
 async def get_leaderboard(
     limit: int = 20,
+    period: LeaderboardPeriod = "all",
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> EntLeaderboardOut:
     limit = max(1, min(limit, 100))
 
+    if period == "all":
+        # Fast path: the running aggregate is already what we want.
+        source = select(
+            StudentRating.student_id.label("student_id"),
+            StudentRating.total_xp.label("total_xp"),
+            StudentRating.simulations_completed.label("simulations_completed"),
+            func.coalesce(StudentRating.best_score, 0).label("best_score"),
+        ).subquery()
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period])
+        source = _period_totals_query(cutoff).subquery()
+
+    # `student_id` tiebreaker, as everywhere else that paginates in this app:
+    # ties on XP are common (a fresh period starts everyone at 0) and without
+    # it Postgres is free to reorder equal rows between requests.
     rows = (
         await db.execute(
-            select(StudentRating, User)
-            .join(User, User.id == StudentRating.student_id)
-            .order_by(StudentRating.total_xp.desc(), StudentRating.student_id)
+            select(source, User)
+            .join(User, User.id == source.c.student_id)
+            .order_by(source.c.total_xp.desc(), source.c.student_id)
             .limit(limit)
         )
     ).all()
@@ -424,35 +469,39 @@ async def get_leaderboard(
     entries = [
         EntLeaderboardEntryOut(
             rank=i + 1,
-            student_id=rating.student_id,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            total_xp=rating.total_xp,
-            simulations_completed=rating.simulations_completed,
-            best_score=rating.best_score or 0,
-            is_me=(rating.student_id == student.id),
+            student_id=row.student_id,
+            first_name=row.User.first_name,
+            last_name=row.User.last_name,
+            total_xp=row.total_xp,
+            simulations_completed=row.simulations_completed,
+            best_score=row.best_score,
+            is_me=(row.student_id == student.id),
+            has_avatar=row.User.avatar_path is not None,
         )
-        for i, (rating, user) in enumerate(rows)
+        for i, row in enumerate(rows)
     ]
 
     # Always surface the requesting student's own standing, even when they
     # didn't make the top `limit` rows.
     me = next((e for e in entries if e.is_me), None)
     if me is None:
-        my_rating = await db.get(StudentRating, student.id)
-        if my_rating is not None:
+        my_row = (
+            await db.execute(select(source).where(source.c.student_id == student.id))
+        ).one_or_none()
+        if my_row is not None:
             better_count = await db.scalar(
-                select(func.count()).select_from(StudentRating).where(StudentRating.total_xp > my_rating.total_xp)
+                select(func.count()).select_from(source).where(source.c.total_xp > my_row.total_xp)
             )
             me = EntLeaderboardEntryOut(
                 rank=(better_count or 0) + 1,
                 student_id=student.id,
                 first_name=student.first_name,
                 last_name=student.last_name,
-                total_xp=my_rating.total_xp,
-                simulations_completed=my_rating.simulations_completed,
-                best_score=my_rating.best_score or 0,
+                total_xp=my_row.total_xp,
+                simulations_completed=my_row.simulations_completed,
+                best_score=my_row.best_score,
                 is_me=True,
+                has_avatar=student.avatar_path is not None,
             )
 
     return EntLeaderboardOut(entries=entries, me=me)

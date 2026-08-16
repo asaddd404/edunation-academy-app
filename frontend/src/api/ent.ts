@@ -10,6 +10,7 @@ import type {
   EntSimulationAnswerPayload,
   EntSimulationResult,
   EntSimulationSummary,
+  LeaderboardPeriod,
   EntSubject,
   ExamLanguage,
   Page,
@@ -49,8 +50,8 @@ export function listEntSimulations() {
   return http.get<EntSimulationSummary[]>("/ent/simulations").then((r) => r.data);
 }
 
-export function getEntLeaderboard(limit = 20) {
-  return http.get<EntLeaderboard>("/ent/leaderboard", { params: { limit } }).then((r) => r.data);
+export function getEntLeaderboard(limit = 20, period: LeaderboardPeriod = "all") {
+  return http.get<EntLeaderboard>("/ent/leaderboard", { params: { limit, period } }).then((r) => r.data);
 }
 
 // Teacher/admin question bank
