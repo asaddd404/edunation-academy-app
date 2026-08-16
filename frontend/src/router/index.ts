@@ -170,4 +170,30 @@ router.beforeEach(async (to) => {
   return true;
 });
 
+/**
+ * Recover a tab that was open across a deploy.
+ *
+ * Routes are lazily imported, and every build gives its chunks new
+ * content-hashed names. A browser still holding the previous index.html asks
+ * for a chunk that no longer exists, the import rejects, and the navigation
+ * dies silently on whatever page the user was looking at.
+ *
+ * Reloading pulls the current index.html and its matching chunks. The
+ * sessionStorage flag makes it a single attempt: if the reload still cannot
+ * load the chunk, the cause is not a stale build and looping would only turn
+ * one broken navigation into an endless refresh.
+ */
+const RELOAD_FLAG = "chunk-reload-attempted";
+
+router.onError((error, to) => {
+  const stale = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i;
+  if (!stale.test(String((error as Error)?.message))) return;
+
+  if (sessionStorage.getItem(RELOAD_FLAG)) return;
+  sessionStorage.setItem(RELOAD_FLAG, "1");
+  window.location.assign(to.fullPath);
+});
+
+router.afterEach(() => sessionStorage.removeItem(RELOAD_FLAG));
+
 export default router;

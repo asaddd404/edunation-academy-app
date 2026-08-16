@@ -24,6 +24,19 @@
 		reverse_proxy backend:8000
 	}
 
+	# Build output is served before the SPA fallback and WITHOUT try_files, so
+	# a missing chunk 404s instead of receiving index.html. With the fallback
+	# applied here, a browser that still holds a previous build's index.html
+	# asks for a since-deleted chunk, gets HTML with a 200, and refuses it on
+	# MIME grounds -- a blank screen with no usable error. The router turns a
+	# real 404 into a one-shot reload instead (see router/index.ts).
+	handle /assets/* {
+		root * /srv
+		# Filenames are content-hashed, so they can be cached indefinitely.
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
 	# Everything else is the SPA. try_files sends unknown paths to index.html
 	# so client-side routes (/catalog, /lessons/70) survive a hard refresh.
 	handle {
@@ -31,10 +44,6 @@
 		try_files {path} /index.html
 		file_server
 	}
-
-	# Hashed asset filenames change on every build, so they can be cached hard.
-	@assets path /assets/*
-	header @assets Cache-Control "public, max-age=31536000, immutable"
 
 	# index.html must not be cached, or a deploy leaves clients on old bundles.
 	@html path /index.html /
