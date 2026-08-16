@@ -1,16 +1,34 @@
 <script setup lang="ts">
-import { Bell, GraduationCap, LogOut, Menu, Moon, Sun, X } from "@lucide/vue";
+import { Bell, GraduationCap, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
+import { useActivityTracker } from "@/composables/useActivityTracker";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
 import { useThemeStore } from "@/stores/theme";
+import { ROLE_LABEL } from "@/utils/roleLabel";
 
 const auth = useAuthStore();
 const router = useRouter();
 const notifications = useNotificationsStore();
 const theme = useThemeStore();
+const activityTracker = useActivityTracker();
+
+const searchQuery = ref("");
+const searchInput = ref<HTMLInputElement | null>(null);
+
+function handleSearchSubmit() {
+  const query = searchQuery.value.trim();
+  router.push(query ? { path: "/catalog", query: { q: query } } : { path: "/catalog" });
+}
+
+function handleGlobalShortcut(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    searchInput.value?.focus();
+  }
+}
 
 const links = computed(() => {
   if (auth.role === "student") {
@@ -103,8 +121,13 @@ async function handleClearAll() {
 watch(
   () => auth.isAuthenticated,
   (isAuthenticated) => {
-    if (isAuthenticated) notifications.startPolling();
-    else notifications.stopPolling();
+    if (isAuthenticated) {
+      notifications.startPolling();
+      activityTracker.start();
+    } else {
+      notifications.stopPolling();
+      activityTracker.stop();
+    }
   },
   { immediate: true },
 );
@@ -114,10 +137,12 @@ watch(() => router.currentRoute.value.fullPath, closeMobileMenu);
 onMounted(() => {
   document.addEventListener("click", handleClickOutside);
   document.addEventListener("keydown", handleEscapeKey);
+  document.addEventListener("keydown", handleGlobalShortcut);
 });
 onBeforeUnmount(() => {
   document.removeEventListener("click", handleClickOutside);
   document.removeEventListener("keydown", handleEscapeKey);
+  document.removeEventListener("keydown", handleGlobalShortcut);
   // In case the component unmounts while the drawer is open (route change
   // away from an authenticated layout), don't leave scrolling locked.
   document.body.style.overflow = previousBodyOverflow;
@@ -130,66 +155,80 @@ function handleLogout() {
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 w-full border-b border-line bg-paper/90 backdrop-blur-md">
-    <div class="flex h-16 w-full items-center justify-between px-4 sm:px-6 lg:px-8">
-      <router-link
-        to="/"
-        class="flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-tight text-ink transition-opacity hover:opacity-70"
-      >
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-moss text-moss-fg">
-          <GraduationCap :size="18" :stroke-width="2" />
-        </span>
-        <span class="hidden sm:inline">Edunation Academy</span>
-      </router-link>
-
-      <nav v-if="auth.isAuthenticated" class="hidden flex-1 items-center justify-center gap-1 md:flex">
+  <header class="sticky top-0 z-50 w-full">
+    <!-- Primary header: brand teal, logo + global search + utility icons -->
+    <div class="w-full bg-brand-header text-brand-header-fg">
+      <div class="flex h-16 w-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <router-link
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          class="relative rounded-lg px-3 py-2 text-body text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
-          exact-active-class="!text-ink font-medium after:absolute after:inset-x-3 after:-bottom-[1px] after:h-[3px] after:rounded-full after:bg-marigold"
+          to="/"
+          class="flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-tight transition-opacity hover:opacity-80"
         >
-          {{ link.label }}
+          <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-header-fg/15">
+            <GraduationCap :size="18" :stroke-width="2" />
+          </span>
+          <span class="hidden sm:inline">Edunation Academy</span>
         </router-link>
-      </nav>
 
-      <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-        <button
-          class="flex h-11 w-11 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
-          :aria-label="theme.theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
-          @click="theme.toggle"
-        >
-          <Sun v-if="theme.theme === 'dark'" :size="18" :stroke-width="1.8" />
-          <Moon v-else :size="18" :stroke-width="1.8" />
-        </button>
-
-        <div v-if="!auth.isAuthenticated" class="flex items-center gap-1.5 sm:gap-2">
-          <router-link
-            to="/login"
-            class="rounded-lg px-2.5 py-1.5 text-body text-ink-2 transition-colors duration-200 hover:bg-paper-2 hover:text-ink sm:px-3"
-          >
-            Войти
-          </router-link>
-          <router-link to="/register" class="btn-primary px-3 py-1.5 text-sm sm:px-4"> Регистрация </router-link>
+        <div v-if="auth.isAuthenticated" class="hidden max-w-md flex-1 md:block">
+          <div class="relative">
+            <Search :size="16" :stroke-width="1.8" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-brand-header-fg/60" />
+            <input
+              ref="searchInput"
+              v-model="searchQuery"
+              type="search"
+              placeholder="Искать предмет, урок…"
+              class="w-full rounded-lg border border-brand-header-fg/20 bg-brand-header-fg/10 py-2 pl-9 pr-14 text-sm text-brand-header-fg placeholder:text-brand-header-fg/50 outline-none transition-colors focus:border-brand-header-fg/40 focus:bg-brand-header-fg/15"
+              @keydown.enter="handleSearchSubmit"
+            />
+            <span
+              class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-brand-header-fg/25 px-1.5 py-0.5 text-[10px] font-medium text-brand-header-fg/60"
+            >
+              Ctrl+K
+            </span>
+          </div>
         </div>
 
-        <button
-          v-if="auth.isAuthenticated"
-          ref="mobileMenuButton"
-          class="flex h-11 w-11 items-center justify-center rounded-lg text-ink-3 hover:bg-paper-2 hover:text-ink md:hidden"
-          :aria-expanded="mobileMenuOpen"
-          aria-controls="mobile-drawer"
-          aria-label="Меню"
-          @click="mobileMenuOpen = !mobileMenuOpen"
-        >
-          <Menu v-if="!mobileMenuOpen" :size="20" :stroke-width="1.8" class="pointer-events-none" />
-          <X v-else :size="20" :stroke-width="1.8" class="pointer-events-none" />
-        </button>
-
-        <div v-if="auth.isAuthenticated" ref="bellRoot" class="relative">
+        <div class="flex shrink-0 items-center gap-1 sm:gap-2">
           <button
-            class="relative flex h-11 w-11 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink"
+            class="flex h-11 w-11 items-center justify-center rounded-lg text-brand-header-fg/80 transition-colors hover:bg-brand-header-fg/10 hover:text-brand-header-fg"
+            :aria-label="theme.theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
+            @click="theme.toggle"
+          >
+            <Sun v-if="theme.theme === 'dark'" :size="18" :stroke-width="1.8" />
+            <Moon v-else :size="18" :stroke-width="1.8" />
+          </button>
+
+          <div v-if="!auth.isAuthenticated" class="flex items-center gap-1.5 sm:gap-2">
+            <router-link
+              to="/login"
+              class="rounded-lg px-2.5 py-1.5 text-body text-brand-header-fg/85 transition-colors duration-200 hover:bg-brand-header-fg/10 hover:text-brand-header-fg sm:px-3"
+            >
+              Войти
+            </router-link>
+            <router-link
+              to="/register"
+              class="rounded-lg bg-brand-header-fg px-3 py-1.5 text-sm font-medium text-brand-header transition-colors hover:brightness-95 sm:px-4"
+            >
+              Регистрация
+            </router-link>
+          </div>
+
+          <button
+            v-if="auth.isAuthenticated"
+            ref="mobileMenuButton"
+            class="flex h-11 w-11 items-center justify-center rounded-lg text-brand-header-fg/80 hover:bg-brand-header-fg/10 hover:text-brand-header-fg md:hidden"
+            :aria-expanded="mobileMenuOpen"
+            aria-controls="mobile-drawer"
+            aria-label="Меню"
+            @click="mobileMenuOpen = !mobileMenuOpen"
+          >
+            <Menu v-if="!mobileMenuOpen" :size="20" :stroke-width="1.8" class="pointer-events-none" />
+            <X v-else :size="20" :stroke-width="1.8" class="pointer-events-none" />
+          </button>
+
+          <div v-if="auth.isAuthenticated" ref="bellRoot" class="relative">
+          <button
+            class="relative flex h-11 w-11 items-center justify-center rounded-lg text-brand-header-fg/80 transition-colors hover:bg-brand-header-fg/10 hover:text-brand-header-fg"
             aria-label="Уведомления"
             @click.stop="toggleDropdown"
           >
@@ -268,22 +307,47 @@ function handleLogout() {
         <router-link
           v-if="auth.isAuthenticated"
           to="/profile"
-          class="hidden items-center rounded-lg px-2.5 py-1.5 text-body text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink md:flex"
+          class="hidden items-center gap-2 rounded-lg px-2.5 py-1.5 text-body text-brand-header-fg/90 transition-colors hover:bg-brand-header-fg/10 hover:text-brand-header-fg md:flex"
         >
-          {{ auth.user?.first_name }}
+          <span>{{ auth.user?.first_name }}</span>
+          <span
+            v-if="auth.role"
+            class="rounded-full bg-brand-header-fg/15 px-2 py-0.5 text-[11px] font-medium text-brand-header-fg/80"
+          >
+            {{ ROLE_LABEL[auth.role] }}
+          </span>
         </router-link>
 
-        <button
-          v-if="auth.isAuthenticated"
-          class="hidden h-11 w-11 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-clay/10 hover:text-clay md:flex"
-          aria-label="Выйти"
-          title="Выйти"
-          @click="handleLogout"
-        >
-          <LogOut :size="18" :stroke-width="1.8" />
-        </button>
+          <button
+            v-if="auth.isAuthenticated"
+            class="hidden h-11 w-11 items-center justify-center rounded-lg text-brand-header-fg/80 transition-colors hover:bg-red-500/15 hover:text-red-200 md:flex"
+            aria-label="Выйти"
+            title="Выйти"
+            @click="handleLogout"
+          >
+            <LogOut :size="18" :stroke-width="1.8" />
+          </button>
+        </div>
       </div>
     </div>
+
+    <!-- Sub-header: white bar with primary section links, teal active state -->
+    <nav
+      v-if="auth.isAuthenticated"
+      class="hidden w-full border-b border-line bg-paper md:flex"
+    >
+      <div class="flex h-12 w-full items-center gap-1 px-4 sm:px-6 lg:px-8">
+        <router-link
+          v-for="link in links"
+          :key="link.to"
+          :to="link.to"
+          class="relative flex h-full items-center px-3 text-body text-ink-2 transition-colors hover:text-ink"
+          exact-active-class="!text-ink font-semibold after:absolute after:inset-x-3 after:-bottom-px after:h-[2px] after:rounded-full after:bg-moss"
+        >
+          {{ link.label }}
+        </router-link>
+      </div>
+    </nav>
 
     <nav
       v-if="auth.isAuthenticated && mobileMenuOpen"

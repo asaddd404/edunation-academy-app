@@ -62,10 +62,11 @@ const router = createRouter({
       meta: { roles: ["student"] },
     },
     {
+      // Retired in favor of the Miller Columns catalog shell -- kept as a
+      // redirect so old links/bookmarks into a specific category still land
+      // somewhere useful.
       path: "/categories/:id",
-      name: "category-content",
-      component: () => import("@/views/student/CategoryContentView.vue"),
-      meta: { roles: ["student"] },
+      redirect: (to) => ({ path: "/catalog", query: { category: to.params.id } }),
     },
     {
       path: "/lessons/:id",

@@ -17,6 +17,8 @@ export default {
         "moss-fg": "rgb(var(--moss-fg) / <alpha-value>)",
         marigold: "rgb(var(--marigold) / <alpha-value>)",
         clay: "rgb(var(--clay) / <alpha-value>)",
+        "brand-header": "rgb(var(--brand-header) / <alpha-value>)",
+        "brand-header-fg": "rgb(var(--brand-header-fg) / <alpha-value>)",
       },
       borderRadius: { DEFAULT: "var(--radius)" },
       fontFamily: {
@@ -40,11 +42,18 @@ export default {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
+        // Sideways counterpart of fade-up, for the mobile catalog stepping
+        // one level deeper.
+        "drill-in": {
+          from: { opacity: "0", transform: "translateX(14px)" },
+          to: { opacity: "1", transform: "translateX(0)" },
+        },
       },
       animation: {
         // `both` keeps the element hidden until its (optionally delayed) run starts.
         "fade-up": "fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both",
         "fade-in": "fade-in 0.5s ease-out both",
+        "drill-in": "drill-in 0.2s ease-out both",
       },
     },
   },

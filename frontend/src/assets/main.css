@@ -18,11 +18,17 @@
   --paper-2: 244 244 245;
   --line: 228 228 231;
   --line-strong: 212 212 216;
-  --moss: 71 102 61;
+  /* AMBOSS-style teal brand accent -- solid CTA fills, active nav state. */
+  --moss: 10 70 71;
   --moss-fg: 255 255 255;
-  --marigold: 224 163 62;
-  --clay: 181 74 50;
+  --marigold: 10 70 71;
+  --clay: 39 39 42;
   --radius: 0.75rem;
+
+  /* Deep-teal top header bar only -- distinct from --paper/--sand (white
+     card/page backgrounds), which stay pure white per the sub-header spec. */
+  --brand-header: 10 70 71;
+  --brand-header-fg: 255 255 255;
 
   /* Tells the browser which palette its own native controls (select popups,
      scrollbars, form fields) should render in. Without this, a <select>'s
@@ -43,12 +49,18 @@
   --paper-2: 46 42 34;
   --line: 58 52 43;
   --line-strong: 78 70 58;
-  --moss: 143 176 127;
-  --moss-fg: 25 23 20;
-  --marigold: 240 188 99;
-  --clay: 224 131 106;
+  /* Brighter accessible teal against the dark card bg -- solid --moss-fg
+     dark text keeps contrast rather than white-on-teal, which would be
+     too low-contrast at this lighter teal value. */
+  --moss: 45 212 191;
+  --moss-fg: 8 24 24;
+  --marigold: 45 212 191;
+  --clay: 228 228 231;
 
   color-scheme: dark;
+
+  --brand-header: 9 9 11;
+  --brand-header-fg: 255 255 255;
 }
 
 html,
@@ -101,11 +113,102 @@ select option {
     @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium;
   }
 
+  /* Brand gradient for a single headline accent word. Both stops are
+     defined per theme rather than once, because a gradient tuned for the
+     deep teal of light mode turns muddy against the dark background. */
+  .text-gradient-brand {
+    @apply bg-gradient-to-r from-[#0a4647] to-[#0f766e] bg-clip-text text-transparent;
+  }
+  .dark .text-gradient-brand {
+    @apply from-[#2dd4bf] to-[#7dd3fc];
+  }
+
   /* Signature marigold marker -- used only for: active nav link underline,
      "needs review" card edge, selected exam answer. See §6 of the spec.
      Nothing else in the app should reach for marigold. */
   .marker-edge {
     @apply border-l-[3px] border-marigold;
+  }
+
+  /* Miller Columns catalog browsing -- shared shell classes so both the
+     generic MillerColumns.vue item rows and CatalogView's one-off "apply to
+     this category" panel (which isn't a selectable item row) look identical. */
+  .miller-column {
+    @apply w-80 shrink-0 snap-start;
+  }
+  .miller-column-card {
+    @apply overflow-hidden rounded-2xl border border-line bg-paper shadow-sm transition-all duration-200;
+  }
+  .miller-column-title {
+    @apply mb-4 px-2 text-2xl font-bold tracking-tight text-ink;
+  }
+  .miller-column-item {
+    @apply flex cursor-pointer items-center justify-between gap-2 border-b border-line/60 p-3.5 text-sm font-medium text-ink-2 transition-all duration-150 last:border-b-0 hover:bg-paper-2;
+  }
+  .miller-column-item-active {
+    @apply bg-paper-2 font-semibold text-ink;
+  }
+
+  /* Rich lesson bodies (TipTap documents). Written as element selectors
+     rather than utility classes on each node so the exact same rules style
+     both the student view (RichContent) and the editor surface
+     (.rich-editor-surface below) -- what the teacher composes is literally
+     what the student sees. All colors come from the theme tokens, so dark
+     mode needs no separate ruleset. */
+  .rich-content {
+    @apply text-ink-2;
+  }
+  .rich-content > * + * {
+    @apply mt-3;
+  }
+  .rich-content h2 {
+    @apply mt-6 font-display text-xl font-semibold text-ink first:mt-0;
+  }
+  .rich-content h3 {
+    @apply mt-5 font-display text-lg font-semibold text-ink first:mt-0;
+  }
+  .rich-content h4 {
+    @apply mt-4 font-medium text-ink first:mt-0;
+  }
+  .rich-content p {
+    @apply leading-relaxed;
+  }
+  .rich-content ul {
+    @apply list-disc space-y-1 pl-5;
+  }
+  .rich-content ol {
+    @apply list-decimal space-y-1 pl-5;
+  }
+  .rich-content li > p {
+    @apply inline;
+  }
+  .rich-content blockquote {
+    @apply border-l-[3px] border-line-strong pl-4 italic;
+  }
+  .rich-content pre {
+    @apply overflow-x-auto rounded-lg border border-line bg-paper-2 p-3 font-mono text-sm text-ink;
+  }
+  .rich-content hr {
+    @apply border-t border-line;
+  }
+  .rich-content img {
+    @apply my-1;
+  }
+  .rich-content table {
+    @apply w-full border-collapse text-sm;
+  }
+  .rich-content th,
+  .rich-content td {
+    @apply border border-line px-3 py-2 text-left align-top;
+  }
+  .rich-content th {
+    @apply bg-paper-2 font-semibold text-ink;
+  }
+  .rich-callout {
+    @apply rounded-xl border p-3.5;
+  }
+  .rich-callout > * + * {
+    @apply mt-2;
   }
 }
 
