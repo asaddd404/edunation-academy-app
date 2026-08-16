@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PartyPopper } from "@lucide/vue";
 import { onMounted, ref } from "vue";
 
 import PageContainer from "@/components/layout/PageContainer.vue";
@@ -39,7 +40,7 @@ async function handleDecide(id: number, decision: "approve" | "reject") {
     </div>
 
     <div v-else-if="!applications.pendingForTeacher.length" class="card py-12 text-center">
-      <p class="text-3xl">🎉</p>
+      <PartyPopper :size="30" :stroke-width="1.6" class="text-moss" />
       <p class="mt-3 text-ink-2">Новых заявок нет — все текущие уже рассмотрены.</p>
     </div>
 

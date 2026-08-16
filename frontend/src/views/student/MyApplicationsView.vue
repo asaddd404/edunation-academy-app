@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Trophy } from "@lucide/vue";
 import { onMounted } from "vue";
 
 import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
@@ -29,7 +30,9 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
     <PageHeader title="Мои заявки" />
 
     <div v-if="!applications.myApplications.length" class="card flex flex-col items-center gap-3 px-6 py-12 text-center">
-      <div class="flex h-16 w-16 items-center justify-center rounded-full bg-moss/15 text-3xl">🏆</div>
+      <div class="flex h-16 w-16 items-center justify-center rounded-full bg-moss/15 text-moss">
+          <Trophy :size="30" :stroke-width="1.6" />
+        </div>
       <p class="font-medium text-ink">Заявок пока нет</p>
       <p class="max-w-xs text-sm text-ink-2">Подайте заявку на предмет в каталоге, чтобы получить доступ к урокам и тестам.</p>
       <router-link to="/catalog">

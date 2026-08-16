@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CircleCheck } from "@lucide/vue";
 import { onMounted, reactive, ref } from "vue";
 
 import { downloadHomeworkFile, listPendingHomework, reviewHomework } from "@/api/homework";
@@ -46,7 +47,7 @@ function handleDownload(submission: HomeworkSubmission) {
     </div>
 
     <div v-else-if="!submissions.length" class="card py-12 text-center">
-      <p class="text-3xl">✅</p>
+      <CircleCheck :size="30" :stroke-width="1.6" class="text-green-700 dark:text-green-500" />
       <p class="mt-3 text-ink-2">Нечего проверять — все домашние задания разобраны.</p>
     </div>
 

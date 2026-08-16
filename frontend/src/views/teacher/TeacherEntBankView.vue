@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from "@lucide/vue";
+import { Eye, EyeOff, Inbox, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from "@lucide/vue";
 import { computed, reactive, ref } from "vue";
 import { onMounted } from "vue";
 
@@ -18,6 +18,7 @@ import {
 } from "@/api/ent";
 import EntPdfImportModal from "@/components/ent/EntPdfImportModal.vue";
 import EntQuestionForm from "@/components/ent/EntQuestionForm.vue";
+import SmartText from "@/components/shared/SmartText.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
@@ -794,7 +795,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
                           <BaseBadge tone="neutral">{{ q.max_score }} балл{{ q.max_score > 1 ? "а" : "" }}</BaseBadge>
                           <BaseBadge v-if="questionNeedsReview(q)" tone="warning">Нет ответа</BaseBadge>
                         </div>
-                        <p class="text-sm text-ink-2">{{ q.text }}</p>
+                        <p class="text-sm text-ink-2"><SmartText :text="q.text" /></p>
                       </div>
                     </div>
                     <div class="flex shrink-0 gap-1">
@@ -821,7 +822,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
                 </li>
                 <li v-if="!questionsBySubject[selectedSubject.id]?.length" class="list-none">
                   <div class="card flex flex-col items-center gap-2 px-6 py-10 text-center">
-                    <span class="text-2xl">📭</span>
+                    <Inbox :size="26" :stroke-width="1.6" class="text-ink-3" />
                     <p class="text-ink-2">
                       {{
                         bankLanguage === "all"

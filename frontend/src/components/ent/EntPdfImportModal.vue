@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X } from "@lucide/vue";
+import { CircleCheck, FileText, Info, TriangleAlert, X } from "@lucide/vue";
 import { computed, nextTick, reactive, ref } from "vue";
 
 import { bulkCreateEntQuestions, importEntQuestionsFromPdf } from "@/api/ent";
@@ -17,7 +17,7 @@ import type {
 import { describePlan, planAnswerKey, type KeyAssignment } from "@/utils/answerKey";
 import { FLAG_CHIP_CLASS, flagInfo, isReady, rankFlags } from "@/utils/entImportFlags";
 import { requiredMaxScore, savableProblem } from "@/utils/entQuestionValidity";
-import { EXAM_LANGUAGES, LANGUAGE_FLAG, LANGUAGE_LABEL, otherLanguage } from "@/utils/examLanguage";
+import { EXAM_LANGUAGES, LANGUAGE_LABEL, otherLanguage } from "@/utils/examLanguage";
 
 const props = defineProps<{
   subjects: EntSubject[];
@@ -524,7 +524,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
             @drop.prevent="onDrop"
             @click="fileInput?.click()"
           >
-            <span class="text-3xl">📄</span>
+            <FileText :size="30" :stroke-width="1.5" class="text-ink-3" />
             <p class="text-sm font-medium text-ink">
               {{ pickedFile ? pickedFile.name : "Перетащите PDF сюда или нажмите, чтобы выбрать файл" }}
             </p>
@@ -554,7 +554,9 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
              language/review tabs and the "N recognized" caption in view. ── -->
         <div class="sticky top-0 z-20 space-y-3 border-b border-line bg-paper px-5 pb-3">
           <div class="space-y-1">
-            <p v-for="(w, i) in warnings" :key="i" class="rounded-md bg-marigold/10 px-2 py-1 text-sm text-ink">⚠ {{ w }}</p>
+            <p v-for="(w, i) in warnings" :key="i" class="flex items-start gap-1.5 rounded-md bg-marigold/10 px-2 py-1 text-sm text-ink">
+              <TriangleAlert :size="14" :stroke-width="1.8" class="mt-0.5 shrink-0" />{{ w }}
+            </p>
             <p class="text-sm text-ink-2">
               Распознано вопросов: {{ questions.length }}. Проставлено ответов:
               <strong class="text-ink">{{ answeredCount }}</strong> из {{ questions.length }}.
@@ -597,7 +599,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                 :class="languageFilter === language ? 'bg-moss text-moss-fg' : 'bg-paper-2 text-ink-2 hover:bg-line hover:text-ink'"
                 @click="languageFilter = language"
               >
-                {{ LANGUAGE_FLAG[language] }} {{ LANGUAGE_LABEL[language] }} ({{ languageCounts[language] }})
+                {{ LANGUAGE_LABEL[language] }} ({{ languageCounts[language] }})
               </button>
             </div>
 
@@ -732,7 +734,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                   :title="`Язык вопроса — нажмите, чтобы переключить на «${LANGUAGE_LABEL[otherLanguage(q.language)]}»`"
                   @click="toggleLanguage(q)"
                 >
-                  {{ LANGUAGE_FLAG[q.language] }} {{ LANGUAGE_LABEL[q.language] }}
+                  {{ LANGUAGE_LABEL[q.language] }}
                 </button>
                 <select v-model="q.qtype" class="rounded-lg border border-line bg-paper px-2 py-1 text-xs text-ink" @change="onQtypeChange(q)">
                   <option v-for="(label, value) in QTYPE_LABEL" :key="value" :value="value">{{ label }}</option>
@@ -752,7 +754,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
                   class="rounded-md border px-1.5 py-0.5 text-[11px]"
                   :class="FLAG_CHIP_CLASS[flagInfo(flag).tone]"
                 >
-                  {{ flagInfo(flag).tone === "danger" ? "⚠" : "ℹ" }} {{ flagInfo(flag).label }}
+                  <component :is="flagInfo(flag).tone === 'danger' ? TriangleAlert : Info" :size="12" :stroke-width="1.8" class="mr-0.5 inline align-[-2px]" />{{ flagInfo(flag).label }}
                 </span>
               </div>
 
@@ -885,7 +887,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
 
       <!-- ── Step 4: done ───────────────────────────────────────────── -->
       <div v-else-if="phase === 'done' && saveResult" class="flex flex-col items-center gap-3 px-5 pb-10 pt-2 text-center">
-        <span class="text-3xl">✅</span>
+        <CircleCheck :size="30" :stroke-width="1.5" class="text-green-700 dark:text-green-500" />
         <p class="font-medium text-ink">Сохранено вопросов: {{ saveResult.created_count }}</p>
         <div v-if="saveResult.skipped.length" class="max-w-sm text-sm text-ink-2">
           <p class="mb-1 rounded-md bg-marigold/10 px-2 py-1 text-ink">Пропущено: {{ saveResult.skipped.length }}</p>

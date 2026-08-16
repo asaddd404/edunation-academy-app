@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BookOpen } from "@lucide/vue";
 import { onMounted, ref } from "vue";
 
 import { listMyTeachingCategories } from "@/api/categories";
@@ -24,7 +25,7 @@ onMounted(async () => {
     </div>
 
     <div v-else-if="!categories.length" class="card py-12 text-center">
-      <p class="text-3xl">📚</p>
+      <BookOpen :size="30" :stroke-width="1.6" class="text-ink-3" />
       <p class="mt-3 text-ink-2">Вам пока не назначили ни одной категории — обратитесь к администратору.</p>
     </div>
 
