@@ -50,6 +50,14 @@ class VideoTicketOut(BaseModel):
     playback_path: str
 
 
+class LessonContentImageOut(BaseModel):
+    """Relative upload path of a freshly stored rich-text image. The frontend
+    writes this straight into the document's image node, so it must match
+    what `app.core.rich_content` later looks for when hunting orphans."""
+
+    path: str
+
+
 class ChoiceOut(BaseModel):
     id: int
     text: str

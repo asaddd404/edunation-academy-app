@@ -8,6 +8,7 @@ HOMEWORK_DIR = UPLOAD_ROOT / "homework"
 CATEGORY_IMAGE_DIR = UPLOAD_ROOT / "categories"
 AVATAR_DIR = UPLOAD_ROOT / "avatars"
 ENT_QUESTION_IMAGE_DIR = UPLOAD_ROOT / "ent-questions"
+LESSON_CONTENT_IMAGE_DIR = UPLOAD_ROOT / "lesson-content"
 
 ALLOWED_HOMEWORK_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".txt", ".doc", ".docx"}
 MAX_HOMEWORK_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -16,6 +17,7 @@ ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_CATEGORY_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_AVATAR_SIZE = 3 * 1024 * 1024  # 3 MB
 MAX_ENT_QUESTION_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_LESSON_CONTENT_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 async def save_homework_file(upload: UploadFile) -> tuple[str, str]:
@@ -103,6 +105,32 @@ async def save_ent_question_image(upload: UploadFile) -> str:
     (ENT_QUESTION_IMAGE_DIR / stored_name).write_bytes(contents)
 
     return f"ent-questions/{stored_name}"
+
+
+async def save_lesson_content_image(upload: UploadFile) -> str:
+    """Validates and stores an image embedded in a lesson's rich description
+    or homework text. Returns the relative path, which the caller writes into
+    the rich-text document's image node.
+
+    Unlike the other image savers there is no "previous image" to delete: one
+    lesson body can hold many images, and which of them became unreferenced is
+    only knowable by diffing the document (see app.core.rich_content)."""
+    original_name = upload.filename or "image"
+    extension = Path(original_name).suffix.lower()
+    if extension not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Недопустимый формат изображения (jpg, png, webp)")
+
+    contents = await upload.read(MAX_LESSON_CONTENT_IMAGE_SIZE + 1)
+    if len(contents) > MAX_LESSON_CONTENT_IMAGE_SIZE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 5 МБ)")
+    if not contents:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+
+    LESSON_CONTENT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}{extension}"
+    (LESSON_CONTENT_IMAGE_DIR / stored_name).write_bytes(contents)
+
+    return f"lesson-content/{stored_name}"
 
 
 def resolve_upload_path(relative_path: str) -> Path:

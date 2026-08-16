@@ -12,7 +12,8 @@ from app.core.authorization import (
     assert_teacher_owns_question,
     assert_teacher_owns_section,
 )
-from app.core.storage import resolve_upload_path, save_category_image
+from app.core.rich_content import extract_image_paths, orphaned_image_paths
+from app.core.storage import delete_upload, resolve_upload_path, save_category_image, save_lesson_content_image
 from app.core.video import VideoProcessingError, delete_video_assets, save_raw_video, transcode_to_hls
 from app.database import async_session_factory, get_db
 from app.deps import require_role
@@ -22,7 +23,13 @@ from app.models.question import AnswerVariant, Choice, MatchPair, Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.category import CategoryOut, TeacherCategoryUpdateIn
-from app.schemas.lesson import LessonIn, LessonTeacherOut, LessonUpdateIn, VideoTicketOut
+from app.schemas.lesson import (
+    LessonContentImageOut,
+    LessonIn,
+    LessonTeacherOut,
+    LessonUpdateIn,
+    VideoTicketOut,
+)
 from app.schemas.question import QuestionIn, QuestionTeacherOut
 from app.schemas.section import SectionIn, SectionOut, SectionUpdateIn
 from app.security import set_video_ticket_cookie
@@ -200,12 +207,26 @@ async def delete_section(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
 
     # The DB cascade-deletes lesson/question rows, but not the on-disk HLS
-    # files for any lesson videos -- clean those up ourselves afterward.
-    lesson_ids = (await db.scalars(select(Lesson.id).where(Lesson.section_id == section_id))).all()
+    # files for any lesson videos, nor the images embedded in lesson bodies --
+    # clean both up ourselves afterward.
+    rows = (
+        await db.execute(
+            select(Lesson.id, Lesson.description, Lesson.homework_assignment).where(
+                Lesson.section_id == section_id
+            )
+        )
+    ).all()
+    lesson_ids = [row.id for row in rows]
+    images: set[str] = set()
+    for row in rows:
+        images |= extract_image_paths(row.description) | extract_image_paths(row.homework_assignment)
+
     await db.delete(section)
     await db.commit()
     for lesson_id in lesson_ids:
         delete_video_assets(lesson_id)
+    for path in images:
+        delete_upload(path)
 
 
 @router.post("/teacher/sections/{section_id}/lessons", response_model=LessonTeacherOut, status_code=status.HTTP_201_CREATED)
@@ -246,14 +267,26 @@ async def update_lesson(
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
 
+    # Collected before the fields are overwritten: an image the teacher just
+    # deleted from the text would otherwise sit on disk forever.
+    dropped_images: set[str] = set()
+
     if payload.title is not None:
         lesson.title = payload.title
     if payload.description is not None:
+        dropped_images |= orphaned_image_paths(lesson.description, payload.description)
         lesson.description = payload.description
     if payload.homework_assignment is not None:
+        dropped_images |= orphaned_image_paths(lesson.homework_assignment, payload.homework_assignment)
         lesson.homework_assignment = payload.homework_assignment
     await db.commit()
     await db.refresh(lesson)
+
+    # Only after the commit -- if the write failed, the rows still reference
+    # these files and deleting them would leave broken images behind.
+    for path in dropped_images:
+        delete_upload(path)
+
     return LessonTeacherOut.model_validate(lesson)
 
 
@@ -268,9 +301,13 @@ async def delete_lesson(
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
 
+    images = extract_image_paths(lesson.description) | extract_image_paths(lesson.homework_assignment)
+
     await db.delete(lesson)
     await db.commit()
     delete_video_assets(lesson_id)
+    for path in images:
+        delete_upload(path)
 
 
 @router.get("/teacher/lessons/{lesson_id}", response_model=LessonTeacherOut)
@@ -306,6 +343,21 @@ async def _run_video_processing(lesson_id: int, raw_path: Path) -> None:
         finally:
             raw_path.unlink(missing_ok=True)
         await db.commit()
+
+
+@router.post("/teacher/lesson-content/image", response_model=LessonContentImageOut)
+async def upload_lesson_content_image(
+    file: UploadFile = File(...),
+    _teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> LessonContentImageOut:
+    """Stores an image for embedding in a lesson's rich description/homework.
+
+    Deliberately not scoped to a lesson id: the teacher can be composing a
+    brand-new lesson that has no row yet, and requiring a save first would
+    break the editor's paste/drag flow. Unreferenced files are reaped later
+    by the description diff in `update_lesson` / `delete_lesson`."""
+    path = await save_lesson_content_image(file)
+    return LessonContentImageOut(path=path)
 
 
 @router.post("/teacher/lessons/{lesson_id}/video", response_model=LessonTeacherOut)

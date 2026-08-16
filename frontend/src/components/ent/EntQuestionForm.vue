@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import GlossaryTextField from "@/components/shared/GlossaryTextField.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
-import BaseInput from "@/components/ui/BaseInput.vue";
 import type { EntQuestionType } from "@/types";
 import { isQuestionFormValid, type QuestionForm } from "@/utils/entQuestionForm";
 import { EXAM_LANGUAGES, LANGUAGE_LABEL } from "@/utils/examLanguage";
@@ -81,7 +81,7 @@ function onImagePicked(event: Event) {
       </select>
     </label>
 
-    <BaseInput v-model="form.text" label="Текст вопроса" />
+    <GlossaryTextField v-model="form.text" label="Текст вопроса" />
 
     <div class="text-sm">
       <span class="mb-1.5 block font-medium text-ink-2">Изображение к вопросу (необязательно)</span>

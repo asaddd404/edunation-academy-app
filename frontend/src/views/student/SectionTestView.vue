@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import { getSectionTest, submitSectionTestAttempt } from "@/api/sections";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
+import SmartText from "@/components/shared/SmartText.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { AnswerPayload, SectionTest, TestAttemptResult } from "@/types";
@@ -109,7 +110,7 @@ async function handleSubmit() {
 
       <section class="max-w-[42rem] card space-y-4 p-4">
         <div v-for="question in test.questions" :key="question.id" class="space-y-2">
-          <p class="text-body-lg font-medium text-ink">{{ question.text }}</p>
+          <p class="text-body-lg font-medium text-ink"><SmartText :text="question.text" /></p>
 
           <template v-if="question.qtype === 'single'">
             <label

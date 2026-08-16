@@ -1,6 +1,8 @@
 import random
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,11 +27,33 @@ from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
 from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchItemOut, QuestionOut, VideoTicketOut
+from app.core.storage import resolve_upload_path
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
 from app.security import set_video_ticket_cookie
 
 router = APIRouter(tags=["content"], dependencies=[Depends(require_role(RoleEnum.student))])
+
+# Separate router so the image route escapes the student-only dependency
+# above -- same reasoning as the ЕНТ question images (see ent.py): a plain
+# <img src> can't attach the bearer token, and teachers need to see the very
+# same file while composing the lesson. Filenames are uuids, so the URL is
+# unguessable, but anyone holding the link can fetch it without logging in.
+public_router = APIRouter(tags=["content"])
+
+
+@public_router.get("/lesson-content/images/{filename}")
+async def get_lesson_content_image(filename: str) -> FileResponse:
+    # `filename` is templated into a filesystem path, so it must be exactly a
+    # stored upload name and nothing else -- no separators, no traversal.
+    if Path(filename).name != filename or not filename:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
+
+    path = resolve_upload_path(f"lesson-content/{filename}")
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
+    return FileResponse(path)
+
 
 _QUESTION_LOAD_OPTIONS = (
     selectinload(Question.choices),

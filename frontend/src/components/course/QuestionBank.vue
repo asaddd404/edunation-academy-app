@@ -5,9 +5,10 @@ import { onMounted } from "vue";
 import { createQuestion, listLessonQuestions } from "@/api/lessons";
 import { deleteQuestion, updateQuestion } from "@/api/questions";
 import { createSectionQuestion, listSectionQuestions } from "@/api/sections";
+import GlossaryTextField from "@/components/shared/GlossaryTextField.vue";
+import SmartText from "@/components/shared/SmartText.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
-import BaseInput from "@/components/ui/BaseInput.vue";
 import type { QuestionSavePayload, QuestionTeacher, QuestionType } from "@/types";
 
 const props = defineProps<{ lessonId?: number; sectionId?: number }>();
@@ -185,7 +186,7 @@ async function handleDelete(questionId: number) {
         <div class="min-w-0">
           <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
           <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
-          <p class="mt-1 text-ink">{{ q.text }}</p>
+          <p class="mt-1 text-ink"><SmartText :text="q.text" /></p>
         </div>
         <div class="flex shrink-0 flex-wrap gap-2">
           <BaseButton variant="secondary" @click="startEdit(q)">Редактировать</BaseButton>
@@ -207,7 +208,7 @@ async function handleDelete(questionId: number) {
         </select>
       </label>
 
-      <BaseInput v-model="form.text" label="Текст вопроса" />
+      <GlossaryTextField v-model="form.text" label="Текст вопроса" />
 
       <label class="block text-sm" v-if="form.qtype !== 'multiple' && form.qtype !== 'matching'">
         <span class="mb-1.5 block font-medium text-ink-2">Баллы за вопрос</span>

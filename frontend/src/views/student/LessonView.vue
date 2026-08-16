@@ -8,9 +8,12 @@ import { getStudentVideoTicket } from "@/api/video";
 import HlsPlayer from "@/components/media/HlsPlayer.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
+import RichContent from "@/components/richtext/RichContent.vue";
+import SmartText from "@/components/shared/SmartText.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { AnswerPayload, LessonDetail, TestAttemptResult } from "@/types";
+import { isRichDocEmpty, parseRichContent } from "@/utils/richContent";
 
 const route = useRoute();
 const lessonId = Number(route.params.id);
@@ -41,6 +44,15 @@ function isAnswered(questionId: number): boolean {
   if (a.text !== undefined) return a.text.trim().length > 0;
   return false;
 }
+
+// A cleared rich-text field still stores a non-empty JSON string (an empty
+// paragraph), so a plain truthiness check would render a blank homework card.
+const hasHomework = computed(() => {
+  const raw = lesson.value?.homework_assignment;
+  const parsed = parseRichContent(raw);
+  if (parsed.kind === "empty") return false;
+  return parsed.kind === "plain" || !isRichDocEmpty(parsed.doc);
+});
 
 const allQuestionsAnswered = computed(() => {
   if (!lesson.value) return false;
@@ -159,13 +171,13 @@ function handleFileChange(event: Event) {
         </p>
         <p v-else-if="videoError" class="rounded-xl border border-line p-4 text-sm text-clay">{{ videoError }}</p>
 
-        <p v-if="lesson.description" class="max-w-[70ch] whitespace-pre-line text-ink-2">{{ lesson.description }}</p>
+        <RichContent :content="lesson.description" class="max-w-[70ch]" />
 
         <div class="max-w-[42rem] space-y-8">
           <section v-if="lesson.questions.length" class="card space-y-4 p-4">
             <h2 class="text-lg font-medium text-ink">Мини-тест</h2>
             <div v-for="question in lesson.questions" :key="question.id" class="space-y-2">
-              <p class="text-body-lg font-medium text-ink">{{ question.text }}</p>
+              <p class="text-body-lg font-medium text-ink"><SmartText :text="question.text" /></p>
 
               <template v-if="question.qtype === 'single'">
                 <label
@@ -232,9 +244,9 @@ function handleFileChange(event: Event) {
             </BaseButton>
           </section>
 
-          <section v-if="lesson.homework_assignment" class="card space-y-3 p-4">
+          <section v-if="hasHomework" class="card space-y-3 p-4">
             <h2 class="text-lg font-medium text-ink">Домашнее задание</h2>
-            <p class="text-ink-2">{{ lesson.homework_assignment }}</p>
+            <RichContent :content="lesson.homework_assignment" />
 
             <div v-if="lesson.my_homework" class="rounded-lg bg-paper-2 p-3 text-sm text-ink">
               <p>

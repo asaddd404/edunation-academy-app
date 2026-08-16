@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { FolderOpen } from "@lucide/vue";
 import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
@@ -15,6 +16,7 @@ import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/vi
 import QuestionBank from "@/components/course/QuestionBank.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
+import RichTextEditor from "@/components/richtext/RichTextEditor.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
@@ -305,7 +307,7 @@ async function handleCreateLesson(sectionId: number) {
       </div>
 
       <div v-if="!sections.length" class="card py-12 text-center">
-        <p class="text-3xl">🗂️</p>
+        <FolderOpen :size="30" :stroke-width="1.6" class="text-ink-3" />
         <p class="mt-3 text-ink-2">В этой категории пока нет разделов — добавьте первый раздел ниже.</p>
       </div>
 
@@ -353,8 +355,12 @@ async function handleCreateLesson(sectionId: number) {
                 <p v-if="lessonEditForms[lesson.id].loading" class="text-sm text-ink-2">Загрузка…</p>
                 <template v-else>
                   <BaseInput v-model="lessonEditForms[lesson.id].title" label="Название урока" />
-                  <BaseInput v-model="lessonEditForms[lesson.id].description" label="Описание/теория" />
-                  <BaseInput v-model="lessonEditForms[lesson.id].homework" label="Задание для домашней работы" />
+                  <RichTextEditor v-model="lessonEditForms[lesson.id].description" label="Описание/теория" />
+                  <RichTextEditor
+                    v-model="lessonEditForms[lesson.id].homework"
+                    label="Задание для домашней работы"
+                    min-height="8rem"
+                  />
                   <div class="flex gap-2">
                     <BaseButton @click="saveLesson(lesson.id)">Сохранить</BaseButton>
                     <BaseButton variant="secondary" @click="cancelEditLesson(lesson.id)">Отмена</BaseButton>
@@ -403,8 +409,12 @@ async function handleCreateLesson(sectionId: number) {
 
           <div v-if="lessonForms[section.id]?.open" class="mt-3 space-y-2 rounded-lg bg-paper-2 p-3">
             <BaseInput v-model="lessonForms[section.id].title" label="Название урока" />
-            <BaseInput v-model="lessonForms[section.id].description" label="Описание/теория" />
-            <BaseInput v-model="lessonForms[section.id].homework" label="Задание для домашней работы" />
+            <RichTextEditor v-model="lessonForms[section.id].description" label="Описание/теория" />
+            <RichTextEditor
+              v-model="lessonForms[section.id].homework"
+              label="Задание для домашней работы"
+              min-height="8rem"
+            />
             <BaseButton @click="handleCreateLesson(section.id)">Сохранить урок</BaseButton>
           </div>
 
