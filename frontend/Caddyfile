@@ -32,8 +32,13 @@
 	# real 404 into a one-shot reload instead (see router/index.ts).
 	handle /assets/* {
 		root * /srv
-		# Filenames are content-hashed, so they can be cached indefinitely.
-		header Cache-Control "public, max-age=31536000, immutable"
+		# Filenames are content-hashed, so a file that exists can be cached
+		# indefinitely. The matcher matters: applied unconditionally, the
+		# year-long immutable header also lands on 404s, and a browser that
+		# happens to ask for a chunk mid-deploy would cache that 404 and keep
+		# serving it long after the file appeared.
+		@exists file {path}
+		header @exists Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 
