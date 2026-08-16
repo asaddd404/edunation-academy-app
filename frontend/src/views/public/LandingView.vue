@@ -1,39 +1,63 @@
 <script setup lang="ts">
+import {
+  Atom,
+  ChartColumnIncreasing,
+  CircleCheck,
+  Dna,
+  FlaskConical,
+  Globe,
+  Languages,
+  Lightbulb,
+  Monitor,
+  Scroll,
+  Sigma,
+  Timer,
+} from "@lucide/vue";
+
+import GlossaryTooltip from "@/components/shared/GlossaryTooltip.vue";
+
 // Public marketing entry point. Deliberately free of API calls: `GET /categories`
 // still requires auth, so everything here is static content that renders for a
 // cold, unauthenticated visitor.
+//
+// Every number below is a fact about how the product works (subject count,
+// question types, the real ЕНТ time limit), not usage statistics -- there is
+// no honest way to source "10 000 учеников" from an app with no public API.
 
-const features = [
+const bento = [
   {
-    icon: "🎬",
-    title: "Видеоуроки",
-    text: "Адаптивное HLS-видео, которое не рвётся на слабом интернете. Смотри с телефона или ноутбука.",
+    icon: Timer,
+    title: "Умный таймер",
+    text: "Время считается по правилам ЕНТ — 48 минут на предмет, до 4 часов на полный экзамен. Выбрал два предмета: получил ровно 96 минут.",
   },
   {
-    icon: "✍️",
-    title: "Тесты с автопроверкой",
-    text: "Мини-тест после каждого урока и итоговый тест раздела. Результат — сразу, без ожидания.",
+    icon: Lightbulb,
+    title: "Словарь терминов в один клик",
+    text: "Учитель отмечает термин прямо в тексте, ученик наводит курсор и сразу видит объяснение — не выходя из задания.",
   },
   {
-    icon: "🎯",
-    title: "ЕНТ-симулятор",
-    text: "Полноценная симуляция экзамена с таймером и реальным форматом заданий.",
+    icon: ChartColumnIncreasing,
+    title: "Аналитика и активность",
+    text: "Видно, сколько времени ученик реально занимался сегодня, какие предметы просели и как меняется результат от попытки к попытке.",
   },
-  {
-    icon: "📝",
-    title: "Домашние задания",
-    text: "Учитель ставит задания и проверяет их лично — с комментариями и оценкой.",
-  },
-  {
-    icon: "📈",
-    title: "Прогресс и рейтинг",
-    text: "Видно, сколько уроков пройдено и на каком ты месте среди других учеников.",
-  },
-  {
-    icon: "🔔",
-    title: "Уведомления",
-    text: "Заявку одобрили, домашку проверили, вышел новый урок — ничего не пропустишь.",
-  },
+];
+
+const facts = [
+  { value: "5", label: "предметов ЕНТ в одной симуляции" },
+  { value: "4", label: "типа заданий: выбор, множественный, соответствие, ответ" },
+  { value: "240", label: "минут — полный экзамен с таймером" },
+  { value: "2", label: "языка сдачи: русский и қазақша" },
+];
+
+const subjects = [
+  { icon: Sigma, name: "Математика" },
+  { icon: Atom, name: "Физика" },
+  { icon: FlaskConical, name: "Химия" },
+  { icon: Dna, name: "Биология" },
+  { icon: Scroll, name: "История" },
+  { icon: Globe, name: "География" },
+  { icon: Monitor, name: "Информатика" },
+  { icon: Languages, name: "Языки" },
 ];
 
 const steps = [
@@ -42,192 +66,151 @@ const steps = [
   { n: "03", title: "Учись и решай", text: "Уроки, тесты, домашние задания — в своём темпе." },
   { n: "04", title: "Проверь себя на ЕНТ", text: "Симуляция экзамена и рейтинг покажут реальный уровень." },
 ];
-
-const subjects = [
-  { icon: "📐", name: "Математика" },
-  { icon: "⚛️", name: "Физика" },
-  { icon: "🧪", name: "Химия" },
-  { icon: "🧬", name: "Биология" },
-  { icon: "📜", name: "История" },
-  { icon: "🌍", name: "География" },
-  { icon: "💻", name: "Информатика" },
-  { icon: "🔤", name: "Английский" },
-];
-
-const stats = [
-  { value: "8+", label: "предметов" },
-  { value: "100%", label: "онлайн" },
-  { value: "24/7", label: "доступ к урокам" },
-];
 </script>
 
 <template>
   <div class="overflow-x-hidden bg-sand">
     <!-- ── Hero ─────────────────────────────────────────────────────── -->
     <section class="px-4 pb-20 pt-14 sm:pb-28 sm:pt-20">
-      <div class="mx-auto grid max-w-[90rem] items-center gap-12 lg:grid-cols-[1.05fr_1fr]">
+      <div class="mx-auto grid max-w-[80rem] items-center gap-12 lg:grid-cols-[1.05fr_1fr]">
         <div>
           <span
-            class="inline-flex motion-safe:animate-fade-up items-center gap-2 rounded-full border border-line bg-paper px-3.5 py-1.5 text-xs font-medium text-ink-2"
+            class="inline-flex items-center gap-2 rounded-full border border-line bg-paper px-3.5 py-1.5 text-xs font-medium text-ink-2 motion-safe:animate-fade-up"
           >
             <span class="relative flex h-2 w-2">
-              <span class="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-moss opacity-75" />
+              <span class="absolute inline-flex h-full w-full rounded-full bg-moss opacity-75 motion-safe:animate-ping" />
               <span class="relative inline-flex h-2 w-2 rounded-full bg-moss" />
             </span>
-            Онлайн-подготовка к ЕНТ и школьным предметам
+            Онлайн-подготовка к ЕНТ
           </span>
 
           <h1
-            class="mt-6 motion-safe:animate-fade-up font-display text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl lg:text-6xl"
+            class="mt-6 font-display text-4xl font-semibold leading-[1.1] tracking-tight text-ink motion-safe:animate-fade-up sm:text-5xl lg:text-6xl"
             style="animation-delay: 80ms"
           >
-            Учись так, как<br class="hidden sm:block" />
-            <span class="text-moss">удобно тебе</span>
+            Готовься к ЕНТ<br class="hidden sm:block" />
+            <span class="text-gradient-brand">без зубрёжки вслепую</span>
           </h1>
 
           <p
-            class="mt-5 max-w-xl motion-safe:animate-fade-up text-body-lg text-ink-2"
+            class="mt-5 max-w-xl text-body-lg text-ink-2 motion-safe:animate-fade-up"
             style="animation-delay: 160ms"
           >
-            Edunation Academy — платформа, где видеоуроки, тесты, домашние задания и полноценная
-            симуляция ЕНТ собраны в одном месте. Без бумажных тетрадей и потерянных дедлайнов.
+            Настоящий формат экзамена с таймером, разбор каждой ошибки по предметам и объяснение
+            непонятного термина прямо в задании.
           </p>
 
-          <div class="mt-8 flex motion-safe:animate-fade-up flex-wrap gap-3" style="animation-delay: 240ms">
-            <router-link to="/register" class="btn-primary px-6 py-3.5">
-              Начать бесплатно
-              <span aria-hidden="true">→</span>
-            </router-link>
-            <router-link to="/login" class="btn-ghost px-6 py-3.5"> У меня есть аккаунт </router-link>
+          <div class="mt-8 flex flex-wrap gap-3 motion-safe:animate-fade-up" style="animation-delay: 240ms">
+            <router-link to="/register" class="btn-primary px-6 py-3 text-base">Начать подготовку</router-link>
+            <router-link to="/login" class="btn-ghost px-6 py-3 text-base">Демо-тест</router-link>
           </div>
 
-          <dl class="mt-12 flex motion-safe:animate-fade-up flex-wrap gap-8" style="animation-delay: 320ms">
-            <!-- flex-col-reverse keeps the dt-before-dd source order the spec
-                 wants while showing the number above its label. -->
-            <div v-for="stat in stats" :key="stat.label" class="flex flex-col-reverse">
-              <dt class="text-caption text-ink-3">{{ stat.label }}</dt>
-              <dd class="font-display text-2xl font-semibold text-ink sm:text-3xl">{{ stat.value }}</dd>
-            </div>
-          </dl>
+          <p class="mt-4 text-caption text-ink-3 motion-safe:animate-fade-up" style="animation-delay: 300ms">
+            Регистрация по номеру телефона — без карты и подписки.
+          </p>
         </div>
 
-        <!-- Decorative product mock: a miniature of the real lesson UI. -->
-        <div class="relative motion-safe:animate-fade-up lg:justify-self-end" style="animation-delay: 200ms" aria-hidden="true">
-          <div class="card p-5 sm:p-6">
-            <div class="flex items-center gap-3">
-              <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-moss/15 text-xl">📐</div>
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-semibold text-ink">Математика · Раздел 3</p>
-                <p class="truncate text-xs text-ink-3">Квадратные уравнения</p>
-              </div>
-              <span class="rounded-full bg-paper-2 px-2.5 py-1 text-[10px] font-medium text-ink-2">В процессе</span>
-            </div>
-
-            <div class="mt-5 flex aspect-video items-center justify-center rounded-xl bg-paper-2">
-              <span class="flex h-14 w-14 items-center justify-center rounded-full bg-moss pl-1 text-xl text-moss-fg shadow-lg">
-                ▶
+        <!-- Not a screenshot: this is the real glossary component, so the
+             hover hint on the landing behaves exactly as it does in a lesson. -->
+        <div class="motion-safe:animate-fade-up lg:justify-self-end" style="animation-delay: 200ms">
+          <div class="card w-full max-w-md p-5 shadow-lg">
+            <div class="mb-4 flex items-center justify-between">
+              <span class="badge bg-moss/10 text-moss">Химия · вопрос 3 из 15</span>
+              <span class="flex items-center gap-1.5 text-sm font-semibold tabular-nums text-ink">
+                <Timer :size="15" :stroke-width="1.8" class="text-ink-3" />
+                47:12
               </span>
             </div>
 
-            <div class="mt-5">
-              <div class="flex items-center justify-between text-xs text-ink-3">
-                <span>Прогресс раздела</span>
-                <span class="font-medium text-ink-2">7 / 10</span>
-              </div>
-              <div class="mt-2 h-2 overflow-hidden rounded-full bg-paper-2">
-                <div class="h-full w-[70%] rounded-full bg-moss" />
-              </div>
-            </div>
+            <p class="text-body-lg font-medium text-ink">
+              Сколько электронов содержит нейтральный атом, если его
+              <GlossaryTooltip
+                term="атомный номер"
+                explanation="Число протонов в ядре. У нейтрального атома электронов ровно столько же."
+              />
+              равен 16?
+            </p>
 
-            <div class="mt-5 space-y-2">
+            <div class="mt-4 space-y-2">
               <div
-                v-for="item in [
-                  { label: 'Урок 6 · Дискриминант', done: true },
-                  { label: 'Урок 7 · Теорема Виета', done: true },
-                  { label: 'Тест раздела', done: false },
+                v-for="(opt, i) in [
+                  { letter: 'А', text: '8' },
+                  { letter: 'Б', text: '16', correct: true },
+                  { letter: 'В', text: '32' },
                 ]"
-                :key="item.label"
-                class="flex items-center gap-2.5 rounded-lg border border-line px-3 py-2.5 text-xs"
+                :key="i"
+                class="flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm transition-all duration-200 ease-out"
+                :class="opt.correct ? 'border-moss bg-moss/10' : 'border-line'"
               >
                 <span
-                  class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px]"
-                  :class="item.done ? 'bg-moss text-moss-fg' : 'border border-dashed border-line-strong text-ink-3'"
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-semibold"
+                  :class="opt.correct ? 'bg-moss text-moss-fg' : 'bg-paper-2 text-ink-2'"
                 >
-                  {{ item.done ? "✓" : "" }}
+                  {{ opt.letter }}
                 </span>
-                <span :class="item.done ? 'text-ink-3 line-through' : 'text-ink-2'">{{ item.label }}</span>
+                <span class="flex-1 text-ink">{{ opt.text }}</span>
+                <CircleCheck v-if="opt.correct" :size="17" :stroke-width="2" class="shrink-0 text-moss" />
               </div>
             </div>
-          </div>
 
-          <div class="card absolute -bottom-5 -left-4 px-4 py-3 sm:-left-8">
-            <p class="text-[10px] uppercase tracking-wide text-ink-3">Результат теста</p>
-            <p class="text-lg font-bold text-moss">92%</p>
-          </div>
-
-          <div class="card absolute -right-2 -top-5 px-4 py-3 sm:-right-6">
-            <p class="text-[10px] uppercase tracking-wide text-ink-3">Рейтинг ЕНТ</p>
-            <p class="text-lg font-bold text-ink">#12</p>
+            <p class="mt-4 text-caption text-ink-3">Наведите на подчёркнутый термин — подсказка работает по-настоящему.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ── Features ─────────────────────────────────────────────────── -->
-    <section class="border-t border-line px-4 py-20 sm:py-24">
-      <div class="mx-auto max-w-[90rem]">
-        <div class="max-w-2xl">
-          <h2 class="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
-            Всё для учёбы — в одном месте
-          </h2>
-          <p class="mt-3 text-ink-2">
-            Не нужно жонглировать мессенджерами, облаками и таблицами. Платформа закрывает весь путь
-            от первого урока до пробного ЕНТ.
-          </p>
-        </div>
+    <!-- ── Bento: what makes it different ───────────────────────────── -->
+    <section class="px-4 pb-20 sm:pb-28">
+      <div class="mx-auto max-w-[80rem]">
+        <h2 class="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
+          Не просто тесты
+        </h2>
+        <p class="mt-3 max-w-2xl text-body-lg text-ink-2">
+          Три вещи, которых обычно не хватает при самостоятельной подготовке.
+        </p>
 
-        <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          <article v-for="feature in features" :key="feature.title" class="card p-6">
-            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-moss/15 text-2xl">
-              {{ feature.icon }}
-            </div>
-            <h3 class="mt-5 text-lg font-semibold text-ink">{{ feature.title }}</h3>
-            <p class="mt-2 text-sm leading-relaxed text-ink-2">{{ feature.text }}</p>
+        <div class="mt-10 grid gap-4 md:grid-cols-3">
+          <article
+            v-for="card in bento"
+            :key="card.title"
+            class="group rounded-2xl border border-line bg-paper p-6 transition-all duration-200 ease-out hover:-translate-y-1 hover:border-moss/40 hover:shadow-lg"
+          >
+            <span
+              class="flex h-11 w-11 items-center justify-center rounded-xl bg-moss/10 text-moss transition-colors duration-200 group-hover:bg-moss group-hover:text-moss-fg"
+            >
+              <component :is="card.icon" :size="21" :stroke-width="1.7" />
+            </span>
+            <h3 class="mt-4 font-display text-lg font-semibold text-ink">{{ card.title }}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-ink-2">{{ card.text }}</p>
           </article>
         </div>
       </div>
     </section>
 
-    <!-- ── How it works ─────────────────────────────────────────────── -->
-    <section class="border-t border-line px-4 py-20 sm:py-24">
-      <div class="mx-auto max-w-[90rem]">
-        <h2 class="max-w-2xl font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
-          Как это работает
-        </h2>
-        <p class="mt-3 max-w-2xl text-ink-2">Четыре шага от регистрации до первого пробного экзамена.</p>
-
-        <ol class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <li v-for="step in steps" :key="step.n" class="card p-6">
-            <span class="text-sm font-bold text-moss">{{ step.n }}</span>
-            <h3 class="mt-3 text-base font-semibold text-ink">{{ step.title }}</h3>
-            <p class="mt-2 text-sm leading-relaxed text-ink-2">{{ step.text }}</p>
-          </li>
-        </ol>
+    <!-- ── Product facts ────────────────────────────────────────────── -->
+    <section class="px-4 pb-20 sm:pb-28">
+      <div class="mx-auto max-w-[80rem]">
+        <div class="grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
+          <div v-for="fact in facts" :key="fact.label" class="bg-paper p-6">
+            <p class="font-display text-4xl font-semibold text-moss">{{ fact.value }}</p>
+            <p class="mt-2 text-sm leading-snug text-ink-2">{{ fact.label }}</p>
+          </div>
+        </div>
       </div>
     </section>
 
     <!-- ── Subjects ─────────────────────────────────────────────────── -->
-    <section class="border-t border-line px-4 py-20 sm:py-24">
-      <div class="mx-auto max-w-[90rem]">
+    <section class="px-4 pb-20 sm:pb-28">
+      <div class="mx-auto max-w-[80rem]">
         <h2 class="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Предметы</h2>
-        <p class="mt-3 max-w-2xl text-ink-2">
-          Каталог пополняется. После регистрации подай заявку на любой предмет — учитель откроет доступ.
-        </p>
-
-        <div class="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
-          <div v-for="subject in subjects" :key="subject.name" class="card flex items-center gap-3 px-4 py-3.5">
-            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-moss/15 text-lg">
-              {{ subject.icon }}
+        <div class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div
+            v-for="subject in subjects"
+            :key="subject.name"
+            class="flex items-center gap-3 rounded-2xl border border-line bg-paper p-4 transition-all duration-200 ease-out hover:border-moss/40 hover:shadow-sm"
+          >
+            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper-2 text-ink-2">
+              <component :is="subject.icon" :size="19" :stroke-width="1.7" />
             </span>
             <span class="truncate text-sm font-medium text-ink">{{ subject.name }}</span>
           </div>
@@ -235,22 +218,38 @@ const stats = [
       </div>
     </section>
 
-    <!-- ── Final CTA ────────────────────────────────────────────────── -->
-    <section class="px-4 pb-24 pt-4">
-      <div class="mx-auto max-w-[90rem]">
-        <div class="card px-6 py-14 text-center sm:px-12 sm:py-20">
+    <!-- ── How it works ─────────────────────────────────────────────── -->
+    <section class="px-4 pb-20 sm:pb-28">
+      <div class="mx-auto max-w-[80rem]">
+        <h2 class="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Как начать</h2>
+        <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            v-for="step in steps"
+            :key="step.n"
+            class="rounded-2xl border border-line bg-paper p-6 transition-all duration-200 ease-out hover:border-moss/40 hover:shadow-sm"
+          >
+            <span class="font-display text-2xl font-semibold text-moss/40">{{ step.n }}</span>
+            <h3 class="mt-3 font-medium text-ink">{{ step.title }}</h3>
+            <p class="mt-1.5 text-sm leading-relaxed text-ink-2">{{ step.text }}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Closing CTA ──────────────────────────────────────────────── -->
+    <section class="px-4 pb-24">
+      <div class="mx-auto max-w-[80rem]">
+        <div class="rounded-3xl border border-line bg-paper px-6 py-14 text-center sm:px-12">
           <h2 class="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
-            Готов начать? Это бесплатно
+            Начни с одной пробной симуляции
           </h2>
-          <p class="mx-auto mt-4 max-w-xl text-ink-2">
-            Регистрация занимает меньше минуты — нужен только номер телефона.
+          <p class="mx-auto mt-4 max-w-xl text-body-lg text-ink-2">
+            Она покажет реальный балл и то, какой предмет тянет вниз — этого достаточно, чтобы понять,
+            с чего начинать.
           </p>
           <div class="mt-8 flex flex-wrap justify-center gap-3">
-            <router-link to="/register" class="btn-primary px-7 py-3.5">
-              Создать аккаунт
-              <span aria-hidden="true">→</span>
-            </router-link>
-            <router-link to="/login" class="btn-ghost px-7 py-3.5"> Войти </router-link>
+            <router-link to="/register" class="btn-primary px-6 py-3 text-base">Создать аккаунт</router-link>
+            <router-link to="/login" class="btn-ghost px-6 py-3 text-base">У меня уже есть аккаунт</router-link>
           </div>
         </div>
       </div>
