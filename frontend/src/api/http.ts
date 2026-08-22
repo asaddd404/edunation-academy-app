@@ -2,6 +2,11 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL as string,
+  // The refresh token is an httpOnly cookie now. Same-origin requests would
+  // carry it regardless, and in production the API is same-origin -- but this
+  // is what keeps the session working if VITE_API_BASE_URL is ever pointed at
+  // another host, rather than failing in a way that looks like a server bug.
+  withCredentials: true,
 });
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
@@ -44,7 +49,10 @@ http.interceptors.response.use(
 
     const newAccessToken = await refreshPromise;
     if (!newAccessToken) {
-      auth.logout();
+      // No `logout()` call here: a failed refresh has already cleared the
+      // store, and the server cleared the cookie on its way to the 401.
+      // Posting to /auth/logout as well would only be a second request that
+      // cannot change anything.
       return Promise.reject(error);
     }
 

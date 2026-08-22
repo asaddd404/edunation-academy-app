@@ -97,6 +97,69 @@ async def revoke_all_refresh_tokens(user_id: int) -> None:
     await redis_client.delete(key)
 
 
+# Scoped to the auth router's own path, so the browser attaches it only to
+# /refresh and /logout and to nothing else the API serves. That scoping is
+# most of the CSRF story: every other endpoint authenticates with a bearer
+# header, which a cross-site page cannot set. Tied to the prefixes in
+# app.api (`/api/v1`) and app.api.v1.auth (`/auth`).
+REFRESH_COOKIE_NAME = "edunation_refresh"
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+
+
+def set_refresh_cookie(response: Response, token: str) -> None:
+    """Hands the refresh token to the browser as a cookie it cannot read.
+
+    httpOnly is the whole point: script on the page -- injected or imported --
+    can no longer read the token, so an XSS bug costs the attacker the current
+    tab rather than a thirty-day session on every device.
+
+    `secure` is gated on the environment because a Secure cookie is simply
+    dropped over plain http: setting it unconditionally would make login fail
+    silently on a developer's machine, and the usual fix for that is to turn
+    the flag off everywhere.
+    """
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        max_age=settings.jwt_refresh_ttl_days * 24 * 60 * 60,
+        path=REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=settings.is_production,
+        # Lax, not Strict: Strict withholds the cookie on any cross-site
+        # navigation, so a pupil following a link to a lesson from a chat or
+        # an email would land on the login page despite having a live
+        # session. Lax still blocks the cross-site POST that CSRF needs.
+        samesite="lax",
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    # The path must match the one it was set with, or the browser deletes
+    # nothing and the session outlives the logout.
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=settings.is_production,
+        samesite="lax",
+    )
+
+
+def refresh_cookie_clear_header() -> dict[str, str]:
+    """The Set-Cookie header that deletes the refresh cookie, as a raw header.
+
+    Needed because FastAPI discards the injected `Response` object when the
+    handler raises: calling `clear_refresh_cookie(response)` and then raising
+    an HTTPException reads correctly and does nothing at all, which leaves the
+    browser replaying a dead cookie on every navigation until it expires.
+    Passing the header through the exception is what actually reaches the
+    client.
+    """
+    probe = Response()
+    clear_refresh_cookie(probe)
+    return {"set-cookie": probe.headers["set-cookie"]}
+
+
 def create_video_ticket(lesson_id: int) -> str:
     """Short-lived, stateless token that authorizes GET access to one
     lesson's HLS manifest/segments. Carried as a query param instead of a
@@ -123,13 +186,15 @@ def set_video_ticket_cookie(response: Response, lesson_id: int) -> None:
     """Scopes the cookie to this lesson's own video path, so the browser
     only ever sends it on manifest/segment requests for that lesson --
     matches native <video>/HLS playback, which can't attach a bearer header
-    or forward query params to segment requests it issues itself.
-    NOTE: set secure=True once the app is served over HTTPS."""
+    or forward query params to segment requests it issues itself."""
     response.set_cookie(
         key="video_ticket",
         value=create_video_ticket(lesson_id),
         max_age=settings.video_ticket_ttl_minutes * 60,
         path=f"/api/v1/video/lessons/{lesson_id}",
         httponly=True,
+        # Same gating as the refresh cookie: required in production, and
+        # unsettable over plain http in development.
+        secure=settings.is_production,
         samesite="lax",
     )

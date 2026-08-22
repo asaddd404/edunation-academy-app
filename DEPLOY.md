@@ -224,7 +224,12 @@ curl -s -o /dev/null -w "%{http_code}
 # 3. База и Redis не видны снаружи.
 nmap -Pn -p 5432,6379 ваш-домен.kz    # оба должны быть closed/filtered
 
-# 4. Перебор пароля: шестая попытка подряд должна вернуть 429.
+# 4. Refresh-токен приходит только как httpOnly-cookie, а не в теле ответа.
+curl -s -i -X POST https://ваш-домен.kz/api/v1/auth/login   -H 'Content-Type: application/json' -H 'Origin: https://ваш-домен.kz'   -d '{"phone":"+7...","password":"..."}' | grep -iE "set-cookie|refresh_token"
+# ожидается строка Set-Cookie с HttpOnly; Secure; SameSite=lax
+# и НИ ОДНОГО упоминания refresh_token в теле
+
+# 5. Перебор пароля: шестая попытка подряд должна вернуть 429.
 for i in $(seq 1 6); do
   curl -s -o /dev/null -w "%{http_code} " -X POST https://ваш-домен.kz/api/v1/auth/login     -H 'Content-Type: application/json' -d '{"phone":"+77010000000","password":"wrong-password"}'
 done; echo
@@ -244,6 +249,30 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec backend id  
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.prod logs backend | grep "CSP violation"
 ```
+
+---
+
+## Переход на cookie-сессии (разовый, при этом релизе)
+
+Refresh-токен переехал из `localStorage` в httpOnly-cookie. Порядок выката
+имеет значение:
+
+1. **Выкатывать бэкенд и фронтенд вместе.** Старый фронтенд отправляет токен в
+   теле запроса, новый бэкенд это ещё принимает — но новый фронтенд со старым
+   бэкендом не заработает: тот не выставляет cookie.
+2. **Никого не разлогинит.** Существующие сессии лежат в `localStorage`
+   браузеров; новый фронтенд при первой загрузке один раз отдаёт такой токен
+   серверу и получает взамен cookie. Без этого весь класс вылетел бы из
+   системы посреди урока.
+3. **Через релиз убрать совместимость.** Удалить `LegacyRefreshIn` и ветку в
+   `refresh`, которая читает тело, а во фронтенде — `migrateLegacySession`.
+   К этому моменту все активные сессии уже переведены.
+
+Cookie ставится с `Secure` только при `ENV=production` — по http браузер
+`Secure`-cookie просто отбрасывает, и на dev-машине вход перестал бы работать.
+Ещё одно следствие `ENV`: `CORS_ORIGINS` теперь используется и как список
+допустимых `Origin` для `/auth/refresh` и `/auth/logout` (защита от CSRF), так
+что домен там должен быть указан точно — с `https://` и без слэша на конце.
 
 ---
 

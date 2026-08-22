@@ -497,12 +497,20 @@ export interface EntLeaderboard {
   me: EntLeaderboardEntry | null;
 }
 
-export interface TokenPair {
+/**
+ * What the API hands back to JavaScript on sign-in.
+ *
+ * There is no `refresh_token` field and there must not be one: the refresh
+ * token now arrives as an httpOnly cookie the browser stores and this code
+ * cannot read. Adding it back here would mean it is being returned in the
+ * body again, which is what let a single XSS bug walk off with a thirty-day
+ * session.
+ */
+export interface AccessToken {
   access_token: string;
-  refresh_token: string;
   token_type: string;
 }
 
-export interface AuthResponse extends TokenPair {
+export interface AuthResponse extends AccessToken {
   user: User;
 }

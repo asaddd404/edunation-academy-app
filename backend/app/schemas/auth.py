@@ -51,17 +51,36 @@ class ChangePasswordIn(BaseModel):
         return v
 
 
-class RefreshIn(BaseModel):
+class LegacyRefreshIn(BaseModel):
+    """Transitional: the refresh token posted in the body.
+
+    Sessions issued before the move to cookies live in the browser's
+    localStorage, where the new frontend cannot turn them into a cookie
+    without handing them back once. Accepting the body for one release is
+    what stops the switch signing out every pupil and teacher at whatever
+    moment they next open the app -- mid-lesson, for most of them.
+
+    Delete this model, and the branch in `refresh` that reads it, one release
+    after the frontend that migrates has shipped.
+    """
+
     # `secrets.token_urlsafe(32)` is 43 characters; the ceiling only stops an
     # arbitrarily long string being used as a Redis key.
     refresh_token: Annotated[str, Field(max_length=512)]
 
 
-class TokenPair(BaseModel):
+class AccessTokenOut(BaseModel):
+    """What the client is allowed to hold in JavaScript.
+
+    The refresh token is deliberately absent: it now travels only as an
+    httpOnly cookie, so no code path can put it back into localStorage. If
+    this model ever grows a `refresh_token` field again, the whole point of
+    the change is gone.
+    """
+
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
 
 
-class AuthResponse(TokenPair):
+class AuthResponse(AccessTokenOut):
     user: UserOut

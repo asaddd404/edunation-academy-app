@@ -1,5 +1,5 @@
 import http from "@/api/http";
-import type { AuthResponse, TokenPair, User } from "@/types";
+import type { AccessToken, AuthResponse, User } from "@/types";
 
 export function register(payload: {
   phone: string;
@@ -11,21 +11,34 @@ export function register(payload: {
 }
 
 export function login(payload: { phone: string; password: string }) {
-  return http.post<TokenPair>("/auth/login", payload).then((r) => r.data);
+  return http.post<AccessToken>("/auth/login", payload).then((r) => r.data);
 }
 
-export function refreshTokens(refresh_token: string) {
-  return http.post<TokenPair>("/auth/refresh", { refresh_token }).then((r) => r.data);
+/**
+ * Normally sends nothing: the refresh token rides along as an httpOnly
+ * cookie, which is the whole point -- this code cannot read it, and neither
+ * can anything injected into the page.
+ *
+ * `legacyToken` is the one exception, and it is temporary. Sessions created
+ * before the cookie switch live in localStorage, and handing one back on the
+ * first load is what converts it into a cookie instead of signing the user
+ * out. Remove the parameter once the backend stops accepting a body.
+ */
+export function refreshTokens(legacyToken?: string) {
+  const body = legacyToken ? { refresh_token: legacyToken } : undefined;
+  return http.post<AccessToken>("/auth/refresh", body).then((r) => r.data);
 }
 
-export function logout(refresh_token: string) {
-  return http.post("/auth/logout", { refresh_token });
+export function logout() {
+  return http.post("/auth/logout");
 }
 
 export function changePassword(payload: { old_password: string; new_password: string }) {
-  // Returns a fresh pair: the server ends every session on password change,
-  // so the caller has to swap in the new refresh token to stay signed in.
-  return http.post<TokenPair>("/auth/change-password", payload).then((r) => r.data);
+  // The server ends every session on a password change and immediately issues
+  // a replacement, so the response carries a fresh access token and a
+  // Set-Cookie for the new refresh token. Adopt the access token or the next
+  // request signs this tab out.
+  return http.post<AccessToken>("/auth/change-password", payload).then((r) => r.data);
 }
 
 export function fetchMe() {
