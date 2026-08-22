@@ -564,6 +564,18 @@ _MARK_ANNOT_SUBTYPES = ("Highlight", "Square", "Circle", "Ink", "StrikeOut", "Un
 # rows, including the rows of a two-column matching table.
 _LINE_Y_TOLERANCE = 6
 
+# A PDF is a compressed container: a 15 MB upload can declare tens of
+# thousands of pages, or a text layer that decompresses into gigabytes.
+# Neither cap rejects a real ЕНТ file -- the reference 60-variant book is a
+# few hundred pages -- and both stop a small file from exhausting the box.
+MAX_PDF_PAGES = 800
+MAX_EXTRACTED_CHARS = 12_000_000
+
+
+class PdfTooLargeError(Exception):
+    """The file is structurally within limits but too big to process."""
+
+
 
 @dataclass(frozen=True)
 class PdfExtract:
@@ -2772,12 +2784,19 @@ def extract_pdf_text(data: bytes) -> PdfExtract:
     import pdfplumber
 
     pages_text: list[str] = []
+    extracted_chars = 0
     marks: dict[int, tuple[str, ...]] = {}
     cells: set[int] = set()
     line_number = 0
 
     with pdfplumber.open(BytesIO(data)) as pdf:
+        if len(pdf.pages) > MAX_PDF_PAGES:
+            raise PdfTooLargeError(
+                f"В файле {len(pdf.pages)} страниц — больше допустимых {MAX_PDF_PAGES}"
+            )
         for page in pdf.pages:
+            if extracted_chars > MAX_EXTRACTED_CHARS:
+                raise PdfTooLargeError("Из файла извлечено слишком много текста")
             try:
                 regions = _marking_regions(page)
                 lines = page.extract_text_lines(y_tolerance=_LINE_Y_TOLERANCE)
@@ -2824,6 +2843,7 @@ def extract_pdf_text(data: bytes) -> PdfExtract:
             entries.sort(key=lambda entry: (entry[0], entry[1]))
             for _, _, text, runs, is_cell in entries:
                 pages_text.append(text)
+                extracted_chars += len(text)
                 if runs:
                     marks[line_number] = runs
                 if is_cell:

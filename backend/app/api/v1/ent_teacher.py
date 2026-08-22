@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -17,6 +18,7 @@ from app.core.ent_language import UnknownLanguageError, parse_language
 from app.core.file_type import assert_matches_extension
 from app.core.ent_pdf_import import (
     EMPTY_TEXT_WARNING,
+    PdfTooLargeError,
     extract_pdf_text,
     parse_ent_pdf_questions,
     to_import_payload,
@@ -54,6 +56,10 @@ from app.schemas.pagination import Page
 
 MAX_ENT_PDF_SIZE = 15 * 1024 * 1024  # 15 MB
 MAX_BULK_DELETE_BATCH = 500
+# Generous next to a real import (the reference 60-variant book parses in
+# well under a minute) and short enough that a pathological file gives the
+# worker thread back instead of holding it for the life of the process.
+PDF_PARSE_TIMEOUT_SECONDS = 120
 
 
 def _label_at(labels: list[tuple[str, str]], index: int, part: int) -> str:
@@ -434,20 +440,42 @@ async def import_questions_from_pdf(
     # file.
     assert_matches_extension(contents, ".pdf", "Файл не является PDF-документом")
 
+    # pdfplumber is synchronous and CPU-bound: called directly from this
+    # coroutine it blocks the whole event loop, so one slow or malicious file
+    # freezes every other request in the worker. Off to a thread, with a hard
+    # ceiling on how long it may take -- a malformed PDF that sends the parser
+    # into a pathological loop must time out, not hang the worker forever.
     try:
-        extracted = extract_pdf_text(contents)
+        extracted = await asyncio.wait_for(
+            asyncio.to_thread(extract_pdf_text, contents), timeout=PDF_PARSE_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        logger.warning("ENT PDF import: parsing timed out for user_id=%s subject_id=%s", user.id, subject_id)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Обработка файла заняла слишком много времени. Разделите файл на части.",
+        )
+    except PdfTooLargeError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     except Exception as e:
+        # The parser's own exception text can carry server paths and library
+        # internals; the teacher gets a fixed message and the detail goes to
+        # the log instead.
+        logger.exception("ENT PDF import: could not read file for user_id=%s", user.id)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Не удалось прочитать PDF-файл") from e
 
     text = extracted.text
 
-    # Dumped at INFO so `docker compose logs backend` shows exactly what
-    # pdfplumber read from the file -- the fastest way to see why the
-    # regex heuristic did or didn't recognize a given PDF's layout.
+    # The extracted text goes to DEBUG, not INFO. On a real ЕНТ book it is
+    # megabytes of exam content written to the log volume on every import --
+    # which both fills the disk and copies material into a file that has none
+    # of the API's access control. The summary stays at INFO; the filename is
+    # truncated because it is user-controlled and lands in the log verbatim.
     logger.info(
-        "ENT PDF import: subject_id=%s file=%r extracted %d chars, %d marked line(s):\n%s",
-        subject_id, file.filename, len(text), len(extracted.marks), text,
+        "ENT PDF import: subject_id=%s user_id=%s file=%r extracted %d chars, %d marked line(s)",
+        subject_id, user.id, (file.filename or "")[:120], len(text), len(extracted.marks),
     )
+    logger.debug("ENT PDF import: extracted text:\n%s", text)
 
     warnings: list[str] = []
 
@@ -467,7 +495,13 @@ async def import_questions_from_pdf(
     questions: list[EntQuestionImportOut] = []
     stats = EntPdfImportStats()
     try:
-        parsed = parse_ent_pdf_questions(text, extracted.marks, extracted.cells)
+        # Same reasoning as the extraction above: the state machine walks
+        # every line of a multi-hundred-page book and must not do it on the
+        # event loop.
+        parsed = await asyncio.wait_for(
+            asyncio.to_thread(parse_ent_pdf_questions, text, extracted.marks, extracted.cells),
+            timeout=PDF_PARSE_TIMEOUT_SECONDS,
+        )
         stats = EntPdfImportStats(
             total_lines=parsed.stats.total_lines,
             total_blocks_detected=parsed.stats.total_blocks_detected,
