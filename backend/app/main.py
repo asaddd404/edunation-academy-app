@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.config import settings
+from app.core.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
 
 # Without this, the root logger defaults to WARNING and every app-side
 # logger.info() call (e.g. the ЕНТ PDF import debug dump) is silently
@@ -12,7 +13,20 @@ from app.config import settings
 # configured logging before now.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="Edunation Academy API")
+# The interactive docs enumerate every endpoint and its schema for anyone who
+# asks. Useful locally, an unnecessary map of the attack surface in production.
+app = FastAPI(
+    title="Edunation Academy API",
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
+)
+
+# Registration order is inside-out: the last one added wraps the others, so
+# CORS below stays outermost (its headers must survive on error responses
+# too), then the body-size gate, then the header stamper closest to the app.
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

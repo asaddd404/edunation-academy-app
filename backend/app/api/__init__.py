@@ -7,6 +7,7 @@ from app.api.v1 import (
     auth,
     categories,
     content,
+    csp,
     ent,
     ent_teacher,
     homework,
@@ -34,3 +35,4 @@ api_router.include_router(ent.router)
 api_router.include_router(video.router)
 api_router.include_router(notifications.router)
 api_router.include_router(profile.router)
+api_router.include_router(csp.router)

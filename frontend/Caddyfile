@@ -58,5 +58,29 @@
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+
+		# Only meaningful once the site is on https, which Caddy guarantees
+		# here. A year, including subdomains: after the first visit the
+		# browser refuses to talk to this host over plain http at all, which
+		# is what closes the redirect-interception window on school wifi.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+		# Report-Only on purpose, and it must stay that way until the reports
+		# have been read. A CSP written blind against a Vue + KaTeX + HLS app
+		# breaks something on day one, and a policy that breaks the site gets
+		# deleted rather than fixed -- which leaves no policy at all. Collect
+		# violations first, then flip the header name to Content-Security-Policy.
+		#
+		# Two entries are deliberate and will not be tightened:
+		#   style-src 'unsafe-inline' -- KaTeX writes inline styles into every
+		#     rendered formula; without it every lesson's maths collapses.
+		#   img-src blob: -- hls.js and the editor preview use blob URLs.
+		# script-src has no 'unsafe-inline': the bundle is a static file, and
+		# that is the entry that actually stops injected script.
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; report-uri /api/v1/csp-report"
+
+		# Caddy's own version banner tells an attacker which CVEs to try.
+		-Server
 	}
 }

@@ -27,6 +27,11 @@ class Settings(BaseSettings):
 
     rate_limit_enabled: bool = True
 
+    # Hard ceiling on a request body, enforced in-process. The edge (Caddy /
+    # nginx) has its own, larger cap for video uploads; this one stops a
+    # JSON body from being read into memory unbounded.
+    max_request_body_bytes: int = 25 * 1024 * 1024
+
     @property
     def is_production(self) -> bool:
         return self.env.strip().lower() == "production"
