@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+
+node_modules
+dist
+*.tsbuildinfo
+
+Dockerfile
+Dockerfile.prod
+.dockerignore

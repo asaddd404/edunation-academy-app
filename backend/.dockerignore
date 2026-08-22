@@ -1,0 +1,31 @@
+# Without this file `COPY . .` bakes the developer's .env -- the live
+# JWT_SECRET and database password -- into an image layer, where it stays
+# readable via `docker history` and in every registry the image is pushed to.
+.env
+.env.*
+!.env.example
+
+# Version control history: carries every secret that was ever committed,
+# even after it was removed from the working tree.
+.git
+.gitignore
+
+# Local virtualenv: hundreds of megabytes, and built for the host platform,
+# so it is wrong inside the image as well as large.
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+
+# Tests and dev-only dependencies have no business in a production image:
+# they add attack surface and pull in packages the app never runs.
+tests
+requirements-dev.txt
+pytest.ini
+
+# User uploads live in a volume; a stale local copy must not be baked in.
+uploads
+
+Dockerfile
+.dockerignore

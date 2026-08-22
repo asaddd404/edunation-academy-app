@@ -6,15 +6,32 @@ from scratch, so it can be re-run safely at any time.
 
 Run via Docker:
     docker compose exec backend python -m app.seed_demo_data
+
+Two things here are safety-critical rather than cosmetic.
+
+*It refuses to run when ENV=production.* The first thing this script does is
+delete every user, course and submission in the database. On the live server
+that is not a seeding mistake, it is the whole school's data -- and the
+command is one shell-history arrow-up away from a legitimate `docker compose
+exec backend ...`.
+
+*The demo password is generated, not hard-coded.* A constant in the
+repository is a published password: every demo account it creates -- teacher,
+and admin included -- is open to anyone who has read this file or its git
+history. It is printed once, at the end of the run, and stored nowhere.
 """
 
 import asyncio
+import os
 import random
+import secrets
+import sys
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import async_session_factory
 from app.models import (
     AnswerVariant,
@@ -47,7 +64,10 @@ from app.models import (
 from app.security import hash_password
 
 RNG_SEED = 2026
-DEMO_PASSWORD = "TestPass123"
+# Deliberately not a constant. `DEMO_PASSWORD` in the environment overrides it
+# for a repeatable demo, which is a choice the operator makes explicitly
+# rather than one the repository makes for them.
+DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD") or secrets.token_urlsafe(12)
 ENT_SCALE_MAX = 140  # standard ENT total; simulation scores are rescaled onto this
 
 SAMPLE_VIDEO_URLS = [
@@ -888,5 +908,32 @@ async def main() -> None:
         print(f"  Applications: {len(application_groups['approved']) + len(application_groups['pending']) + len(application_groups['rejected'])}")
 
 
+def _guard_environment() -> None:
+    """Refuses to touch a production database.
+
+    `--force-production` exists because a staging box may legitimately run
+    with ENV=production; typing it is the acknowledgement that everything in
+    the database is about to be deleted.
+    """
+    if not settings.is_production:
+        return
+    if "--force-production" in sys.argv:
+        print("ENV=production and --force-production given: wiping the database anyway.", file=sys.stderr)
+        return
+    print(
+        "ОТКАЗАНО: ENV=production. Этот скрипт удаляет всех пользователей, курсы и "
+        "работы. Запустите его только на dev/staging, либо явно передайте "
+        "--force-production, если вы уверены.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
 if __name__ == "__main__":
+    _guard_environment()
     asyncio.run(main())
+    print()
+    print("=" * 64)
+    print(f"  Пароль всех демо-учётных записей: {DEMO_PASSWORD}")
+    print("  Показан один раз и нигде не сохранён.")
+    print("=" * 64)
