@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 import secrets
 import string
 
+from app.core.audit import audit_log
 from app.core.category_stats import lesson_stats
 from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.slug import slugify
@@ -57,10 +58,28 @@ async def list_users(
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
-async def update_user(user_id: int, payload: UserUpdateIn, db: AsyncSession = Depends(get_db)) -> UserOut:
+async def update_user(
+    request: Request,
+    user_id: int,
+    payload: UserUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_role(RoleEnum.admin)),
+) -> UserOut:
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден")
+
+    # An admin removing their own admin rights, or deactivating their own
+    # account, can leave the installation with no way back in -- there is no
+    # console tool to restore it. Blocked outright rather than warned about.
+    if user.id == admin.id:
+        if payload.role is not None and payload.role != user.role:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нельзя изменить собственную роль")
+        if payload.is_active is False:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нельзя деактивировать собственную учётную запись")
+
+    previous_role = user.role.value
+    previous_active = user.is_active
 
     if payload.role is not None:
         user.role = payload.role
@@ -69,11 +88,41 @@ async def update_user(user_id: int, payload: UserUpdateIn, db: AsyncSession = De
 
     await db.commit()
     await db.refresh(user)
+
+    # Losing access is the point of a deactivation, so the sessions the
+    # account already holds have to end with it -- otherwise a deactivated
+    # user keeps working until their refresh token expires, up to 30 days.
+    if previous_active and not user.is_active:
+        await revoke_all_refresh_tokens(user.id)
+    # A role change rewrites what the access token is allowed to do, and the
+    # token carries the old role until it expires. Ending the sessions makes
+    # the change take effect now rather than in fifteen minutes.
+    if previous_role != user.role.value:
+        await revoke_all_refresh_tokens(user.id)
+
+    if previous_role != user.role.value or previous_active != user.is_active:
+        audit_log(
+            "admin.user.update",
+            actor_id=admin.id,
+            actor_role=admin.role.value,
+            request=request,
+            target_user_id=user.id,
+            role_from=previous_role,
+            role_to=user.role.value,
+            active_from=previous_active,
+            active_to=user.is_active,
+        )
+
     return UserOut.model_validate(user)
 
 
 @router.post("/users/{user_id}/reset-password", response_model=PasswordResetOut)
-async def reset_user_password(user_id: int, db: AsyncSession = Depends(get_db)) -> PasswordResetOut:
+async def reset_user_password(
+    request: Request,
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_role(RoleEnum.admin)),
+) -> PasswordResetOut:
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден")
@@ -85,6 +134,14 @@ async def reset_user_password(user_id: int, db: AsyncSession = Depends(get_db)) 
     # A password reset should end every session the old password was
     # logged into, not just stop working the next time it's typed.
     await revoke_all_refresh_tokens(user_id)
+
+    audit_log(
+        "admin.user.reset_password",
+        actor_id=admin.id,
+        actor_role=admin.role.value,
+        request=request,
+        target_user_id=user.id,
+    )
 
     return PasswordResetOut(temporary_password=temporary_password)
 

@@ -1,13 +1,14 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_owns_ent_question, assert_owns_ent_subject
+from app.core.audit import audit_log
 from app.core.rate_limit import (
     BULK_CREATE_BY_USER,
     BULK_DELETE_BY_USER,
@@ -301,6 +302,7 @@ async def delete_question(
 
 @router.post("/questions/bulk-delete", response_model=EntBulkDeleteOut)
 async def bulk_delete_questions(
+    request: Request,
     payload: EntBulkDeleteIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
@@ -344,9 +346,15 @@ async def bulk_delete_questions(
         delete_upload(path)
 
     deleted_ids = sorted(found_by_id.keys())
-    logger.info(
-        "ENT bulk delete: user_id=%s role=%s deleted %d question(s), %d not found",
-        user.id, user.role.value, len(deleted_ids), len(not_found),
+    audit_log(
+        "ent.questions.bulk_delete",
+        actor_id=user.id,
+        actor_role=user.role.value,
+        request=request,
+        deleted_count=len(deleted_ids),
+        deleted_ids=deleted_ids,
+        not_found_count=len(not_found),
+        subject_ids=sorted({q.subject_id for q in questions}),
     )
 
     return EntBulkDeleteOut(

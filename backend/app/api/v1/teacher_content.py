@@ -1,11 +1,12 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.audit import audit_log
 from app.core.rate_limit import UPLOAD_BY_USER
 from app.core.authorization import (
     assert_teacher_owns_category,
@@ -221,6 +222,7 @@ async def update_section(
 
 @router.delete("/teacher/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_section(
+    request: Request,
     section_id: int,
     db: AsyncSession = Depends(get_db),
     teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
@@ -247,6 +249,14 @@ async def delete_section(
 
     await db.delete(section)
     await db.commit()
+    audit_log(
+        "content.section.delete",
+        actor_id=teacher.id,
+        actor_role=teacher.role.value,
+        request=request,
+        section_id=section_id,
+        cascaded_lesson_ids=lesson_ids,
+    )
     for lesson_id in lesson_ids:
         delete_video_assets(lesson_id)
     for path in images:
@@ -316,6 +326,7 @@ async def update_lesson(
 
 @router.delete("/teacher/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lesson(
+    request: Request,
     lesson_id: int,
     db: AsyncSession = Depends(get_db),
     teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
@@ -329,6 +340,13 @@ async def delete_lesson(
 
     await db.delete(lesson)
     await db.commit()
+    audit_log(
+        "content.lesson.delete",
+        actor_id=teacher.id,
+        actor_role=teacher.role.value,
+        request=request,
+        lesson_id=lesson_id,
+    )
     delete_video_assets(lesson_id)
     for path in images:
         delete_upload(path)
