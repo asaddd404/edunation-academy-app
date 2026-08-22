@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_owns_ent_question, assert_owns_ent_subject
+from app.core.rate_limit import (
+    BULK_CREATE_BY_USER,
+    BULK_DELETE_BY_USER,
+    ENT_PDF_IMPORT_BY_USER,
+    UPLOAD_BY_USER,
+)
 from app.core.ent_language import UnknownLanguageError, parse_language
 from app.core.ent_pdf_import import (
     EMPTY_TEXT_WARNING,
@@ -302,6 +308,8 @@ async def bulk_delete_questions(
     are not an authorization failure -- they land in `failed` with
     `not_found` so retrying a batch is safe.
     """
+    await BULK_DELETE_BY_USER.enforce(str(user.id))
+
     ids = set(payload.question_ids)
     if len(ids) > MAX_BULK_DELETE_BATCH:
         raise HTTPException(
@@ -359,6 +367,7 @@ async def upload_question_image(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> EntQuestionTeacherOut:
+    await UPLOAD_BY_USER.enforce(str(user.id))
     await assert_owns_ent_question(db, user, question_id)
 
     question = await _load_question_with_relations(db, question_id)
@@ -405,6 +414,7 @@ async def import_questions_from_pdf(
     with an empty `questions` and an explanatory warning, and a single
     unparseable question comes back with `confidence: 0.0` and its
     `parse_error` rather than being dropped."""
+    await ENT_PDF_IMPORT_BY_USER.enforce(str(user.id))
     await assert_owns_ent_subject(db, user, subject_id)
 
     is_pdf = (file.content_type or "") in ("application/pdf", "application/x-pdf") or (
@@ -556,6 +566,7 @@ async def bulk_create_questions(
     import preview) in one transaction. Each item is independently validated
     against the same rules as the manual question form; a malformed item is
     skipped with its error rather than failing the whole batch."""
+    await BULK_CREATE_BY_USER.enforce(str(user.id))
     await assert_owns_ent_subject(db, user, payload.subject_id)
 
     next_order = await db.scalar(

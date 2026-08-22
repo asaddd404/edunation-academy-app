@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.rate_limit import UPLOAD_BY_USER
 from app.core.authorization import (
     assert_student_has_category_access,
     assert_teacher_owns_category,
@@ -43,6 +44,7 @@ async def submit_homework(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
 ) -> HomeworkSubmissionOut:
+    await UPLOAD_BY_USER.enforce(str(student.id))
     category_id = await get_category_id_for_lesson(db, lesson_id)
     await assert_student_has_category_access(db, student, category_id)
 

@@ -28,6 +28,7 @@ os.environ.setdefault("JWT_SECRET", "test-secret")
 
 import itertools
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -38,6 +39,7 @@ from app.database import Base, get_db
 from app.deps import get_current_user
 from app.main import app
 from app.models.user import RoleEnum, User
+from tests.fake_redis import FakeRedis
 
 
 def _swap_db_name(url: str, new_name: str) -> str:
@@ -140,6 +142,46 @@ async def make_user(db_session):
         )
         db_session.add(user)
         await db_session.flush()
+        return user
+
+    return _make
+
+
+@pytest.fixture(autouse=True)
+def fake_redis(monkeypatch):
+    """Every test gets a clean in-memory Redis.
+
+    Autouse rather than opt-in because `RateLimit.hit` fails *open* when
+    Redis is unreachable: without this a rate-limit test would pass while the
+    limit was never enforced at all, which is the one outcome a security test
+    must never produce. A fresh instance per test also stops one test's login
+    attempts from tripping the limiter in the next.
+    """
+    fake = FakeRedis()
+    monkeypatch.setattr("app.redis_client.redis_client", fake)
+    monkeypatch.setattr("app.security.redis_client", fake)
+    monkeypatch.setattr("app.core.rate_limit.redis_client", fake)
+    return fake
+
+
+@pytest_asyncio.fixture
+async def make_password_user(db_session):
+    """A user with a real, known password -- for the login tests, which have
+    to exercise the actual hash/verify path rather than override it."""
+    from app.security import hash_password
+
+    async def _make(password: str, role: RoleEnum = RoleEnum.student, is_active: bool = True) -> User:
+        n = next(_phone_counter)
+        user = User(
+            phone=f"+7701{n:07d}",
+            password_hash=hash_password(password),
+            first_name="Test",
+            last_name=f"User{n}",
+            role=role,
+            is_active=is_active,
+        )
+        db_session.add(user)
+        await db_session.commit()
         return user
 
     return _make

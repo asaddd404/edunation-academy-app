@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.rate_limit import UPLOAD_BY_USER
 from app.core.authorization import (
     assert_teacher_owns_category,
     assert_teacher_owns_lesson,
@@ -93,6 +94,7 @@ async def upload_category_image(
     db: AsyncSession = Depends(get_db),
     teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> CategoryOut:
+    await UPLOAD_BY_USER.enforce(str(teacher.id))
     await assert_teacher_owns_category(db, teacher, category_id)
     category = await db.get(Category, category_id)
     if category is None:
@@ -370,7 +372,7 @@ async def _run_video_processing(lesson_id: int, raw_path: Path) -> None:
 @router.post("/teacher/lesson-content/image", response_model=LessonContentImageOut)
 async def upload_lesson_content_image(
     file: UploadFile = File(...),
-    _teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> LessonContentImageOut:
     """Stores an image for embedding in a lesson's rich description/homework.
 
@@ -378,6 +380,7 @@ async def upload_lesson_content_image(
     brand-new lesson that has no row yet, and requiring a save first would
     break the editor's paste/drag flow. Unreferenced files are reaped later
     by the description diff in `update_lesson` / `delete_lesson`."""
+    await UPLOAD_BY_USER.enforce(str(teacher.id))
     path = await save_lesson_content_image(file)
     return LessonContentImageOut(path=path)
 
@@ -390,6 +393,7 @@ async def upload_lesson_video(
     db: AsyncSession = Depends(get_db),
     teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> LessonTeacherOut:
+    await UPLOAD_BY_USER.enforce(str(teacher.id))
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await db.get(Lesson, lesson_id)
     if lesson is None:

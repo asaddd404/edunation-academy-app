@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import resolve_upload_path, save_avatar_image
+from app.core.rate_limit import UPLOAD_BY_USER
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
@@ -40,6 +41,8 @@ async def upload_my_avatar(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> UserOut:
+    await UPLOAD_BY_USER.enforce(str(user.id))
+
     old_path = user.avatar_path
     user.avatar_path = await save_avatar_image(file)
     await db.commit()

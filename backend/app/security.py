@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
 import jwt
 from fastapi import Response
@@ -17,6 +18,23 @@ def hash_password(plain: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return password_hasher.verify(plain, hashed)
+
+
+@lru_cache(maxsize=1)
+def _dummy_hash() -> str:
+    """A hash of a value nobody knows, built once on first use."""
+    return password_hasher.hash(secrets.token_urlsafe(32))
+
+
+def verify_password_dummy() -> None:
+    """Burns the same argon2 work a real password check would.
+
+    Without this, `/auth/login` answers in microseconds for a phone number
+    that has no account and in ~100ms for one that does -- which turns the
+    single shared error message into a working account-enumeration oracle
+    for anyone with a stopwatch.
+    """
+    password_hasher.verify(secrets.token_urlsafe(16), _dummy_hash())
 
 
 def create_access_token(user_id: int, role: str) -> str:

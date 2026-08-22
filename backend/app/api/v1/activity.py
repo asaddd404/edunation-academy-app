@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import ACTIVITY_PING_BY_USER
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
@@ -34,6 +35,11 @@ async def ping_activity(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> TodayActivityOut:
+    # PING_SECONDS is credited per call, so without a floor on how often a
+    # call counts, a student can script the endpoint and mint any activity
+    # total they like -- the number teachers and admins grade attendance by.
+    await ACTIVITY_PING_BY_USER.enforce(str(user.id))
+
     row = await _get_or_create_today(db, user.id)
     row.total_seconds += PING_SECONDS
     await db.commit()

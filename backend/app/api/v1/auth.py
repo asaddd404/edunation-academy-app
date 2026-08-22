@@ -1,7 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import (
+    CHANGE_PASSWORD_BY_USER,
+    LOGIN_BY_ACCOUNT,
+    LOGIN_BY_IP,
+    REFRESH_BY_IP,
+    REGISTER_BY_IP,
+    request_ip,
+)
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import RoleEnum, User
@@ -15,13 +23,16 @@ from app.security import (
     revoke_all_refresh_tokens,
     revoke_refresh_token,
     verify_password,
+    verify_password_dummy,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register(payload: RegisterIn, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def register(request: Request, payload: RegisterIn, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+    await REGISTER_BY_IP.enforce(request_ip(request))
+
     existing = await db.scalar(select(User).where(User.phone == payload.phone))
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Пользователь с таким номером уже зарегистрирован")
@@ -43,10 +54,31 @@ async def register(payload: RegisterIn, db: AsyncSession = Depends(get_db)) -> A
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenPair:
+async def login(request: Request, payload: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenPair:
+    """Both limits are deliberate and asymmetric.
+
+    The strict one is keyed on the phone number, because guessing a password
+    is an attack on an *account*: keying it on the address instead would lock
+    out a whole school computer lab, which shares one external IP, the moment
+    a few pupils fumbled their passwords. The IP limit is loose and only
+    catches someone spraying one password across many accounts.
+    """
+    await LOGIN_BY_IP.enforce(request_ip(request))
+    await LOGIN_BY_ACCOUNT.enforce(payload.phone)
+
     user = await db.scalar(select(User).where(User.phone == payload.phone))
-    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
+    if user is None or not user.is_active:
+        # Same message, same status, and the same argon2 cost as a real
+        # check -- otherwise the response time alone says whether the
+        # account exists.
+        verify_password_dummy()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный номер телефона или пароль")
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный номер телефона или пароль")
+
+    # A successful sign-in clears the window: a pupil who mistyped twice and
+    # then got in shouldn't carry those attempts into the rest of the lesson.
+    await LOGIN_BY_ACCOUNT.reset(payload.phone)
 
     access_token = create_access_token(user.id, user.role.value)
     refresh_token = await issue_refresh_token(user.id)
@@ -54,7 +86,9 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenPa
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(payload: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenPair:
+async def refresh(request: Request, payload: RefreshIn, db: AsyncSession = Depends(get_db)) -> TokenPair:
+    await REFRESH_BY_IP.enforce(request_ip(request))
+
     user_id = await consume_refresh_token(payload.refresh_token)
     if user_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Недействительный refresh-токен")
@@ -79,6 +113,8 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> TokenPair:
+    await CHANGE_PASSWORD_BY_USER.enforce(str(user.id))
+
     # 400 rather than 401: a 401 here would send the frontend's axios
     # interceptor off to refresh the session over a simple typo.
     if not verify_password(payload.old_password, user.password_hash):
