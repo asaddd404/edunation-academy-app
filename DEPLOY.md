@@ -70,12 +70,22 @@ scp -r "C:/Users/WEST/Desktop/Edunation Academy" root@185.129.51.116:/opt/edunat
 ```bash
 cp .env.prod.example .env.prod
 openssl rand -base64 32 | tr -d '/+=' | head -c 32; echo   # пароль БД
+openssl rand -base64 32 | tr -d '/+=' | head -c 40; echo   # пароль Redis
 openssl rand -hex 48                                        # JWT_SECRET
 nano .env.prod
+chmod 600 .env.prod
 ```
 
-Заполнить: `DOMAIN`, `ACME_EMAIL`, `POSTGRES_PASSWORD` (и тот же пароль внутри
-`DATABASE_URL`), `JWT_SECRET`, `CORS_ORIGINS=https://ваш-домен.kz`.
+Заполнить: `ENV=production`, `DOMAIN`, `ACME_EMAIL`, `POSTGRES_PASSWORD` (и тот
+же пароль внутри `DATABASE_URL`), `REDIS_PASSWORD` (и тот же пароль внутри
+`REDIS_URL`), `JWT_SECRET`, `CORS_ORIGINS=https://ваш-домен.kz`.
+
+> `ENV=production` — не косметика. Он включает HSTS, скрывает `/docs` и
+> `/openapi.json` и запрещает запуск скрипта демо-данных, который первым делом
+> удаляет всех пользователей и все курсы.
+
+> `chmod 600` обязателен: файл содержит `JWT_SECRET`, и любой, кто его
+> прочитает, сможет выпустить себе токен администратора.
 
 > Пароль БД держите из букв, цифр, `-` и `_`. Символы `:` `@` `/` `#` внутри
 > `DATABASE_URL` читаются как разделители URL и молча обрежут пароль —
@@ -124,11 +134,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod logs web --tail 5
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec backend python -m app.seed_demo_data
 ```
 
-> Данные вымышленные — показывать клиенту безопасно. **Но пароли демо-аккаунтов
-> известны и лежат в коде**, а сайт после этого шага доступен всему интернету.
-> Смените пароли демонстрационных учителя и админа сразу после сидирования
-> (см. раздел ниже), иначе доступ к админ-панели получит любой, кто заглянет в
-> репозиторий.
+> **На боевом сервере с `ENV=production` скрипт откажется работать** — он
+> удаляет всех пользователей, все курсы и все работы, прежде чем что-либо
+> создать. Это защита от того самого нажатия «стрелка вверх» в истории команд.
+> Наполнять демо-данными нужно dev/staging, а не живую базу.
+>
+> Пароль демо-аккаунтов теперь генерируется случайно и печатается один раз в
+> конце запуска — сохраните его сразу, второй раз его получить негде. Задать
+> свой можно переменной: `-e DEMO_PASSWORD=...`.
 
 ---
 
@@ -192,6 +205,72 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres 
 ```bash
 (crontab -l 2>/dev/null; echo '0 3 * * * cd /opt/edunation && docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres pg_dump -U edunation edunation | gzip > ~/backup-$(date +\%F).sql.gz') | crontab -
 ```
+
+---
+
+## Проверка безопасности после развёртывания
+
+Выполнять с **другой** машины, не с сервера — смысл проверки в том, что видно
+снаружи.
+
+```bash
+# 1. Заголовки: должны присутствовать HSTS, nosniff, DENY, Permissions-Policy.
+curl -sI https://ваш-домен.kz | grep -iE "strict-transport|x-content-type|x-frame|referrer|permissions"
+
+# 2. Документация API закрыта.
+curl -s -o /dev/null -w "%{http_code}
+" https://ваш-домен.kz/api/v1/openapi.json   # ожидается 404
+
+# 3. База и Redis не видны снаружи.
+nmap -Pn -p 5432,6379 ваш-домен.kz    # оба должны быть closed/filtered
+
+# 4. Перебор пароля: шестая попытка подряд должна вернуть 429.
+for i in $(seq 1 6); do
+  curl -s -o /dev/null -w "%{http_code} " -X POST https://ваш-домен.kz/api/v1/auth/login     -H 'Content-Type: application/json' -d '{"phone":"+77010000000","password":"wrong-password"}'
+done; echo
+```
+
+На сервере:
+
+```bash
+ls -l .env.prod        # ожидается -rw------- и владелец пользователя приложения
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec backend id   # ожидается uid=10001(app)
+```
+
+Нарушения CSP собираются в логах бэкенда (`Report-Only`, эндпоинт
+`/api/v1/csp-report`). Прежде чем переводить политику в блокирующий режим,
+посмотрите, что реально нарушается:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs backend | grep "CSP violation"
+```
+
+---
+
+## Ротация секретов
+
+Нужна, если `JWT_SECRET`, пароль БД или пароль Redis могли утечь — например,
+попадали в коммит, в чат или в скриншот.
+
+```bash
+# 1. Бэкап до всего остального.
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres   pg_dump -U edunation edunation | gzip > ~/backup-before-rotation.sql.gz
+
+# 2. Новые значения в .env.prod (JWT_SECRET, POSTGRES_PASSWORD + DATABASE_URL,
+#    REDIS_PASSWORD + REDIS_URL).
+nano .env.prod
+
+# 3. Пароль внутри самого Postgres — в .env.prod он меняется только для новых
+#    контейнеров, существующая база про это не знает.
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres   psql -U edunation -c "ALTER USER edunation WITH PASSWORD 'новый-пароль';"
+
+# 4. Перезапуск.
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-recreate
+```
+
+> Смена `JWT_SECRET` разлогинивает **всех** — это ожидаемо, а не сбой. Делайте
+> это в согласованное окно и предупредите пользователей: посреди урока класс
+> вылетит из системы.
 
 ---
 
