@@ -14,7 +14,7 @@ from app.core.authorization import (
 )
 from app.core.notifications import notify
 from app.core.progress import get_lesson_progress
-from app.core.storage import resolve_upload_path, save_homework_file
+from app.core.storage import attachment_response, resolve_upload_path, save_homework_file
 from app.database import get_db
 from app.deps import get_current_user, require_role
 from app.models.category import teacher_categories
@@ -194,4 +194,4 @@ async def download_homework_file(
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
 
-    return FileResponse(path, filename=submission.file_original_name or path.name)
+    return attachment_response(path, submission.file_original_name or path.name)

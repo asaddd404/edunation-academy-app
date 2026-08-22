@@ -14,6 +14,7 @@ from app.core.rate_limit import (
     UPLOAD_BY_USER,
 )
 from app.core.ent_language import UnknownLanguageError, parse_language
+from app.core.file_type import assert_matches_extension
 from app.core.ent_pdf_import import (
     EMPTY_TEXT_WARNING,
     extract_pdf_text,
@@ -428,6 +429,10 @@ async def import_questions_from_pdf(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 15 МБ)")
     if not contents:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    # The two checks above read the filename and the browser-supplied
+    # Content-Type, both of which the uploader controls. This one reads the
+    # file.
+    assert_matches_extension(contents, ".pdf", "Файл не является PDF-документом")
 
     try:
         extracted = extract_pdf_text(contents)

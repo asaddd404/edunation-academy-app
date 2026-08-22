@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.storage import resolve_upload_path, save_avatar_image
+from app.core.storage import image_response, resolve_upload_path, save_avatar_image
 from app.core.rate_limit import UPLOAD_BY_USER
 from app.database import get_db
 from app.deps import get_current_user
@@ -79,4 +79,4 @@ async def get_user_avatar(
     path = resolve_upload_path(user.avatar_path)
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Аватар не найден")
-    return FileResponse(path)
+    return image_response(path)

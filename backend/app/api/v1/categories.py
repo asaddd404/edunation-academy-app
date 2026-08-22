@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.category_stats import lesson_stats
 from app.core.pagination import PageParams, fetch_page, page_params
-from app.core.storage import resolve_upload_path
+from app.core.storage import image_response, resolve_upload_path
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.application import Application
@@ -62,7 +62,7 @@ async def get_category_image(
     path = resolve_upload_path(category.image_path)
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
-    return FileResponse(path)
+    return image_response(path)
 
 
 @router.get("/{category_id}", response_model=CategoryOut)

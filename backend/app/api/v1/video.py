@@ -44,4 +44,6 @@ async def get_video_file(
 
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Не найдено")
-    return FileResponse(path, media_type=media_type)
+    # The media type comes from the branch above (our own two shapes), never
+    # from the request; nosniff stops a browser overriding it anyway.
+    return FileResponse(path, media_type=media_type, headers={"X-Content-Type-Options": "nosniff"})

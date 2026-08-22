@@ -2,6 +2,9 @@ import uuid
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
+
+from app.core.file_type import assert_matches_extension
 
 UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "uploads"
 HOMEWORK_DIR = UPLOAD_ROOT / "homework"
@@ -33,6 +36,11 @@ async def save_homework_file(upload: UploadFile) -> tuple[str, str]:
     contents = await upload.read(MAX_HOMEWORK_FILE_SIZE + 1)
     if len(contents) > MAX_HOMEWORK_FILE_SIZE:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 10 МБ)")
+    if not contents:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    # The extension is whatever the uploader typed; the bytes are not. An
+    # .html renamed to .png passes the check above and nothing else.
+    assert_matches_extension(contents, extension, "Содержимое файла не соответствует его расширению")
 
     HOMEWORK_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -55,6 +63,7 @@ async def save_category_image(upload: UploadFile) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 5 МБ)")
     if not contents:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    assert_matches_extension(contents, extension, "Файл не является изображением в заявленном формате")
 
     CATEGORY_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -77,6 +86,7 @@ async def save_avatar_image(upload: UploadFile) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 3 МБ)")
     if not contents:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    assert_matches_extension(contents, extension, "Файл не является изображением в заявленном формате")
 
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -99,6 +109,7 @@ async def save_ent_question_image(upload: UploadFile) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 5 МБ)")
     if not contents:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    assert_matches_extension(contents, extension, "Файл не является изображением в заявленном формате")
 
     ENT_QUESTION_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -125,6 +136,7 @@ async def save_lesson_content_image(upload: UploadFile) -> str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 5 МБ)")
     if not contents:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    assert_matches_extension(contents, extension, "Файл не является изображением в заявленном формате")
 
     LESSON_CONTENT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -142,3 +154,44 @@ def delete_upload(relative_path: str | None) -> None:
     goal is only to stop rows from leaving orphaned bytes on disk."""
     if relative_path:
         resolve_upload_path(relative_path).unlink(missing_ok=True)
+
+
+_IMAGE_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+
+
+def image_response(path: Path) -> FileResponse:
+    """Serves a stored image with the content type derived from *our* stored
+    filename, never from anything the uploader supplied, and with sniffing
+    turned off.
+
+    Without `nosniff` a browser is free to ignore the declared type and
+    execute a file whose bytes look like HTML -- which is how an "image"
+    upload becomes stored XSS on the app's own origin, with the session
+    cookie and localStorage of whoever opens it.
+    """
+    return FileResponse(
+        path,
+        media_type=_IMAGE_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
+    )
+
+
+def attachment_response(path: Path, filename: str) -> FileResponse:
+    """Serves a user-uploaded document as a download, never as a page.
+
+    `Content-Disposition: attachment` plus `nosniff` is what keeps a .txt or
+    .docx homework file that happens to contain markup from rendering on the
+    app's origin. The declared type is deliberately generic: the uploader's
+    `Content-Type` is not trusted here at all.
+    """
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=filename,
+        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
+    )

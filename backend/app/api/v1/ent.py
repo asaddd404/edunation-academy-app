@@ -18,7 +18,7 @@ from app.core.ent_language import (
 )
 from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
-from app.core.storage import resolve_upload_path
+from app.core.storage import image_response, resolve_upload_path
 from app.database import get_db
 from app.deps import require_role
 from app.models.ent_question import EntQuestion, EntQuestionType
@@ -71,7 +71,7 @@ async def get_ent_question_image(
     path = resolve_upload_path(question.image_path)
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
-    return FileResponse(path)
+    return image_response(path)
 
 _QUESTION_LOAD_OPTIONS = (
     selectinload(EntQuestion.subject),

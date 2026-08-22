@@ -27,7 +27,7 @@ from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
 from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchItemOut, QuestionOut, VideoTicketOut
-from app.core.storage import resolve_upload_path
+from app.core.storage import image_response, resolve_upload_path
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
 from app.security import set_video_ticket_cookie
@@ -52,7 +52,7 @@ async def get_lesson_content_image(filename: str) -> FileResponse:
     path = resolve_upload_path(f"lesson-content/{filename}")
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Изображение не найдено")
-    return FileResponse(path)
+    return image_response(path)
 
 
 _QUESTION_LOAD_OPTIONS = (
