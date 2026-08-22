@@ -3,11 +3,12 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.homework import HomeworkStatusEnum
+from app.schemas.limits import OptionalMediumText
 
 
 class HomeworkReviewIn(BaseModel):
     status: HomeworkStatusEnum
-    feedback: str | None = None
+    feedback: OptionalMediumText = None
 
     @field_validator("status")
     @classmethod

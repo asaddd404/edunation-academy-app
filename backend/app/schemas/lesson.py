@@ -4,19 +4,22 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models.ent_question import EntQuestionType
 from app.schemas.homework import HomeworkSubmissionOut
+from app.schemas.limits import OptionalRichText, OptionalShortText, ShortText
 
 
 class LessonIn(BaseModel):
-    title: str
-    description: str | None = None
-    video_url: str | None = None
-    homework_assignment: str | None = None
+    title: ShortText
+    # Rich text: a serialized TipTap document, so the ceiling covers the JSON
+    # envelope as well as the prose the teacher wrote.
+    description: OptionalRichText = None
+    video_url: OptionalShortText = None
+    homework_assignment: OptionalRichText = None
 
 
 class LessonUpdateIn(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    homework_assignment: str | None = None
+    title: OptionalShortText = None
+    description: OptionalRichText = None
+    homework_assignment: OptionalRichText = None
 
 
 class LessonTeacherOut(BaseModel):

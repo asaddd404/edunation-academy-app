@@ -2,10 +2,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from app.schemas.limits import OptionalShortText, ShortText
+
 
 class EntSubjectIn(BaseModel):
-    name: str
-    slug: str | None = None
+    name: ShortText
+    slug: OptionalShortText = None
 
 
 class EntSubjectQuotasIn(BaseModel):
@@ -32,7 +34,7 @@ class EntSubjectQuotasIn(BaseModel):
 
 
 class EntSubjectUpdateIn(BaseModel):
-    name: str | None = None
+    name: OptionalShortText = None
     is_active: bool | None = None
     single_choice_count: int | None = None
     multiple_choice_count: int | None = None

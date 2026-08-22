@@ -3,17 +3,18 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.models.application import ApplicationStatusEnum
+from app.schemas.limits import MediumText, OptionalMediumText, OptionalShortText, ShortText
 
 
 class CategoryIn(BaseModel):
-    name: str
-    slug: str | None = None
-    description: str | None = None
+    name: ShortText
+    slug: OptionalShortText = None
+    description: OptionalMediumText = None
 
 
 class CategoryUpdateIn(BaseModel):
-    name: str | None = None
-    description: str | None = None
+    name: OptionalShortText = None
+    description: OptionalMediumText = None
     is_active: bool | None = None
 
 
@@ -22,7 +23,7 @@ class TeacherCategoryUpdateIn(BaseModel):
     same course-builder endpoint) may only touch the description, not the
     name/slug/is_active, which stay admin-panel-only."""
 
-    description: str | None = None
+    description: OptionalMediumText = None
 
 
 class CategoryOut(BaseModel):

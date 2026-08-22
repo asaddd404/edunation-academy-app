@@ -1,14 +1,17 @@
-from pydantic import BaseModel, field_validator
+from typing import Annotated
+
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.phone import validate_phone
+from app.schemas.limits import Password, ShortText
 from app.schemas.user import UserOut
 
 
 class RegisterIn(BaseModel):
-    phone: str
-    password: str
-    first_name: str
-    last_name: str
+    phone: ShortText
+    password: Password
+    first_name: ShortText
+    last_name: ShortText
 
     @field_validator("phone")
     @classmethod
@@ -24,8 +27,11 @@ class RegisterIn(BaseModel):
 
 
 class LoginIn(BaseModel):
-    phone: str
-    password: str
+    phone: ShortText
+    # Bounded like the registration field: argon2 will happily hash a 10 MB
+    # string, and an unbounded password on an unauthenticated endpoint is a
+    # CPU-exhaustion primitive dressed up as a login attempt.
+    password: Password
 
     @field_validator("phone")
     @classmethod
@@ -34,8 +40,8 @@ class LoginIn(BaseModel):
 
 
 class ChangePasswordIn(BaseModel):
-    old_password: str
-    new_password: str
+    old_password: Password
+    new_password: Password
 
     @field_validator("new_password")
     @classmethod
@@ -46,7 +52,9 @@ class ChangePasswordIn(BaseModel):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: str
+    # `secrets.token_urlsafe(32)` is 43 characters; the ceiling only stops an
+    # arbitrarily long string being used as a Redis key.
+    refresh_token: Annotated[str, Field(max_length=512)]
 
 
 class TokenPair(BaseModel):

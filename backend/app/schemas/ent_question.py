@@ -1,21 +1,24 @@
-from pydantic import BaseModel, ConfigDict, model_validator
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.ent_question import EntLanguage, EntQuestionType
+from app.schemas.limits import MAX_BULK_QUESTIONS, MediumText, QuestionText
 
 
 class EntChoiceIn(BaseModel):
-    text: str
+    text: MediumText
     is_correct: bool = False
 
 
 class EntMatchPairIn(BaseModel):
-    prompt_text: str
-    answer_text: str
+    prompt_text: MediumText
+    answer_text: MediumText
 
 
 class EntQuestionIn(BaseModel):
     qtype: EntQuestionType
-    text: str
+    text: QuestionText
     # Typed as the enum so anything else is rejected here, at the API
     # boundary, rather than at the DB one. Defaulted rather than required:
     # every client that predates the ru/kk split keeps working, and Russian
@@ -24,7 +27,7 @@ class EntQuestionIn(BaseModel):
     max_score: int = 1
     choices: list[EntChoiceIn] = []
     match_pairs: list[EntMatchPairIn] = []
-    answer_variants: list[str] = []
+    answer_variants: list[MediumText] = []
 
     @model_validator(mode="after")
     def _validate(self) -> "EntQuestionIn":
@@ -108,7 +111,10 @@ class EntQuestionTeacherOut(BaseModel):
 
 
 class EntBulkDeleteIn(BaseModel):
-    question_ids: list[int]
+    # The router enforces the real batch cap (MAX_BULK_DELETE_BATCH) after
+    # de-duplicating; this bound only stops a multi-megabyte id list being
+    # parsed into memory first.
+    question_ids: Annotated[list[int], Field(max_length=MAX_BULK_QUESTIONS)]
 
     @model_validator(mode="after")
     def _validate(self) -> "EntBulkDeleteIn":

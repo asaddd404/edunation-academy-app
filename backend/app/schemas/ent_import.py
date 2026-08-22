@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.ent_question import EntLanguage, EntQuestionType
 from app.schemas.ent_question import EntChoiceIn, EntMatchPairIn
+from app.schemas.limits import MAX_BULK_QUESTIONS
 
 
 class EntChoiceImportOut(EntChoiceIn):
@@ -141,7 +142,7 @@ class EntBulkCreateIn(BaseModel):
     # Raw dicts, not EntQuestionIn: a single malformed item must not 422 the
     # whole request before the router gets a chance to skip just that one
     # (see EntBulkCreateOut.skipped).
-    questions: list[dict[str, Any]]
+    questions: Annotated[list[dict[str, Any]], Field(max_length=MAX_BULK_QUESTIONS)]
 
 
 class EntBulkCreateSkip(BaseModel):

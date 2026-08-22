@@ -1,25 +1,26 @@
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.ent_question import EntQuestionType
+from app.schemas.limits import MediumText, QuestionText
 
 
 class ChoiceIn(BaseModel):
-    text: str
+    text: MediumText
     is_correct: bool = False
 
 
 class MatchPairIn(BaseModel):
-    prompt_text: str
-    answer_text: str
+    prompt_text: MediumText
+    answer_text: MediumText
 
 
 class QuestionIn(BaseModel):
     qtype: EntQuestionType = EntQuestionType.single
-    text: str
+    text: QuestionText
     max_score: int = 1
     choices: list[ChoiceIn] = []
     match_pairs: list[MatchPairIn] = []
-    answer_variants: list[str] = []
+    answer_variants: list[MediumText] = []
 
     @model_validator(mode="after")
     def _validate(self) -> "QuestionIn":

@@ -1,14 +1,22 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.ent_question import EntLanguage, EntQuestionType
 from app.models.ent_simulation import EntSimulationStatus
 from app.schemas.ent_question import EntAnswerVariantOut, EntChoiceTeacherOut, EntMatchPairTeacherOut
+from app.schemas.limits import (
+    MAX_ANSWERS_PER_ATTEMPT,
+    MAX_CHOICES_PER_ANSWER,
+    MAX_SUBJECTS_PER_SIMULATION,
+    OptionalMediumText,
+    ShortText,
+)
 
 
 class EntSimulationStartIn(BaseModel):
-    subject_ids: list[int]
+    subject_ids: Annotated[list[int], Field(max_length=MAX_SUBJECTS_PER_SIMULATION)]
     questions_per_subject: int = 10
     is_timed: bool
     duration_minutes: int | None = None
@@ -17,7 +25,7 @@ class EntSimulationStartIn(BaseModel):
     # and the router owes a student who picked a language on screen a 400
     # with a Russian sentence. core.ent_language.parse_language does that
     # conversion, and is the only thing that reads this field.
-    language: str = "ru"
+    language: ShortText = "ru"
 
     @model_validator(mode="after")
     def _validate(self) -> "EntSimulationStartIn":
@@ -73,13 +81,15 @@ class EntSimulationOut(BaseModel):
 class EntAnswerIn(BaseModel):
     question_id: int
     choice_id: int | None = None
-    choice_ids: list[int] | None = None
-    pairs: dict[str, int] | None = None
-    text: str | None = None
+    # Bounded because the grader iterates them: an answer carrying a million
+    # ids is one request that pins a worker.
+    choice_ids: Annotated[list[int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
+    pairs: Annotated[dict[str, int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
+    text: OptionalMediumText = None
 
 
 class EntSimulationSubmitIn(BaseModel):
-    answers: list[EntAnswerIn]
+    answers: Annotated[list[EntAnswerIn], Field(max_length=MAX_ANSWERS_PER_ATTEMPT)]
 
 
 class EntSimulationResultAnswerOut(BaseModel):

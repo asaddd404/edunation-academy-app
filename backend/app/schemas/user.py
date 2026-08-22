@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.core.phone import validate_phone
+from app.schemas.limits import OptionalShortText
 from app.models.user import RoleEnum
 
 
@@ -37,9 +38,9 @@ class PasswordResetOut(BaseModel):
 
 
 class ProfileUpdateIn(BaseModel):
-    first_name: str | None = None
-    last_name: str | None = None
-    phone: str | None = None
+    first_name: OptionalShortText = None
+    last_name: OptionalShortText = None
+    phone: OptionalShortText = None
 
     @field_validator("phone")
     @classmethod
