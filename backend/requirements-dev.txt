@@ -4,6 +4,10 @@ pytest-asyncio==1.4.0
 # DB-backed tests (test_ent_teacher_bulk_delete.py and friends) drive the
 # real FastAPI app over ASGI instead of raw requests.
 httpx==0.27.2
+# Lets the DB-backed tests run without a container runtime, by pointing
+# DATABASE_URL at sqlite+aiosqlite (see tests/conftest.py). Postgres is still
+# what CI and production use.
+aiosqlite==0.22.1
 # Used only by tests/test_ent_pdf_marks.py, which builds real PDFs to
 # exercise colour-mark detection against the actual extractor.
 reportlab==5.0.0

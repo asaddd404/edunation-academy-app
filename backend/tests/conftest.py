@@ -7,7 +7,7 @@ connection -- these values only have to be well-formed for import to
 succeed.
 
 The fixtures below (`test_engine`/`db_session`/`client`/`login_as`) are the
-exception: they talk to a *real* Postgres, reusing whatever `DATABASE_URL`
+exception: they talk to a real database, reusing whatever `DATABASE_URL`
 already points at (the same one the Docker-compose `backend` service uses)
 but against a sibling database named `<original>_test` instead of the dev
 one, so nothing here ever touches real/seeded data. That database is
@@ -18,6 +18,16 @@ databases, which is true of the default docker-compose superuser. Run these
 with `docker compose exec backend pytest` so `DATABASE_URL`'s `postgres`
 hostname resolves; running straight on the host only works if you've mapped
 that hostname yourself.
+
+Without Docker, point `DATABASE_URL` at SQLite instead:
+
+    DATABASE_URL=sqlite+aiosqlite:///./test.db pytest
+
+That path exists so the authorization and session tests can be run at all on
+a machine with no container runtime -- a check nobody can execute is worth
+less than one executed against an imperfect database. It is not equivalent:
+SQLite does not enforce the enum types or the partial indexes, so Postgres
+stays the reference for anything that depends on them, and for CI.
 """
 import os
 from urllib.parse import urlsplit, urlunsplit
@@ -30,9 +40,10 @@ import itertools
 
 import pytest
 import pytest_asyncio
+from fastapi import Depends
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.database import Base, get_db
@@ -47,12 +58,37 @@ def _swap_db_name(url: str, new_name: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, f"/{new_name}", parts.query, parts.fragment))
 
 
-_TEST_DB_NAME = urlsplit(settings.database_url).path.lstrip("/") + "_test"
-_TEST_DATABASE_URL = _swap_db_name(settings.database_url, _TEST_DB_NAME)
-_ADMIN_DATABASE_URL = _swap_db_name(settings.database_url, "postgres")
+_IS_SQLITE = settings.database_url.startswith("sqlite")
+
+if _IS_SQLITE:
+    # Escape hatch, opt-in by pointing DATABASE_URL at sqlite+aiosqlite. It
+    # exists so the security tests can be run on a machine with no Docker --
+    # an untested authorization check is worth less than one verified against
+    # an imperfect database.
+    #
+    # Postgres remains the reference: it is what production runs, what CI
+    # should run, and the only place the partial indexes and real enum types
+    # are exercised. Anything that depends on those has to be checked there.
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.ext.compiler import compiles
+
+    @compiles(JSONB, "sqlite")
+    def _jsonb_as_json(type_, compiler, **kw):  # noqa: ANN001 -- SQLAlchemy hook signature
+        """One column (EntSimulationQuestion.answer_data) is JSONB, which
+        SQLite has no compiler for, so create_all would fail before any test
+        ran. JSON is close enough for storing and reading a dict back."""
+        return "JSON"
+
+    _TEST_DATABASE_URL = settings.database_url
+else:
+    _TEST_DB_NAME = urlsplit(settings.database_url).path.lstrip("/") + "_test"
+    _TEST_DATABASE_URL = _swap_db_name(settings.database_url, _TEST_DB_NAME)
+    _ADMIN_DATABASE_URL = _swap_db_name(settings.database_url, "postgres")
 
 
 async def _ensure_test_database() -> None:
+    if _IS_SQLITE:
+        return
     # CREATE DATABASE can't run inside a transaction block.
     admin_engine = create_async_engine(_ADMIN_DATABASE_URL, isolation_level="AUTOCOMMIT")
     try:
@@ -113,11 +149,26 @@ async def client(test_engine, db_session):
 @pytest_asyncio.fixture
 async def login_as():
     """Swaps which user `get_current_user` resolves to, so a test can act
-    as two different teachers without faking JWTs -- the real
-    `require_role` check still runs against whatever this returns."""
+    as two different teachers without faking JWTs -- the real `require_role`
+    check still runs against whatever this returns.
+
+    Only the *id* is captured, and the User is re-loaded from the request's
+    own session. Returning the test's instance directly would hand handlers
+    an object owned by a different session, and any handler that writes to
+    the current user (`/me/avatar`, `/me`) then fails inside `db.refresh` with
+    "not persistent within this Session" -- an error the endpoint cannot
+    produce in production, where get_current_user loads from that same
+    session. A fixture that only works for read-only handlers hides exactly
+    the write paths worth testing.
+    """
 
     def _login(user: User) -> None:
-        app.dependency_overrides[get_current_user] = lambda: user
+        user_id = user.id
+
+        async def _override(db: AsyncSession = Depends(get_db)) -> User:
+            return await db.get(User, user_id)
+
+        app.dependency_overrides[get_current_user] = _override
 
     yield _login
     app.dependency_overrides.pop(get_current_user, None)
@@ -129,7 +180,13 @@ _phone_counter = itertools.count(1)
 @pytest_asyncio.fixture
 async def make_user(db_session):
     """Inserts a `User` row directly (no real password needed -- these
-    tests never exercise login)."""
+    tests never exercise login).
+
+    Committed, not flushed: the app under test opens its own session per
+    request, and a flushed-but-uncommitted row is invisible to it. That only
+    stopped mattering while `login_as` handed the instance straight to the
+    handler; now that it re-loads by id, like production does, the row has to
+    actually be there."""
 
     async def _make(role: RoleEnum = RoleEnum.teacher) -> User:
         n = next(_phone_counter)
@@ -141,7 +198,7 @@ async def make_user(db_session):
             role=role,
         )
         db_session.add(user)
-        await db_session.flush()
+        await db_session.commit()
         return user
 
     return _make
