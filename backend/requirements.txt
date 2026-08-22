@@ -1,4 +1,7 @@
-fastapi==0.115.6
+# Pinned forward from 0.115.6 to pull in starlette >= 1.6: the pinned
+# starlette 0.41.3 carried eight advisories, including multipart and
+# request-parsing issues on exactly the upload path this app exposes.
+fastapi==0.141.1
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.1
@@ -7,6 +10,12 @@ asyncpg==0.30.0
 alembic==1.14.0
 redis==5.2.1
 pwdlib[argon2]==0.2.1
-pyjwt==2.10.1
-python-multipart==0.0.20
-pdfplumber==0.11.4
+# 2.10.1 had twelve open advisories against the library that verifies every
+# access token in this app. Nothing below 2.13.0 fixes them all.
+pyjwt==2.13.0
+# Parses every uploaded file and form field; 0.0.20 had six advisories,
+# several of them denial-of-service on malformed multipart bodies.
+python-multipart==0.0.32
+# Pulls pdfminer.six forward past two advisories. This library parses
+# teacher-supplied PDFs, which is the least trusted input the app accepts.
+pdfplumber==0.11.10
