@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.core.authorization import assert_owns_ent_question, assert_owns_ent_subject
 from app.core.audit import audit_log
 from app.core.rate_limit import (
@@ -16,6 +17,7 @@ from app.core.rate_limit import (
     UPLOAD_BY_USER,
 )
 from app.core.ent_language import UnknownLanguageError, parse_language
+from app.core.concurrency import PDF_IMPORT_POOL
 from app.core.file_type import assert_matches_extension
 from app.core.ent_pdf_import import (
     EMPTY_TEXT_WARNING,
@@ -429,6 +431,16 @@ async def import_questions_from_pdf(
     with an empty `questions` and an explanatory warning, and a single
     unparseable question comes back with `confidence: 0.0` and its
     `parse_error` rather than being dropped."""
+    if not settings.ent_pdf_import_enabled:
+        # Turned off deliberately (see RUNBOOK.md): 503 rather than 404 so
+        # the teacher is told it is temporary, and so it shows up as a
+        # service condition in monitoring rather than a routing mistake.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Импорт из PDF временно отключён. Попробуйте позже или добавьте вопросы вручную.",
+            headers={"Retry-After": "3600"},
+        )
+
     await ENT_PDF_IMPORT_BY_USER.enforce(str(user.id))
     await assert_owns_ent_subject(db, user, subject_id)
 
@@ -450,12 +462,18 @@ async def import_questions_from_pdf(
 
     # pdfplumber is synchronous and CPU-bound: called directly from this
     # coroutine it blocks the whole event loop, so one slow or malicious file
-    # freezes every other request in the worker. Off to a thread, with a hard
-    # ceiling on how long it may take -- a malformed PDF that sends the parser
-    # into a pathological loop must time out, not hang the worker forever.
+    # freezes every other request in the worker. Off to a bounded pool, with
+    # a hard ceiling on how long it may take.
+    #
+    # The pool, not just a thread: measured cost is 10.6 s of CPU for a
+    # 400-page book, and the 10/hour rate limit counts requests without
+    # saying anything about how many run at once. Ten at once would be ~100 s
+    # of CPU on a one-vCPU server -- the site stops answering, logins
+    # included. One at a time, and a caller who cannot get a slot in five
+    # seconds is turned away rather than queued indefinitely.
     try:
-        extracted = await asyncio.wait_for(
-            asyncio.to_thread(extract_pdf_text, contents), timeout=PDF_PARSE_TIMEOUT_SECONDS
+        extracted = await PDF_IMPORT_POOL.run(
+            extract_pdf_text, contents, timeout=PDF_PARSE_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
         logger.warning("ENT PDF import: parsing timed out for user_id=%s subject_id=%s", user.id, subject_id)
@@ -506,8 +524,11 @@ async def import_questions_from_pdf(
         # Same reasoning as the extraction above: the state machine walks
         # every line of a multi-hundred-page book and must not do it on the
         # event loop.
-        parsed = await asyncio.wait_for(
-            asyncio.to_thread(parse_ent_pdf_questions, text, extracted.marks, extracted.cells),
+        parsed = await PDF_IMPORT_POOL.run(
+            parse_ent_pdf_questions,
+            text,
+            extracted.marks,
+            extracted.cells,
             timeout=PDF_PARSE_TIMEOUT_SECONDS,
         )
         stats = EntPdfImportStats(

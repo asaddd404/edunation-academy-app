@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import audit_log
+from app.core.concurrency import VIDEO_TRANSCODE_GATE
 from app.core.rate_limit import UPLOAD_BY_USER
 from app.core.authorization import (
     assert_teacher_owns_category,
@@ -367,7 +368,18 @@ async def get_teacher_lesson(
 
 async def _run_video_processing(lesson_id: int, raw_path: Path) -> None:
     """Runs after the upload response has been sent. Owns its own DB session
-    since the request-scoped one is already closed by the time this fires."""
+    since the request-scoped one is already closed by the time this fires.
+
+    Serialized through a gate: ffmpeg saturates a core for minutes, and
+    nothing stopped a teacher queueing five uploads back to back. Five
+    concurrent transcodes on the production box (one vCPU) is not a slow
+    site, it is an unavailable one -- and unlike a request flood it would be
+    self-inflicted, by a teacher doing exactly what the UI invites."""
+    async with VIDEO_TRANSCODE_GATE:
+        await _transcode_and_record(lesson_id, raw_path)
+
+
+async def _transcode_and_record(lesson_id: int, raw_path: Path) -> None:
     async with async_session_factory() as db:
         lesson = await db.get(Lesson, lesson_id)
         if lesson is None:

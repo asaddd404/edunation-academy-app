@@ -27,6 +27,12 @@ class Settings(BaseSettings):
 
     rate_limit_enabled: bool = True
 
+    # Kill switch for the single most expensive endpoint in the app. Set to
+    # false and restart to shed that load during an incident while the rest
+    # of the site keeps serving lessons -- a runbook step is only real if
+    # there is something to turn.
+    ent_pdf_import_enabled: bool = True
+
     # --- resource ceilings --------------------------------------------------
     # pool_size + max_overflow, times the uvicorn worker count, has to stay
     # under Postgres max_connections (100 by default). Two workers x 10 = 20.
