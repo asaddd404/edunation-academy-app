@@ -6,7 +6,6 @@
 # in 90 days. Everything else here mirrors nginx/nginx.dev.conf.
 #
 # {$DOMAIN} and {$ACME_EMAIL} come from the environment (see .env.prod).
-
 {
 	email {$ACME_EMAIL}
 

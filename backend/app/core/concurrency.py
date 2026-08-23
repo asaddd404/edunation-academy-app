@@ -26,6 +26,8 @@ from typing import Any, Callable, TypeVar
 
 from fastapi import HTTPException, status
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -101,11 +103,16 @@ class ConcurrencyGate:
         self._semaphore.release()
 
 
-# One at a time. Imports are rare (10/hour/user) and a second concurrent
-# parse doubles the CPU bill on a box that has one core to give; a teacher
-# waiting a few seconds in the queue is a far better outcome than every
-# student's lesson page timing out.
-PDF_IMPORT_POOL = BoundedWorkPool("pdf-import", max_concurrent=1, queue_wait_seconds=5.0)
+# One at a time, but with room to queue. Widening to two would halve each
+# import's share of the single production core, which is the resource being
+# protected; lengthening the queue costs nothing but a teacher's patience.
+# A heavy book measures ~10 s, so the default 30 s wait admits two or three
+# before anyone is turned away.
+PDF_IMPORT_POOL = BoundedWorkPool(
+    "pdf-import",
+    max_concurrent=1,
+    queue_wait_seconds=settings.pdf_import_queue_wait_seconds,
+)
 
 # Transcoding is minutes long, so the queue here is unbounded in time on
 # purpose: the upload has already been accepted and the work runs after the

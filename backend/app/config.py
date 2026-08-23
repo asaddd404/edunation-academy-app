@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     # there is something to turn.
     ent_pdf_import_enabled: bool = True
 
+    # How long a second import waits for the single parsing slot before it is
+    # refused. Sized against the measured job: a heavy book takes ~10 s, so 5
+    # seconds would turn the second teacher of the morning into a 429 on a
+    # perfectly legitimate action. 30 seconds lets two or three queue and
+    # still bounds the wait -- the point of the limit is to stop a pile-up,
+    # not to make the feature unreliable for the people it is for.
+    pdf_import_queue_wait_seconds: float = 30.0
+
     # How long a cached leaderboard stays warm. The board is an aggregate
     # over every submitted attempt; recomputing it per request is the
     # classic way an app denies service to itself.

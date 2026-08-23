@@ -158,6 +158,44 @@ async def test_corrupted_cache_entry_is_recomputed(fake_redis):
     assert await cached_json("unit:cache:corrupt", 60, factory) == {"ok": True}
 
 
+async def test_oversized_pdf_is_refused_without_being_parsed():
+    """The page cap has to be paid out of the page tree, not out of parsing.
+
+    If the count were only known after the pages had been walked, an
+    over-sized file would still cost its full parse before being refused --
+    the request would be freed by the timeout while the thread carried on,
+    so repeated attempts would pile up threads *behind* the semaphore rather
+    than being bounded by it.
+
+    Measured: a 900-page document is rejected in ~0.3 s, against ~3 s to
+    parse 799 pages of the same content. The assertion is loose because CI
+    hardware varies; what it pins is the order of magnitude.
+    """
+    from io import BytesIO
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    from app.core.ent_pdf_import import MAX_PDF_PAGES, PdfTooLargeError, extract_pdf_text
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    for n in range(MAX_PDF_PAGES + 100):
+        c.drawString(50, 800, f"{n}. Question text with several answer options below")
+        c.showPage()
+    c.save()
+
+    started = time.perf_counter()
+    with pytest.raises(PdfTooLargeError):
+        extract_pdf_text(buffer.getvalue())
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0, (
+        f"rejecting an over-sized PDF took {elapsed:.2f}s -- that is parsing cost, "
+        "which means the cap fires too late to bound the work"
+    )
+
+
 # --- configured ceilings ----------------------------------------------------
 
 def test_connection_pool_fits_inside_postgres_max_connections():

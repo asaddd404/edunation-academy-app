@@ -89,12 +89,46 @@ async def revoke_refresh_token(token: str) -> None:
 
 
 async def revoke_all_refresh_tokens(user_id: int) -> None:
-    """Ends every session the user has, on every device."""
+    """Ends every session the user has, on every device.
+
+    The index is a convenience, not the source of truth, and the fallback
+    below is why. Redis runs with `maxmemory` and `allkeys-lru` so that a
+    runaway keyspace cannot OOM the box out from under Postgres -- which
+    means any key can be evicted, including this index.
+
+    Everything else about eviction is fail-safe: the token keys are an
+    allowlist, so losing one logs somebody out. This was the exception.
+    Losing only the index left the token keys behind with nothing pointing
+    at them, so "log out everywhere" would report success and revoke
+    nothing -- and the person who most often presses it is someone changing
+    their password to throw an intruder out.
+
+    So when the index is missing but sessions might not be, the tokens are
+    found the slow way. SCAN is O(keyspace) and this is the rare path
+    (password change, admin reset), which is the right way round.
+    """
     key = _user_sessions_key(user_id)
-    tokens = await redis_client.smembers(key)
+    tokens = set(await redis_client.smembers(key))
+
+    if not tokens:
+        tokens = await _scan_tokens_for_user(user_id)
+
     if tokens:
         await redis_client.delete(*(f"refresh:{token}" for token in tokens))
     await redis_client.delete(key)
+
+
+async def _scan_tokens_for_user(user_id: int) -> set[str]:
+    """Every live refresh token belonging to `user_id`, found by scanning.
+
+    Deliberately not `KEYS`: that blocks the server for the length of the
+    sweep, and blocking Redis blocks every request that touches it.
+    """
+    found: set[str] = set()
+    async for key in redis_client.scan_iter(match="refresh:*", count=500):
+        if await redis_client.get(key) == str(user_id):
+            found.add(key.removeprefix("refresh:"))
+    return found
 
 
 # Scoped to the auth router's own path, so the browser attaches it only to

@@ -104,5 +104,13 @@ class FakeRedis:
         self._expire_if_due(key)
         return set(self.sets.get(key, set()))
 
+    async def scan_iter(self, match: str = "*", count: int = 100):
+        import fnmatch
+
+        for key in list(self.values):
+            self._expire_if_due(key)
+            if key in self.values and fnmatch.fnmatch(key, match):
+                yield key
+
     def pipeline(self) -> _Pipeline:
         return _Pipeline(self)
