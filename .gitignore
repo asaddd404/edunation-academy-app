@@ -36,3 +36,5 @@ scripts/fixtures/
 
 # Docker
 pgdata/
+
+frontend/caddy_windows_amd64.exe

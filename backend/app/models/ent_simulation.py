@@ -89,8 +89,8 @@ class EntSimulationQuestion(Base):
     simulation: Mapped["EntSimulation"] = relationship(back_populates="items")
     question: Mapped["EntQuestion"] = relationship()
 
-    # Postgres does not index foreign keys on its own, and this is the table
-    # every simulation read joins through -- rows per attempt times attempts
-    # ever taken. selectinload issues `WHERE simulation_id IN (...)`, which
-    # without this scans the lot each time a student opens an attempt.
-    __table_args__ = (Index("ix_ent_simulation_questions_simulation", "simulation_id"),)
+    # Declared here to match what is actually in the database: migration 0004
+    # created this index, and nothing in the models said so. Reading the
+    # models as the index inventory is what led 0015 to add a second,
+    # identical index on this column, which 0016 then had to drop.
+    __table_args__ = (Index("ix_ent_simulation_questions_simulation_id", "simulation_id"),)
