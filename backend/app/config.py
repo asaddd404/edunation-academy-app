@@ -27,6 +27,27 @@ class Settings(BaseSettings):
 
     rate_limit_enabled: bool = True
 
+    # --- resource ceilings --------------------------------------------------
+    # pool_size + max_overflow, times the uvicorn worker count, has to stay
+    # under Postgres max_connections (100 by default). Two workers x 10 = 20.
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    # Short on purpose: a request that cannot get a connection should fail
+    # fast rather than hold a worker for the 30-second default while the
+    # queue behind it grows.
+    db_pool_timeout_seconds: int = 5
+    # Ceiling on any single query. Above every legitimate query here, below
+    # the point where a stuck one has taken the pool down with it.
+    db_statement_timeout_ms: int = 15_000
+    db_idle_tx_timeout_ms: int = 30_000
+
+    # Redis is on the request path for rate limiting, so a *hung* Redis --
+    # not refusing, just never answering -- would hang every request that
+    # consults it. The limiter is written to fail open, but it can only do
+    # that if the call actually returns.
+    redis_socket_timeout_seconds: float = 2.0
+
+
     # Hard ceiling on a request body, enforced in-process. The edge (Caddy /
     # nginx) has its own, larger cap for video uploads; this one stops a
     # JSON body from being read into memory unbounded.
