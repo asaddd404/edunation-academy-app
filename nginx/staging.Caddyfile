@@ -1,0 +1,77 @@
+# Staging edge. Mirrors frontend/Caddyfile, minus TLS.
+#
+# Kept as a separate file rather than parameterising the production one: the
+# thing under test here is the timeout and body-size configuration, and a
+# config full of conditionals would leave doubt about which branch the
+# measurements actually exercised.
+#
+# What differs from production, and only this:
+#   * the site address is :80, so there is no certificate to obtain;
+#   * `auto_https off`, since Caddy would otherwise redirect to https and
+#     every load-test request would measure a redirect;
+#   * no HSTS header, which would pin localhost to https in the browser of
+#     whoever runs this.
+#
+# Everything that the load test is meant to measure -- read_header,
+# read_body, write and idle timeouts, max_header_size, and the per-route
+# request_body caps -- is identical to production by construction.
+
+{
+	auto_https off
+
+	servers {
+		timeouts {
+			read_header 5s
+			read_body 15m
+			write 30s
+			idle 2m
+		}
+		max_header_size 16KB
+	}
+}
+
+:80 {
+	encode gzip zstd
+
+	handle /api/v1/teacher/lessons/*/video {
+		request_body {
+			max_size 2100MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle /api/v1/teacher/ent/questions/import-pdf {
+		request_body {
+			max_size 16MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle /api/* {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle /assets/* {
+		root * /srv
+		@exists file {path}
+		header @exists Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+}

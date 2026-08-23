@@ -21,6 +21,10 @@ frontend/.env
 !.env.example
 !.env.prod.example
 
+# Load-test fixtures are generated, not stored: 355 KB of binary that
+# scripts/make_heavy_pdf.py rebuilds in a second.
+scripts/fixtures/
+
 # Logs
 *.log
 

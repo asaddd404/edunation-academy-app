@@ -1,0 +1,105 @@
+# Staging: the production stack, isolated, for load testing.
+#
+#   docker compose -p edunation-staging -f docker-compose.staging.yml \
+#     --env-file .env.staging up -d --build
+#
+# Three properties matter, and each is a deliberate difference from
+# docker-compose.prod.yml rather than an oversight.
+#
+# *Everything is bound to 127.0.0.1.* Staging has weaker secrets and seeded
+# data; it must not be reachable from the network it happens to sit on.
+#
+# *Every resource ceiling matches production exactly* -- pool sizes,
+# timeouts, Redis maxmemory, the import concurrency. Those are the numbers
+# under test. A staging box that is more generous than production answers
+# the wrong question.
+#
+# *ENV stays "development".* Not an oversight either: ENV=production sets
+# Secure on the session cookie, which a browser drops over plain http, so
+# sign-in would fail here for a reason that has nothing to do with what is
+# being measured. The production-only header behaviour is covered by
+# tests/test_security_headers.py instead.
+#
+# Data comes from app.seed_demo_data, not from a production dump. The brief
+# asked for an anonymized dump; seeding is better here on both counts --
+# no student's name or phone number leaves the server at all, and the
+# generated volume can be made larger than production, which is what
+# actually exercises the new indexes.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # Byte-for-byte the production policy: the eviction behaviour is one of
+    # the things being tested (see tests/test_redis_eviction.py for what the
+    # policy costs).
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "127.0.0.1:56379:6379"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  backend:
+    build: ./backend
+    env_file: .env.staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Two workers, as in production. On a machine with more than one core
+    # this is more generous than the real server -- noted so the numbers are
+    # read as a lower bound on how bad saturation gets, not an upper one.
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+      --proxy-headers --forwarded-allow-ips='*'
+    ports:
+      - "127.0.0.1:58000:8000"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: /api/v1
+    depends_on:
+      - backend
+    # The production Caddyfile is what is under test -- the timeouts and
+    # per-route body caps live in it -- but TLS is not, so it is served on
+    # plain http here via a staging-only site block.
+    volumes:
+      - ./nginx/staging.Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:58080:80"
+
+volumes:
+  staging_pgdata:
