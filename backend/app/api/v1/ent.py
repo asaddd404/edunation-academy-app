@@ -8,7 +8,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.core.authorization import assert_student_has_any_course_access
+from app.core.cache import cached_json
+from app.core.rate_limit import ENT_SIMULATION_START_BY_USER, LEADERBOARD_BY_USER
 from app.core.ent_language import (
     QuestionShortage,
     UnknownLanguageError,
@@ -141,12 +144,36 @@ async def list_subjects(db: AsyncSession = Depends(get_db)) -> list[EntSubjectOu
     return result
 
 
+# A student sits one exam at a time. Without a ceiling, the start endpoint
+# writes an attempt plus a row per drawn question on every call and nothing
+# ever cleans them up -- unbounded growth in the largest table in the module,
+# driven entirely by the client.
+MAX_UNFINISHED_SIMULATIONS = 5
+
+
+async def _assert_not_hoarding_attempts(db: AsyncSession, student: User) -> None:
+    unfinished = await db.scalar(
+        select(func.count(EntSimulation.id)).where(
+            EntSimulation.student_id == student.id,
+            EntSimulation.status == EntSimulationStatus.in_progress,
+        )
+    )
+    if (unfinished or 0) >= MAX_UNFINISHED_SIMULATIONS:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "У вас слишком много незавершённых попыток. Завершите начатую или дождитесь её истечения.",
+        )
+
+
 @router.post("/simulations", response_model=EntSimulationOut, status_code=status.HTTP_201_CREATED)
 async def start_simulation(
     payload: EntSimulationStartIn,
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationOut:
+    await ENT_SIMULATION_START_BY_USER.enforce(str(student.id))
+    await _assert_not_hoarding_attempts(db, student)
+
     try:
         language = parse_language(payload.language)
     except UnknownLanguageError as e:
@@ -440,19 +467,63 @@ async def get_leaderboard(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> EntLeaderboardOut:
+    await LEADERBOARD_BY_USER.enforce(str(student.id))
+
     limit = max(1, min(limit, 100))
 
+    # The board is identical for every viewer; only `is_me` differs, and that
+    # is decided below from the rows. So the expensive part is computed once
+    # per minute for everyone rather than once per keypress per student --
+    # without this, a refresh key is a load generator, and the week/month
+    # periods re-aggregate every submitted attempt each time.
+    cache_key = f"ent:leaderboard:{period}:{limit}"
+
+    async def build_rows() -> list[dict]:
+        return await _leaderboard_rows(db, period, limit)
+
+    raw_rows = await cached_json(cache_key, settings.leaderboard_cache_seconds, build_rows)
+
+    entries = [
+        EntLeaderboardEntryOut(**row, is_me=(row["student_id"] == student.id)) for row in raw_rows
+    ]
+
+    # Always surface the requesting student's own standing, even when they
+    # didn't make the top `limit` rows. Cached per student for the same
+    # window: it costs two more aggregate scans, which is exactly what the
+    # cache above exists to avoid paying per request.
+    me = next((e for e in entries if e.is_me), None)
+    if me is None:
+        async def build_me() -> dict | None:
+            return await _own_standing(db, period, student)
+
+        own = await cached_json(
+            f"ent:leaderboard:{period}:me:{student.id}",
+            settings.leaderboard_cache_seconds,
+            build_me,
+        )
+        if own is not None:
+            me = EntLeaderboardEntryOut(**own, is_me=True)
+
+    return EntLeaderboardOut(entries=entries, me=me)
+
+
+def _leaderboard_source(period: str):
+    """The per-student totals the board is built from, as a subquery."""
     if period == "all":
         # Fast path: the running aggregate is already what we want.
-        source = select(
+        return select(
             StudentRating.student_id.label("student_id"),
             StudentRating.total_xp.label("total_xp"),
             StudentRating.simulations_completed.label("simulations_completed"),
             func.coalesce(StudentRating.best_score, 0).label("best_score"),
         ).subquery()
-    else:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period])
-        source = _period_totals_query(cutoff).subquery()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period])
+    return _period_totals_query(cutoff).subquery()
+
+
+async def _leaderboard_rows(db: AsyncSession, period: str, limit: int) -> list[dict]:
+    source = _leaderboard_source(period)
 
     # `student_id` tiebreaker, as everywhere else that paginates in this app:
     # ties on XP are common (a fresh period starts everyone at 0) and without
@@ -466,42 +537,41 @@ async def get_leaderboard(
         )
     ).all()
 
-    entries = [
-        EntLeaderboardEntryOut(
-            rank=i + 1,
-            student_id=row.student_id,
-            first_name=row.User.first_name,
-            last_name=row.User.last_name,
-            total_xp=row.total_xp,
-            simulations_completed=row.simulations_completed,
-            best_score=row.best_score,
-            is_me=(row.student_id == student.id),
-            has_avatar=row.User.avatar_path is not None,
-        )
+    # Plain dicts, not models: this is what goes into the cache, and it
+    # stays readable with `redis-cli GET` when something looks wrong.
+    return [
+        {
+            "rank": i + 1,
+            "student_id": row.student_id,
+            "first_name": row.User.first_name,
+            "last_name": row.User.last_name,
+            "total_xp": row.total_xp,
+            "simulations_completed": row.simulations_completed,
+            "best_score": row.best_score,
+            "has_avatar": row.User.avatar_path is not None,
+        }
         for i, row in enumerate(rows)
     ]
 
-    # Always surface the requesting student's own standing, even when they
-    # didn't make the top `limit` rows.
-    me = next((e for e in entries if e.is_me), None)
-    if me is None:
-        my_row = (
-            await db.execute(select(source).where(source.c.student_id == student.id))
-        ).one_or_none()
-        if my_row is not None:
-            better_count = await db.scalar(
-                select(func.count()).select_from(source).where(source.c.total_xp > my_row.total_xp)
-            )
-            me = EntLeaderboardEntryOut(
-                rank=(better_count or 0) + 1,
-                student_id=student.id,
-                first_name=student.first_name,
-                last_name=student.last_name,
-                total_xp=my_row.total_xp,
-                simulations_completed=my_row.simulations_completed,
-                best_score=my_row.best_score,
-                is_me=True,
-                has_avatar=student.avatar_path is not None,
-            )
 
-    return EntLeaderboardOut(entries=entries, me=me)
+async def _own_standing(db: AsyncSession, period: str, student: User) -> dict | None:
+    """Where one student sits, for when they are outside the top rows."""
+    source = _leaderboard_source(period)
+
+    my_row = (await db.execute(select(source).where(source.c.student_id == student.id))).one_or_none()
+    if my_row is None:
+        return None
+
+    better_count = await db.scalar(
+        select(func.count()).select_from(source).where(source.c.total_xp > my_row.total_xp)
+    )
+    return {
+        "rank": (better_count or 0) + 1,
+        "student_id": student.id,
+        "first_name": student.first_name,
+        "last_name": student.last_name,
+        "total_xp": my_row.total_xp,
+        "simulations_completed": my_row.simulations_completed,
+        "best_score": my_row.best_score,
+        "has_avatar": student.avatar_path is not None,
+    }

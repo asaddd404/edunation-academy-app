@@ -27,12 +27,6 @@ class Settings(BaseSettings):
 
     rate_limit_enabled: bool = True
 
-    # Kill switch for the single most expensive endpoint in the app. Set to
-    # false and restart to shed that load during an incident while the rest
-    # of the site keeps serving lessons -- a runbook step is only real if
-    # there is something to turn.
-    ent_pdf_import_enabled: bool = True
-
     # --- resource ceilings --------------------------------------------------
     # pool_size + max_overflow, times the uvicorn worker count, has to stay
     # under Postgres max_connections (100 by default). Two workers x 10 = 20.
@@ -53,6 +47,16 @@ class Settings(BaseSettings):
     # that if the call actually returns.
     redis_socket_timeout_seconds: float = 2.0
 
+    # Kill switch for the single most expensive endpoint in the app. Set to
+    # false and restart to shed that load during an incident while the rest
+    # of the site keeps serving lessons -- a runbook step is only real if
+    # there is something to turn.
+    ent_pdf_import_enabled: bool = True
+
+    # How long a cached leaderboard stays warm. The board is an aggregate
+    # over every submitted attempt; recomputing it per request is the
+    # classic way an app denies service to itself.
+    leaderboard_cache_seconds: int = 60
 
     # Hard ceiling on a request body, enforced in-process. The edge (Caddy /
     # nginx) has its own, larger cap for video uploads; this one stops a

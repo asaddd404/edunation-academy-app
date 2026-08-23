@@ -97,6 +97,13 @@ ENT_PDF_IMPORT_BY_USER = RateLimit("ent_pdf_import_user", limit=10, window_secon
 BULK_DELETE_BY_USER = RateLimit("ent_bulk_delete_user", limit=20, window_seconds=60 * 60)
 BULK_CREATE_BY_USER = RateLimit("ent_bulk_create_user", limit=60, window_seconds=60 * 60)
 UPLOAD_BY_USER = RateLimit("upload_user", limit=120, window_seconds=60 * 60)
+# Starting an exam draws a random sample per subject per question type -- up
+# to 80 `ORDER BY random()` sorts over the question bank in one request, plus
+# a row written per drawn question. Sitting a mock ЕНТ takes an hour; twenty
+# starts an hour is already far more than anyone revising needs.
+ENT_SIMULATION_START_BY_USER = RateLimit("ent_simulation_start_user", limit=20, window_seconds=60 * 60)
+# Cheap per call, but it is the ЕНТ page's aggregate and students refresh it.
+LEADERBOARD_BY_USER = RateLimit("ent_leaderboard_user", limit=120, window_seconds=60)
 
 
 def request_ip(request: Request) -> str:
