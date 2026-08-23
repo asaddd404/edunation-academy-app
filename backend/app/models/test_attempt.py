@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -28,4 +28,8 @@ class TestAttempt(Base):
             "(lesson_id IS NOT NULL AND section_id IS NULL) OR (lesson_id IS NULL AND section_id IS NOT NULL)",
             name="ck_test_attempt_exactly_one_scope",
         ),
+        # Every lesson page computes the student's progress from their own
+        # attempts (see core.progress). Filtered by student_id and passed,
+        # on a table that only ever grows.
+        Index("ix_test_attempts_student_passed", "student_id", "passed"),
     )

@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -61,6 +61,14 @@ class EntSimulation(Base):
             "(is_timed = false AND duration_minutes IS NULL) OR (is_timed = true AND duration_minutes IS NOT NULL)",
             name="ck_ent_simulation_duration",
         ),
+        # A student's own attempt history, newest first. Without it, opening
+        # the ЕНТ page scans every attempt every student has ever made.
+        Index("ix_ent_simulations_student_started", "student_id", "started_at"),
+        # The week/month leaderboard aggregates over exactly this predicate.
+        # Unindexed it is a full scan of the largest table in the ЕНТ module,
+        # run on every leaderboard view -- the cheapest self-inflicted outage
+        # available to a bored student with a refresh key.
+        Index("ix_ent_simulations_status_submitted", "status", "submitted_at"),
     )
 
 
@@ -80,3 +88,9 @@ class EntSimulationQuestion(Base):
 
     simulation: Mapped["EntSimulation"] = relationship(back_populates="items")
     question: Mapped["EntQuestion"] = relationship()
+
+    # Postgres does not index foreign keys on its own, and this is the table
+    # every simulation read joins through -- rows per attempt times attempts
+    # ever taken. selectinload issues `WHERE simulation_id IN (...)`, which
+    # without this scans the lot each time a student opens an attempt.
+    __table_args__ = (Index("ix_ent_simulation_questions_simulation", "simulation_id"),)

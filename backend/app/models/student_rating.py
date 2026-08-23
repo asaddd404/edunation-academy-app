@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -23,3 +23,8 @@ class StudentRating(Base):
     )
 
     student: Mapped["User"] = relationship()
+
+    # The all-time leaderboard reads this table ordered by XP. One row per
+    # student is small today, but the sort is on the request path and an
+    # index turns it into a range scan that stops after `limit` rows.
+    __table_args__ = (Index("ix_student_ratings_total_xp", total_xp.desc()),)
