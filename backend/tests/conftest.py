@@ -30,6 +30,7 @@ SQLite does not enforce the enum types or the partial indexes, so Postgres
 stays the reference for anything that depends on them, and for CI.
 """
 import os
+import sys
 from urllib.parse import urlsplit, urlunsplit
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
@@ -215,9 +216,18 @@ def fake_redis(monkeypatch):
     attempts from tripping the limiter in the next.
     """
     fake = FakeRedis()
+
+    # Patched by discovery rather than by a hand-written list. Modules bind
+    # the client with `from app.redis_client import redis_client`, so each
+    # one holds its own reference and patching the source module alone
+    # changes nothing for them. A list would silently go stale the next time
+    # a module imports it -- and the test would then quietly talk to a real
+    # Redis, or hang waiting for one that is not there.
     monkeypatch.setattr("app.redis_client.redis_client", fake)
-    monkeypatch.setattr("app.security.redis_client", fake)
-    monkeypatch.setattr("app.core.rate_limit.redis_client", fake)
+    for name, module in list(sys.modules.items()):
+        if name.startswith("app.") and getattr(module, "redis_client", None) is not None:
+            monkeypatch.setattr(f"{name}.redis_client", fake)
+
     return fake
 
 
