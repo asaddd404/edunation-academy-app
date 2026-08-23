@@ -65,6 +65,15 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The redis entrypoint starts as root and drops to the redis user with
+    # setpriv, which needs exactly these two capabilities. `cap_drop: ALL`
+    # takes them away, setpriv fails with EPERM, and the container exits 127
+    # into a restart loop -- which is how this was found, by taking the site
+    # down on deploy. Granting the two back keeps every other capability
+    # dropped.
+    cap_add:
+      - SETUID
+      - SETGID
 
   backend:
     build: ./backend
