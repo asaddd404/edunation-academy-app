@@ -35,7 +35,23 @@ services:
     # network: without a password, compromising any one container (the PDF
     # parser and ffmpeg are the realistic candidates) hands the attacker
     # every session token in Redis with a one-line connect.
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    # maxmemory is an availability control, not a tuning knob. Redis holds
+    # sessions, rate-limit counters and cached aggregates, all of which grow
+    # with traffic and none of which expire instantly. Without a ceiling it
+    # grows until the kernel picks a process to kill, and on a 2 GB box the
+    # OOM killer's usual choice is Postgres -- so a Redis leak becomes total
+    # data-layer downtime. allkeys-lru sheds the coldest keys instead: the
+    # cost is a re-login or a recomputed leaderboard, not an outage.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
     volumes:
       - redisdata:/data
     healthcheck:

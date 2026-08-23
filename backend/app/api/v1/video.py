@@ -46,4 +46,16 @@ async def get_video_file(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Не найдено")
     # The media type comes from the branch above (our own two shapes), never
     # from the request; nosniff stops a browser overriding it anyway.
-    return FileResponse(path, media_type=media_type, headers={"X-Content-Type-Options": "nosniff"})
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            # Segments are immutable once transcoded, and a student seeking
+            # backwards should not re-download what they just watched. The
+            # ticket expires long before this does, so caching cannot extend
+            # access -- it only avoids refetching bytes already delivered.
+            # `private` because the ticket is what authorizes them.
+            "Cache-Control": "private, max-age=3600",
+        },
+    )

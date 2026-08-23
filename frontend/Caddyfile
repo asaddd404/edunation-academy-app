@@ -9,17 +9,59 @@
 
 {
 	email {$ACME_EMAIL}
+
+	servers {
+		timeouts {
+			# Slowloris defence, and the only place it can live: the attack
+			# is a client that opens hundreds of connections and dribbles
+			# headers a byte at a time, holding each one open. The
+			# application never sees these requests -- there is nothing for
+			# it to rate-limit -- so an unbounded header read is an
+			# unbounded number of held connections.
+			read_header 5s
+			# The body cap for a 2 GB lesson video is a size, not a rate: a
+			# slow uploader is legitimate on a school connection, so this is
+			# generous rather than tight, and bounded rather than absent.
+			read_body 15m
+			write 30s
+			idle 2m
+		}
+		max_header_size 16KB
+	}
 }
 
 {$DOMAIN} {
 	encode gzip zstd
 
-	# The API, including video playback (/api/v1/video/...) and uploads.
-	handle /api/* {
-		# Lesson videos go up to MAX_VIDEO_FILE_SIZE (2 GB) in
-		# app/core/video.py; the default cap would reject them.
+	# Uploads, ordered most specific first: only the two routes that carry
+	# large bodies get a large cap.
+	#
+	# Previously one 2100MB cap covered every /api/* route, which meant
+	# /auth/login would read a two-gigabyte JSON body before the application
+	# saw it. A limit that has to accommodate the largest legitimate upload
+	# is the wrong limit for the other ninety endpoints.
+	handle /api/v1/teacher/lessons/*/video {
 		request_body {
 			max_size 2100MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle /api/v1/teacher/ent/questions/import-pdf {
+		# MAX_ENT_PDF_SIZE in app/api/v1/ent_teacher.py, plus multipart
+		# overhead.
+		request_body {
+			max_size 16MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	# Everything else the API serves. 1 MB is well above any JSON this app
+	# exchanges and well below anything worth reading into memory from an
+	# unauthenticated caller.
+	handle /api/* {
+		request_body {
+			max_size 1MB
 		}
 		reverse_proxy backend:8000
 	}

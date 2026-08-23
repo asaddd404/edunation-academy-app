@@ -30,6 +30,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         for header, value in _BASE_HEADERS.items():
             response.headers.setdefault(header, value)
+
+        # Almost everything under /api is scoped to one user: a lesson, a
+        # homework submission, somebody's own profile. Put a caching proxy or
+        # a CDN in front of this -- which the availability work recommends --
+        # and an unmarked response is one it may serve to the next person who
+        # asks for the same URL. Leaking another pupil's answers out of a
+        # shared cache is a worse outcome than any cache miss.
+        #
+        # `setdefault`, so the handful of routes that genuinely are cacheable
+        # (uploaded images, video segments) can say so themselves.
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "private, no-store")
         if settings.is_production:
             # Only in production: sent over plain HTTP during local
             # development it would pin localhost to https in the developer's

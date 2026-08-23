@@ -177,7 +177,15 @@ def image_response(path: Path) -> FileResponse:
     return FileResponse(
         path,
         media_type=_IMAGE_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
-        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'",
+            # Filenames are uuids, so the bytes behind a URL never change.
+            # `private` keeps it out of any shared cache -- some of these are
+            # a specific student's avatar or a paid course's illustration --
+            # while still saving the round trip for the person viewing it.
+            "Cache-Control": "private, max-age=86400",
+        },
     )
 
 
