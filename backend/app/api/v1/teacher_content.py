@@ -170,6 +170,16 @@ async def list_category_sections(
     # One grouped query for the whole course rather than a count per lesson:
     # a course with 11 lessons would otherwise fire 11 extra round-trips just
     # to render the builder's readiness chips.
+    section_counts = dict(
+        (
+            await db.execute(
+                select(Question.section_id, func.count())
+                .where(Question.section_id.in_([section.id for section in sections]))
+                .group_by(Question.section_id)
+            )
+        ).all()
+    ) if sections else {}
+
     lesson_ids = [lesson.id for section in sections for lesson in section.lessons]
     counts: dict[int, int] = {}
     if lesson_ids:
@@ -183,6 +193,8 @@ async def list_category_sections(
     out: list[SectionOut] = []
     for section in sections:
         payload = SectionOut.model_validate(section)
+        payload.test_question_count = section_counts.get(section.id, 0)
+        payload.has_test = payload.test_question_count > 0
         by_id = {lesson.id: lesson for lesson in section.lessons}
         for summary in payload.lessons:
             summary.question_count = counts.get(summary.id, 0)
@@ -230,6 +242,8 @@ async def update_section(
         section.title = payload.title
     if payload.description is not None:
         section.description = payload.description
+    if payload.questions_per_attempt is not None:
+        section.questions_per_attempt = payload.questions_per_attempt or None
     await db.commit()
 
     # Re-fetch with lessons eager-loaded rather than db.refresh(), which
@@ -333,6 +347,9 @@ async def update_lesson(
     if payload.homework_assignment is not None:
         dropped_images |= orphaned_image_paths(lesson.homework_assignment, payload.homework_assignment)
         lesson.homework_assignment = payload.homework_assignment
+    if payload.questions_per_attempt is not None:
+        # 0 is how the form says "all of them"; stored as NULL.
+        lesson.questions_per_attempt = payload.questions_per_attempt or None
     await db.commit()
     await db.refresh(lesson)
 

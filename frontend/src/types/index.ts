@@ -76,6 +76,8 @@ export interface LessonSummary {
   /** Populated only in the teacher course-builder listing; 0/false elsewhere. */
   question_count: number;
   has_homework: boolean;
+  /** Teacher listing: questions one attempt draws; null = the whole bank. */
+  questions_per_attempt: number | null;
 }
 
 export interface Section {
@@ -89,6 +91,9 @@ export interface Section {
   has_test: boolean;
   is_test_unlocked: boolean;
   is_test_passed: boolean;
+  /** Teacher listing: section test bank size and per-attempt draw (null = all). */
+  test_question_count: number;
+  questions_per_attempt: number | null;
 }
 
 export interface Choice {
@@ -197,7 +202,9 @@ export interface LessonDetail {
   created_at: string;
   is_unlocked: boolean;
   is_passed: boolean;
-  questions: Question[];
+  /** The questions themselves come from starting an attempt (see TestRunner). */
+  has_test: boolean;
+  test_question_count: number;
   my_homework: HomeworkSubmission | null;
   video_status: VideoStatus;
   video_duration_seconds: number | null;
@@ -232,11 +239,39 @@ export interface TestAttemptResult {
   attempt_number: number;
 }
 
-export interface SectionTest {
-  section_id: number;
+export type TestKind = "lesson" | "section";
+
+/** A lesson mini-test or section test as shown before starting it. */
+export interface TestInfo {
+  kind: TestKind;
+  id: number;
+  title: string;
   is_unlocked: boolean;
   is_passed: boolean;
+  /** Questions per attempt; when `pool_size` is larger, each attempt draws a different set. */
+  question_count: number;
+  pool_size: number;
+  attempts_used: number;
+  best_score: number | null;
+  in_progress_attempt_id: number | null;
+}
+
+export interface TestAttemptStart {
+  attempt_id: number;
   questions: Question[];
+}
+
+export interface TestHubSection {
+  section_id: number;
+  title: string;
+  lesson_tests: TestInfo[];
+  section_test: TestInfo | null;
+}
+
+export interface TestHubCourse {
+  category_id: number;
+  category_name: string;
+  sections: TestHubSection[];
 }
 
 export type EntQuestionType = "single" | "multiple" | "matching" | "short_answer";

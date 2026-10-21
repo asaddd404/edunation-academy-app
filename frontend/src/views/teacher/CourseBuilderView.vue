@@ -106,7 +106,12 @@ function lessonChips(lesson: LessonSummary) {
     {
       key: "questions",
       icon: ListChecks,
-      label: lesson.question_count ? `${lesson.question_count} вопр.` : "Нет вопросов",
+      // "3 из 10" when an attempt draws from a larger bank.
+      label: !lesson.question_count
+        ? "Нет вопросов"
+        : lesson.questions_per_attempt && lesson.questions_per_attempt < lesson.question_count
+          ? `${lesson.questions_per_attempt} из ${lesson.question_count} вопр.`
+          : `${lesson.question_count} вопр.`,
       done: lesson.question_count > 0,
     },
     {
@@ -587,7 +592,7 @@ async function handleCreateLesson(sectionId: number) {
                       Мини-тест урока
                       <span class="font-normal text-ink-3">— ученик проходит после видео</span>
                     </p>
-                    <QuestionBank :lesson-id="lesson.id" />
+                    <QuestionBank v-model:per-attempt="lesson.questions_per_attempt" :lesson-id="lesson.id" />
                   </section>
                 </div>
               </div>
@@ -627,7 +632,9 @@ async function handleCreateLesson(sectionId: number) {
               <ListChecks :size="15" :stroke-width="1.8" class="shrink-0 text-ink-3" />
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-medium text-ink">Итоговый тест раздела</span>
-                <span class="block text-xs text-ink-3">Открывается ученику после всех уроков раздела</span>
+                <span class="block text-xs text-ink-3">
+                  Открывается после всех уроков раздела; пока он не сдан, следующий раздел закрыт
+                </span>
               </span>
               <ChevronDown
                 :size="17"
@@ -637,7 +644,7 @@ async function handleCreateLesson(sectionId: number) {
               />
             </button>
             <div v-if="openSectionTestIds.has(section.id)" class="border-t border-line p-3">
-              <QuestionBank :section-id="section.id" />
+              <QuestionBank v-model:per-attempt="section.questions_per_attempt" :section-id="section.id" />
             </div>
           </div>
           </div>

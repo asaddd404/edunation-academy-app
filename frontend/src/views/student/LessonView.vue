@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { isAxiosError } from "axios";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { submitHomework } from "@/api/homework";
-import { getLesson, submitTestAttempt } from "@/api/lessons";
+import { getLesson } from "@/api/lessons";
 import { getStudentVideoTicket } from "@/api/video";
 import HlsPlayer from "@/components/media/HlsPlayer.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
 import RichContent from "@/components/richtext/RichContent.vue";
-import SmartText from "@/components/shared/SmartText.vue";
+import TestRunner from "@/components/tests/TestRunner.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
-import type { AnswerPayload, LessonDetail, TestAttemptResult } from "@/types";
+import type { LessonDetail } from "@/types";
 import { isRichDocEmpty, parseRichContent } from "@/utils/richContent";
 
 const route = useRoute();
@@ -26,25 +26,10 @@ const loadError = ref("");
 const videoSrc = ref<string | null>(null);
 const videoError = ref("");
 
-const answers = reactive<Record<number, AnswerPayload>>({});
-const testResult = ref<TestAttemptResult | null>(null);
-const testSubmitting = ref(false);
-const testError = ref("");
-
 const homeworkText = ref("");
 const homeworkFile = ref<File | null>(null);
 const homeworkSubmitting = ref(false);
 const homeworkError = ref("");
-
-function isAnswered(questionId: number): boolean {
-  const a = answers[questionId];
-  if (!a) return false;
-  if (a.choice_id !== undefined) return true;
-  if (a.choice_ids !== undefined) return a.choice_ids.length > 0;
-  if (a.pairs !== undefined) return Object.keys(a.pairs).length > 0;
-  if (a.text !== undefined) return a.text.trim().length > 0;
-  return false;
-}
 
 // A cleared rich-text field still stores a non-empty JSON string (an empty
 // paragraph), so a plain truthiness check would render a blank homework card.
@@ -54,32 +39,6 @@ const hasHomework = computed(() => {
   if (parsed.kind === "empty") return false;
   return parsed.kind === "plain" || !isRichDocEmpty(parsed.doc);
 });
-
-const allQuestionsAnswered = computed(() => {
-  if (!lesson.value) return false;
-  return lesson.value.questions.every((q) => isAnswered(q.id));
-});
-
-function setSingleChoice(questionId: number, choiceId: number) {
-  answers[questionId] = { question_id: questionId, choice_id: choiceId };
-}
-
-function toggleMultipleChoice(questionId: number, choiceId: number, checked: boolean) {
-  const current = answers[questionId] ?? { question_id: questionId, choice_ids: [] };
-  const list = current.choice_ids ?? [];
-  current.choice_ids = checked ? [...list, choiceId] : list.filter((id) => id !== choiceId);
-  answers[questionId] = current;
-}
-
-function setMatchPair(questionId: number, promptId: number, answerId: string) {
-  const current = answers[questionId] ?? { question_id: questionId, pairs: {} };
-  current.pairs = { ...(current.pairs ?? {}), [String(promptId)]: answerId };
-  answers[questionId] = current;
-}
-
-function setShortAnswer(questionId: number, text: string) {
-  answers[questionId] = { question_id: questionId, text };
-}
 
 async function load() {
   loading.value = true;
@@ -103,24 +62,6 @@ async function load() {
 }
 
 onMounted(load);
-
-async function handleSubmitTest() {
-  if (!lesson.value) return;
-  testSubmitting.value = true;
-  testError.value = "";
-  try {
-    testResult.value = await submitTestAttempt(lessonId, Object.values(answers));
-    if (testResult.value.passed) {
-      lesson.value.is_passed = true;
-    }
-  } catch (e) {
-    // The server's own message matters here: a 429 says to wait, not retry.
-    const detail = isAxiosError(e) ? e.response?.data?.detail : null;
-    testError.value = typeof detail === "string" ? detail : "Не удалось отправить тест. Попробуйте ещё раз.";
-  } finally {
-    testSubmitting.value = false;
-  }
-}
 
 async function handleSubmitHomework() {
   homeworkSubmitting.value = true;
@@ -178,75 +119,7 @@ function handleFileChange(event: Event) {
         <RichContent :content="lesson.description" class="max-w-[70ch]" />
 
         <div class="max-w-[42rem] space-y-8">
-          <section v-if="lesson.questions.length" class="card space-y-4 p-4">
-            <h2 class="text-lg font-medium text-ink">Мини-тест</h2>
-            <div v-for="question in lesson.questions" :key="question.id" class="space-y-2">
-              <p class="text-body-lg font-medium text-ink"><SmartText :text="question.text" /></p>
-
-              <template v-if="question.qtype === 'single'">
-                <label
-                  v-for="choice in question.choices"
-                  :key="choice.id"
-                  class="flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
-                >
-                  <input
-                    type="radio"
-                    :name="`question-${question.id}`"
-                    :value="choice.id"
-                    @change="setSingleChoice(question.id, choice.id)"
-                  />
-                  {{ choice.text }}
-                </label>
-              </template>
-
-              <template v-else-if="question.qtype === 'multiple'">
-                <label
-                  v-for="choice in question.choices"
-                  :key="choice.id"
-                  class="flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink"
-                >
-                  <input
-                    type="checkbox"
-                    @change="toggleMultipleChoice(question.id, choice.id, ($event.target as HTMLInputElement).checked)"
-                  />
-                  {{ choice.text }}
-                </label>
-              </template>
-
-              <template v-else-if="question.qtype === 'matching'">
-                <div v-for="prompt in question.match_prompts" :key="prompt.id" class="flex items-center gap-2 text-sm">
-                  <span class="w-1/2 text-ink">{{ prompt.text }}</span>
-                  <select
-                    class="input w-1/2"
-                    @change="setMatchPair(question.id, prompt.id, ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="" disabled selected>Выберите пару</option>
-                    <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ opt.text }}</option>
-                  </select>
-                </div>
-              </template>
-
-              <template v-else>
-                <input
-                  type="text"
-                  placeholder="Ваш ответ"
-                  class="input"
-                  @input="setShortAnswer(question.id, ($event.target as HTMLInputElement).value)"
-                />
-              </template>
-            </div>
-            <p v-if="testResult" class="text-sm" :class="testResult.passed ? 'text-moss' : 'text-clay'">
-              {{
-                testResult.passed
-                  ? `Тест пройден, балл: ${testResult.score}%`
-                  : `Тест не пройден (балл: ${testResult.score}%). Правильные ответы не показываются — пересмотрите урок и попробуйте снова.`
-              }}
-            </p>
-            <p v-if="testError" class="text-sm text-clay">{{ testError }}</p>
-            <BaseButton variant="cta" :disabled="!allQuestionsAnswered || testSubmitting" @click="handleSubmitTest">
-              Отправить тест
-            </BaseButton>
-          </section>
+          <TestRunner v-if="lesson.has_test" kind="lesson" :id="lesson.id" @passed="lesson.is_passed = true" />
 
           <section v-if="hasHomework" class="card space-y-3 p-4">
             <h2 class="text-lg font-medium text-ink">Домашнее задание</h2>

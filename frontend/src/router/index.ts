@@ -81,6 +81,12 @@ const router = createRouter({
       meta: { roles: ["student"] },
     },
     {
+      path: "/tests",
+      name: "tests",
+      component: () => import("@/views/student/TestsHubView.vue"),
+      meta: { roles: ["student"] },
+    },
+    {
       path: "/ent",
       name: "ent-start",
       component: () => import("@/views/student/EntStartView.vue"),

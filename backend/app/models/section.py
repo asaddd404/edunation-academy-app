@@ -15,6 +15,10 @@ class Section(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # How many questions one attempt draws from this section test's bank. None = all
+    # of them (the original behaviour). With a bank larger than this, every
+    # attempt gets a different selection -- see app.core.test_draw.
+    questions_per_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     category: Mapped["Category"] = relationship()
     lessons: Mapped[list["Lesson"]] = relationship(back_populates="section", order_by="[Lesson.order_index, Lesson.id]")

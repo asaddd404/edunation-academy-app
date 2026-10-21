@@ -34,6 +34,10 @@ class Lesson(Base):
     )
     video_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     video_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # How many questions one attempt draws from this test's bank. None = all
+    # of them (the original behaviour). With a bank larger than this, every
+    # attempt gets a different selection -- see app.core.test_draw.
+    questions_per_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     section: Mapped["Section"] = relationship(back_populates="lessons")
     questions: Mapped[list["Question"]] = relationship(back_populates="lesson", order_by="[Question.order_index, Question.id]")

@@ -1,5 +1,5 @@
 import http from "@/api/http";
-import type { AnswerPayload, LessonDetail, QuestionSavePayload, QuestionTeacher, TestAttemptResult } from "@/types";
+import type { LessonDetail, QuestionSavePayload, QuestionTeacher } from "@/types";
 
 export function getLesson(lessonId: number) {
   return http.get<LessonDetail>(`/lessons/${lessonId}`).then((r) => r.data);
@@ -14,7 +14,7 @@ export function createLesson(
 
 export function updateLesson(
   lessonId: number,
-  payload: { title?: string; description?: string; homework_assignment?: string },
+  payload: { title?: string; description?: string; homework_assignment?: string; questions_per_attempt?: number },
 ) {
   return http.patch(`/teacher/lessons/${lessonId}`, payload).then((r) => r.data);
 }
@@ -29,10 +29,6 @@ export function listLessonQuestions(lessonId: number) {
 
 export function createQuestion(lessonId: number, payload: QuestionSavePayload) {
   return http.post<QuestionTeacher>(`/teacher/lessons/${lessonId}/questions`, payload).then((r) => r.data);
-}
-
-export function submitTestAttempt(lessonId: number, answers: AnswerPayload[]) {
-  return http.post<TestAttemptResult>(`/lessons/${lessonId}/test/attempts`, { answers }).then((r) => r.data);
 }
 
 /** Uploads an image to embed in a lesson's rich description/homework.
