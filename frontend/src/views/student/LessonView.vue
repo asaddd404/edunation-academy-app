@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
@@ -70,7 +71,7 @@ function toggleMultipleChoice(questionId: number, choiceId: number, checked: boo
   answers[questionId] = current;
 }
 
-function setMatchPair(questionId: number, promptId: number, answerId: number) {
+function setMatchPair(questionId: number, promptId: number, answerId: string) {
   const current = answers[questionId] ?? { question_id: questionId, pairs: {} };
   current.pairs = { ...(current.pairs ?? {}), [String(promptId)]: answerId };
   answers[questionId] = current;
@@ -112,8 +113,10 @@ async function handleSubmitTest() {
     if (testResult.value.passed) {
       lesson.value.is_passed = true;
     }
-  } catch {
-    testError.value = "Не удалось отправить тест. Попробуйте ещё раз.";
+  } catch (e) {
+    // The server's own message matters here: a 429 says to wait, not retry.
+    const detail = isAxiosError(e) ? e.response?.data?.detail : null;
+    testError.value = typeof detail === "string" ? detail : "Не удалось отправить тест. Попробуйте ещё раз.";
   } finally {
     testSubmitting.value = false;
   }
@@ -126,8 +129,9 @@ async function handleSubmitHomework() {
     const submission = await submitHomework(lessonId, homeworkText.value, homeworkFile.value);
     if (lesson.value) lesson.value.my_homework = submission;
     homeworkFile.value = null;
-  } catch {
-    homeworkError.value = "Не удалось отправить домашнее задание.";
+  } catch (e) {
+    const detail = isAxiosError(e) ? e.response?.data?.detail : null;
+    homeworkError.value = typeof detail === "string" ? detail : "Не удалось отправить домашнее задание.";
   } finally {
     homeworkSubmitting.value = false;
   }
@@ -214,7 +218,7 @@ function handleFileChange(event: Event) {
                   <span class="w-1/2 text-ink">{{ prompt.text }}</span>
                   <select
                     class="input w-1/2"
-                    @change="setMatchPair(question.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
+                    @change="setMatchPair(question.id, prompt.id, ($event.target as HTMLSelectElement).value)"
                   >
                     <option value="" disabled selected>Выберите пару</option>
                     <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ opt.text }}</option>
@@ -274,12 +278,16 @@ function handleFileChange(event: Event) {
               </p>
             </div>
 
-            <textarea v-model="homeworkText" rows="4" placeholder="Текст ответа…" class="input" />
-            <input type="file" accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx" class="text-sm text-ink-2" @change="handleFileChange" />
-            <p v-if="homeworkError" class="text-sm text-clay">{{ homeworkError }}</p>
-            <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
-              Отправить домашку
-            </BaseButton>
+            <!-- Accepted work is final: the server refuses a resubmission
+                 that would discard the teacher's review. -->
+            <template v-if="lesson.my_homework?.status !== 'accepted'">
+              <textarea v-model="homeworkText" rows="4" maxlength="20000" placeholder="Текст ответа…" class="input" />
+              <input type="file" accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx" class="text-sm text-ink-2" @change="handleFileChange" />
+              <p v-if="homeworkError" class="text-sm text-clay">{{ homeworkError }}</p>
+              <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
+                Отправить домашку
+              </BaseButton>
+            </template>
           </section>
         </div>
       </div>

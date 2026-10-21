@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.phone import validate_phone
 from app.schemas.limits import OptionalShortText
@@ -41,6 +42,10 @@ class ProfileUpdateIn(BaseModel):
     first_name: OptionalShortText = None
     last_name: OptionalShortText = None
     phone: OptionalShortText = None
+    # Required only when `phone` changes: the phone number is the login, so
+    # changing it is changing the credential, and a borrowed access token
+    # alone must not be enough to lock the owner out of their account.
+    current_password: Annotated[str | None, Field(default=None, max_length=128)] = None
 
     @field_validator("phone")
     @classmethod

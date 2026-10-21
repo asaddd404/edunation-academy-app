@@ -9,7 +9,7 @@ import BackLink from "@/components/ui/BackLink.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import RankBadge from "@/components/ui/RankBadge.vue";
 import StudentAvatar from "@/components/ui/StudentAvatar.vue";
-import type { EntLeaderboard, EntLeaderboardEntry, LeaderboardPeriod } from "@/types";
+import type { EntLeaderboard, LeaderboardPeriod, RankedLeaderboardEntry } from "@/types";
 import { pluralRu } from "@/utils/subjectTheme";
 
 const board = ref<EntLeaderboard | null>(null);
@@ -39,7 +39,7 @@ function fullName(entry: { first_name: string; last_name: string }): string {
 
 /** Top three arranged 2-1-3 with descending block heights, so the podium
  * reads as a podium rather than as the first three rows of the list. */
-const podium = computed<{ entry: EntLeaderboardEntry; height: string; accent: string }[]>(() => {
+const podium = computed<{ entry: RankedLeaderboardEntry; height: string; accent: string }[]>(() => {
   const byRank = (rank: number) => board.value?.entries.find((e) => e.rank === rank);
   const layout = [
     { rank: 2, height: "h-16", accent: "border-slate-300 dark:border-slate-400/60" },
@@ -68,12 +68,23 @@ const restEntries = computed(() => {
 
 const meOutsideList = computed(() => {
   const me = board.value?.me;
-  return me && !board.value?.entries.some((e) => e.is_me) ? me : null;
+  // An unranked `me` (no timed attempt yet) has no place to show here.
+  if (!me || me.rank === null || me.best_score === null || board.value?.entries.some((e) => e.is_me)) return null;
+  return me as RankedLeaderboardEntry;
 });
 
+// Places are decided by the best score of a timed attempt finished in time;
+// XP only breaks ties, so a pile of attempts no longer outranks one good one.
 const periodNote = computed(() =>
-  period.value === "all" ? "Всего заработано XP" : "XP, заработанные за выбранный период",
+  period.value === "all"
+    ? "Место — по лучшему баллу в режиме с таймером, сданному вовремя"
+    : "Место — по лучшему баллу с таймером за выбранный период",
 );
+
+function scoreLabel(score: number | null): string {
+  const value = score ?? 0;
+  return `${value} ${pluralRu(value, ["балл", "балла", "баллов"])}`;
+}
 </script>
 
 <template>
@@ -135,7 +146,7 @@ const periodNote = computed(() =>
               <p class="mt-2 w-full truncate text-center text-xs font-medium text-ink sm:text-sm">
                 {{ fullName(spot.entry) }}
               </p>
-              <p class="mb-2 text-[11px] text-ink-3">{{ spot.entry.total_xp }} XP</p>
+              <p class="mb-2 text-[11px] text-ink-3">{{ scoreLabel(spot.entry.best_score) }}</p>
 
               <div
                 class="w-full rounded-t-xl border border-b-0 transition-all duration-500 ease-out"
@@ -174,14 +185,14 @@ const periodNote = computed(() =>
                 Топ-10
               </span>
               <!-- Secondary stats are the first thing to go on a narrow
-                   screen: rank, name and XP are what the list is read for. -->
+                   screen: rank, name and best score are what the list is read for. -->
               <span class="hidden shrink-0 text-xs text-ink-3 md:inline">
                 {{ entry.simulations_completed }}
-                {{ pluralRu(entry.simulations_completed, ["попытка", "попытки", "попыток"]) }} · лучший
-                {{ entry.best_score }}
+                {{ pluralRu(entry.simulations_completed, ["попытка", "попытки", "попыток"]) }} ·
+                {{ entry.total_xp }} XP
               </span>
               <span class="ml-auto shrink-0 rounded-full bg-moss px-2.5 py-1 text-xs font-semibold text-moss-fg sm:ml-0">
-                {{ entry.total_xp }} XP
+                {{ scoreLabel(entry.best_score) }}
               </span>
             </li>
           </ul>
@@ -192,9 +203,15 @@ const periodNote = computed(() =>
             <Trophy :size="28" :stroke-width="1.6" />
           </span>
           <p class="font-medium text-ink">
-            {{ period === "all" ? "Пока никто не прошёл ни одной симуляции" : "За этот период попыток ещё не было" }}
+            {{
+              period === "all"
+                ? "Пока никто не сдал симуляцию с таймером"
+                : "За этот период симуляций с таймером ещё не было"
+            }}
           </p>
-          <p class="max-w-xs text-sm text-ink-2">Станьте первым — начните пробную симуляцию ЕНТ.</p>
+          <p class="max-w-xs text-sm text-ink-2">
+            Станьте первым — пройдите пробное ЕНТ с таймером. Попытки без таймера дают XP, но в рейтинг не идут.
+          </p>
           <router-link to="/ent" class="btn-primary">Начать симуляцию</router-link>
         </div>
       </div>
@@ -216,7 +233,7 @@ const periodNote = computed(() =>
           <span class="min-w-0 flex-1 truncate text-ink">{{ fullName(meOutsideList) }}</span>
           <BaseBadge tone="success">Это вы</BaseBadge>
           <span class="shrink-0 rounded-full bg-moss px-2.5 py-1 text-xs font-semibold text-moss-fg">
-            {{ meOutsideList.total_xp }} XP
+            {{ scoreLabel(meOutsideList.best_score) }}
           </span>
         </div>
       </div>

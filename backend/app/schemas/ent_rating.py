@@ -2,7 +2,9 @@ from pydantic import BaseModel
 
 
 class EntLeaderboardEntryOut(BaseModel):
-    rank: int
+    # None only on `me` for a student with no rated attempt yet (see
+    # EntSimulation.counts_for_rating): they are not on the board.
+    rank: int | None
     student_id: int
     first_name: str
     last_name: str
@@ -11,7 +13,7 @@ class EntLeaderboardEntryOut(BaseModel):
     # to branch, but the meaning follows the requested period.
     total_xp: int
     simulations_completed: int
-    best_score: int
+    best_score: int | None
     is_me: bool
     # Lets the client decide between <img> and initials without a probe
     # request per row that would 404 for most students.

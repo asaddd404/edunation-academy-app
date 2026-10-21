@@ -36,4 +36,4 @@ class Lesson(Base):
     video_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     section: Mapped["Section"] = relationship(back_populates="lessons")
-    questions: Mapped[list["Question"]] = relationship(back_populates="lesson", order_by="Question.order_index")
+    questions: Mapped[list["Question"]] = relationship(back_populates="lesson", order_by="[Question.order_index, Question.id]")

@@ -1,19 +1,21 @@
 import jwt
-from fastapi import APIRouter, Cookie, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import can_watch_lesson_video
 from app.core.video import master_playlist_path, segment_path
+from app.database import get_db
 from app.security import decode_video_ticket
 
 router = APIRouter(prefix="/video", tags=["video"])
 
 
-def _check_ticket(lesson_id: int, token: str | None, cookie_token: str | None) -> None:
-    ticket = token or cookie_token
-    if not ticket:
+def _check_ticket(lesson_id: int, cookie_token: str | None) -> int:
+    if not cookie_token:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к видео")
     try:
-        decode_video_ticket(ticket, lesson_id)
+        return decode_video_ticket(cookie_token, lesson_id)
     except (jwt.PyJWTError, ValueError):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Ссылка на видео недействительна или истекла")
 
@@ -22,18 +24,24 @@ def _check_ticket(lesson_id: int, token: str | None, cookie_token: str | None) -
 async def get_video_file(
     lesson_id: int,
     filename: str,
-    token: str | None = Query(default=None),
     video_ticket: str | None = Cookie(default=None),
+    db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Serves both the HLS manifest and its .ts segments under one flat path
     so that the plain relative segment URIs ffmpeg writes into master.m3u8
     resolve correctly against this endpoint's own URL. Access is granted
-    either by a `token` query param or by the `video_ticket` cookie set when
-    the ticket was issued -- the cookie is what makes plain <video>/native
-    HLS playback (which can't attach query params to segment requests) work."""
-    _check_ticket(lesson_id, token, video_ticket)
+    only by the httpOnly `video_ticket` cookie set when the ticket was
+    issued. The old `?token=` query form is gone: nothing in the app used
+    it, and a URL carrying a credential is one that can be pasted into a
+    chat and played by anyone for the ticket's whole lifetime."""
+    user_id = _check_ticket(lesson_id, video_ticket)
 
     if filename == "master.m3u8":
+        # Access is re-checked against the database where playback starts.
+        # Not per segment: that is a request every few seconds per viewer,
+        # and the playlist is what every (re)start of the player loads.
+        if not await can_watch_lesson_video(db, user_id, lesson_id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к видео")
         path = master_playlist_path(lesson_id)
         media_type = "application/vnd.apple.mpegurl"
     elif filename.endswith(".ts"):

@@ -45,12 +45,23 @@ def create_access_token(user_id: int, role: str) -> str:
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_access_ttl_minutes),
         "jti": secrets.token_hex(8),
+        "type": "access",
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    """Raises jwt.PyJWTError for anything that is not an access token.
+
+    The video ticket is signed with the same secret, so a valid signature
+    alone does not make a token a session: without the shape check a ticket
+    presented as a bearer token got as far as `payload["sub"]` and answered
+    500. Tokens minted before the `type` claim existed carry no `type`, and
+    are accepted until they expire on their own (fifteen minutes)."""
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    if payload.get("type", "access") != "access" or "purpose" in payload or not str(payload.get("sub", "")).isdigit():
+        raise jwt.InvalidTokenError("Not an access token")
+    return payload
 
 
 def _user_sessions_key(user_id: int | str) -> str:
@@ -70,15 +81,32 @@ async def issue_refresh_token(user_id: int) -> str:
     return token
 
 
+# How long a just-rotated refresh token is remembered as "rotated" rather
+# than "unknown". Two tabs refreshing at once both send the same cookie; the
+# loser must not answer with a cookie-clearing 401, or it deletes the new
+# cookie the winner was just given and both tabs are signed out. It still
+# gets no session -- only the hint to retry with the cookie the browser now
+# holds -- so a stolen, already-rotated token stays worthless.
+REFRESH_ROTATION_GRACE_SECONDS = 60
+
+
 async def consume_refresh_token(token: str) -> int | None:
-    """Validates and deletes the refresh token (rotation). Returns user_id or None."""
+    """Validates and deletes the refresh token (rotation). Returns user_id or None.
+
+    GETDEL, not GET then DELETE: in between, a second request carrying the
+    same token would also see it as valid, and one token would mint two
+    sessions."""
     key = f"refresh:{token}"
-    user_id = await redis_client.get(key)
+    user_id = await redis_client.getdel(key)
     if user_id is None:
         return None
-    await redis_client.delete(key)
     await redis_client.srem(_user_sessions_key(user_id), token)
+    await redis_client.set(f"refresh_rotated:{token}", str(user_id), ex=REFRESH_ROTATION_GRACE_SECONDS)
     return int(user_id)
+
+
+async def was_recently_rotated(token: str) -> bool:
+    return await redis_client.get(f"refresh_rotated:{token}") is not None
 
 
 async def revoke_refresh_token(token: str) -> None:
@@ -194,36 +222,47 @@ def refresh_cookie_clear_header() -> dict[str, str]:
     return {"set-cookie": probe.headers["set-cookie"]}
 
 
-def create_video_ticket(lesson_id: int) -> str:
+def create_video_ticket(lesson_id: int, user_id: int) -> str:
     """Short-lived, stateless token that authorizes GET access to one
-    lesson's HLS manifest/segments. Carried as a query param instead of a
-    bearer header because native <video>/hls.js requests can't attach one."""
+    lesson's HLS manifest/segments, for one user. Carried in a path-scoped
+    httpOnly cookie because native <video>/hls.js requests can't attach a
+    bearer header.
+
+    `sub` binds it to the person it was issued to, so the video endpoint can
+    re-check that *they* still have access (see app.api.v1.video) rather
+    than trusting whoever holds the cookie for its whole lifetime."""
     now = datetime.now(timezone.utc)
     payload = {
         "purpose": "video",
         "lesson_id": lesson_id,
+        "sub": str(user_id),
         "iat": now,
         "exp": now + timedelta(minutes=settings.video_ticket_ttl_minutes),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
-def decode_video_ticket(token: str, lesson_id: int) -> None:
-    """Raises jwt.PyJWTError (via decode) or ValueError if the ticket is
-    invalid, expired, or scoped to a different lesson."""
+def decode_video_ticket(token: str, lesson_id: int) -> int:
+    """Returns the user id the ticket was issued to. Raises jwt.PyJWTError
+    (via decode) or ValueError if the ticket is invalid, expired, scoped to a
+    different lesson, or predates user binding."""
     payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     if payload.get("purpose") != "video" or payload.get("lesson_id") != lesson_id:
         raise ValueError("Ticket not valid for this lesson")
+    sub = str(payload.get("sub", ""))
+    if not sub.isdigit():
+        raise ValueError("Ticket is not bound to a user")
+    return int(sub)
 
 
-def set_video_ticket_cookie(response: Response, lesson_id: int) -> None:
+def set_video_ticket_cookie(response: Response, lesson_id: int, user_id: int) -> None:
     """Scopes the cookie to this lesson's own video path, so the browser
     only ever sends it on manifest/segment requests for that lesson --
     matches native <video>/HLS playback, which can't attach a bearer header
     or forward query params to segment requests it issues itself."""
     response.set_cookie(
         key="video_ticket",
-        value=create_video_ticket(lesson_id),
+        value=create_video_ticket(lesson_id, user_id),
         max_age=settings.video_ticket_ttl_minutes * 60,
         path=f"/api/v1/video/lessons/{lesson_id}",
         httponly=True,

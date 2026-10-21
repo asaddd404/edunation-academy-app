@@ -52,6 +52,12 @@ class EntQuestion(Base):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Set instead of deleting a question that some attempt already drew, and
+    # on the old version when such a question is edited (the edit becomes a
+    # new row). Archived questions leave the bank and are never drawn again,
+    # but past results keep pointing at exactly what the student was shown
+    # and graded against.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     subject: Mapped["EntSubject"] = relationship(back_populates="questions")
     created_by: Mapped["User | None"] = relationship()

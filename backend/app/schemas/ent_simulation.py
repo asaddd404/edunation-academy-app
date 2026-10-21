@@ -46,6 +46,14 @@ class EntMatchItemOut(BaseModel):
     text: str
 
 
+class EntMatchAnswerOut(BaseModel):
+    """Answer side of a matching question: `id` is an opaque token, never the
+    pair id -- see core.question_scoring.match_answer_token."""
+
+    id: str
+    text: str
+
+
 class EntChoiceOut(BaseModel):
     id: int
     text: str
@@ -63,7 +71,7 @@ class EntQuestionStudentOut(BaseModel):
     max_score: int
     choices: list[EntChoiceOut] = []
     match_prompts: list[EntMatchItemOut] = []
-    match_answers: list[EntMatchItemOut] = []
+    match_answers: list[EntMatchAnswerOut] = []
 
 
 class EntSimulationOut(BaseModel):
@@ -84,7 +92,9 @@ class EntAnswerIn(BaseModel):
     # Bounded because the grader iterates them: an answer carrying a million
     # ids is one request that pins a worker.
     choice_ids: Annotated[list[int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
-    pairs: Annotated[dict[str, int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
+    # Values are answer tokens; ints are still accepted (and score 0) so a tab
+    # left open across the deploy gets graded instead of a 422.
+    pairs: Annotated[dict[str, str | int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
     text: OptionalMediumText = None
 
 
@@ -103,6 +113,9 @@ class EntSimulationResultAnswerOut(BaseModel):
     score_awarded: int
     is_correct: bool
     given_answer: dict | None
+    # False for a question left unanswered: its correct answer is withheld
+    # (choices all report is_correct=False, pairs/variants are empty).
+    answer_revealed: bool = True
     choices: list[EntChoiceTeacherOut] = []
     match_pairs: list[EntMatchPairTeacherOut] = []
     answer_variants: list[EntAnswerVariantOut] = []

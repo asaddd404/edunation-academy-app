@@ -167,7 +167,8 @@ function historyTone(s: EntSimulationSummary): string {
           <div class="min-w-0 flex-1">
             <p class="text-xs uppercase tracking-wide text-ink-3">Ваше место в рейтинге</p>
             <p class="text-lg font-semibold text-ink">
-              #{{ myRating.rank }}
+              <template v-if="myRating.rank !== null">#{{ myRating.rank }}</template>
+              <template v-else>Пока не в рейтинге</template>
               <span class="text-sm font-normal text-ink-2">
                 · {{ myRating.simulations_completed }}
                 {{ pluralRu(myRating.simulations_completed, ["попытка", "попытки", "попыток"]) }}

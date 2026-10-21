@@ -2,8 +2,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.progress import get_lesson_progress
 from app.models.application import Application, ApplicationStatusEnum
-from app.models.category import teacher_categories
+from app.models.category import Category, teacher_categories
 from app.models.ent_question import EntQuestion
 from app.models.ent_subject import EntSubject
 from app.models.lesson import Lesson
@@ -70,7 +71,11 @@ async def assert_owns_ent_subject(db: AsyncSession, teacher: User, subject_id: i
 
 
 async def get_subject_id_for_ent_question(db: AsyncSession, question_id: int) -> int:
-    subject_id = await db.scalar(select(EntQuestion.subject_id).where(EntQuestion.id == question_id))
+    # Archived questions have left the bank: they are kept only so past
+    # attempts stay intact, and are no longer edited, deleted or illustrated.
+    subject_id = await db.scalar(
+        select(EntQuestion.subject_id).where(EntQuestion.id == question_id, EntQuestion.archived_at.is_(None))
+    )
     if subject_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Вопрос не найден")
     return subject_id
@@ -94,12 +99,19 @@ async def assert_teacher_owns_question(db: AsyncSession, teacher: User, question
 
 
 async def assert_student_has_category_access(db: AsyncSession, student: User, category_id: int) -> None:
+    # Joined to the category so that deactivating a course actually closes
+    # it: before, `is_active` only hid it from the catalog listing while every
+    # lesson, test and video stayed reachable by id.
     approved = await db.scalar(
-        select(Application.id).where(
+        select(Application.id)
+        .join(Category, Category.id == Application.category_id)
+        .where(
             Application.student_id == student.id,
             Application.category_id == category_id,
             Application.status == ApplicationStatusEnum.approved,
+            Category.is_active.is_(True),
         )
+        .limit(1)
     )
     if approved is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к этой категории")
@@ -120,3 +132,25 @@ async def assert_student_has_any_course_access(db: AsyncSession, student: User) 
             status.HTTP_403_FORBIDDEN,
             "ЕНТ-тренажёр доступен только после одобрения хотя бы одной заявки на курс",
         )
+
+
+async def can_watch_lesson_video(db: AsyncSession, user_id: int, lesson_id: int) -> bool:
+    """Whether `user_id` may still stream `lesson_id`'s video -- the same
+    rules the ticket endpoints apply when issuing a ticket, re-applied when
+    playback starts so that a deactivated account, a revoked enrollment or a
+    teacher moved off the course stop being able to play it."""
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        return False
+    if user.role == RoleEnum.admin:
+        return True
+    try:
+        category_id = await get_category_id_for_lesson(db, lesson_id)
+        if user.role == RoleEnum.teacher:
+            await assert_teacher_owns_category(db, user, category_id)
+            return True
+        await assert_student_has_category_access(db, user, category_id)
+    except HTTPException:
+        return False
+    unlocked, _ = await get_lesson_progress(db, user.id, category_id)
+    return lesson_id in unlocked

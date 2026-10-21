@@ -108,14 +108,21 @@ export interface Question {
   order_index: number;
   choices: Choice[];
   match_prompts: Choice[];
-  match_answers: Choice[];
+  // Answer-side ids are opaque tokens, deliberately unrelated to the prompt
+  // ids -- the backend grades by recomputing them.
+  match_answers: MatchAnswer[];
+}
+
+export interface MatchAnswer {
+  id: string;
+  text: string;
 }
 
 export interface AnswerPayload {
   question_id: number;
   choice_id?: number;
   choice_ids?: number[];
-  pairs?: Record<string, number>;
+  pairs?: Record<string, string>;
   text?: string;
 }
 
@@ -409,7 +416,7 @@ export interface EntQuestionStudent {
   max_score: number;
   choices: EntChoiceOption[];
   match_prompts: EntMatchItem[];
-  match_answers: EntMatchItem[];
+  match_answers: MatchAnswer[];
 }
 
 export interface EntSimulation {
@@ -428,7 +435,7 @@ export interface EntSimulationAnswerPayload {
   question_id: number;
   choice_id?: number;
   choice_ids?: number[];
-  pairs?: Record<string, number>;
+  pairs?: Record<string, string>;
   text?: string;
 }
 
@@ -443,6 +450,8 @@ export interface EntSimulationResultAnswer {
   score_awarded: number;
   is_correct: boolean;
   given_answer: EntSimulationAnswerPayload | null;
+  /** False when the question was left unanswered: its key is withheld. */
+  answer_revealed: boolean;
   choices: EntChoiceTeacher[];
   match_pairs: EntMatchPairTeacher[];
   answer_variants: EntAnswerVariant[];
@@ -480,20 +489,24 @@ export interface EntSimulationSummary {
 export type LeaderboardPeriod = "week" | "month" | "all";
 
 export interface EntLeaderboardEntry {
-  rank: number;
+  /** null only on `me` before any rated (timed, on-time) attempt: not on the board yet. */
+  rank: number | null;
   student_id: number;
   first_name: string;
   last_name: string;
   /** For a period board this is XP earned *within* that period, not lifetime. */
   total_xp: number;
   simulations_completed: number;
-  best_score: number;
+  best_score: number | null;
   is_me: boolean;
   has_avatar: boolean;
 }
 
+/** A row that is actually on the board: always ranked, always scored. */
+export type RankedLeaderboardEntry = EntLeaderboardEntry & { rank: number; best_score: number };
+
 export interface EntLeaderboard {
-  entries: EntLeaderboardEntry[];
+  entries: RankedLeaderboardEntry[];
   me: EntLeaderboardEntry | null;
 }
 

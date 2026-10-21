@@ -17,7 +17,7 @@ class Section(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     category: Mapped["Category"] = relationship()
-    lessons: Mapped[list["Lesson"]] = relationship(back_populates="section", order_by="Lesson.order_index")
+    lessons: Mapped[list["Lesson"]] = relationship(back_populates="section", order_by="[Lesson.order_index, Lesson.id]")
     test_questions: Mapped[list["Question"]] = relationship(
-        back_populates="section", order_by="Question.order_index"
+        back_populates="section", order_by="[Question.order_index, Question.id]"
     )

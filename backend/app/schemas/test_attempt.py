@@ -12,7 +12,9 @@ class AnswerIn(BaseModel):
     # Bounded because the grader iterates them: an answer carrying a million
     # ids is one request that pins a worker.
     choice_ids: Annotated[list[int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
-    pairs: Annotated[dict[str, int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
+    # Values are answer tokens; ints are still accepted (and score 0) so a tab
+    # left open across the deploy gets graded instead of a 422.
+    pairs: Annotated[dict[str, str | int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
     text: OptionalMediumText = None
 
 

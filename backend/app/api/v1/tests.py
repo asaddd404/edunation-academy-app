@@ -10,6 +10,7 @@ from app.core.authorization import (
 )
 from app.core.progress import get_lesson_progress, is_section_test_unlocked
 from app.core.question_scoring import grade_question
+from app.core.rate_limit import TEST_ATTEMPT_BY_USER
 from app.database import get_db
 from app.deps import require_role
 from app.models.lesson import Lesson
@@ -49,6 +50,7 @@ async def submit_test_attempt(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
 ) -> TestAttemptOut:
+    await TEST_ATTEMPT_BY_USER.enforce(f"{student.id}:lesson:{lesson_id}")
     category_id = await get_category_id_for_lesson(db, lesson_id)
     await assert_student_has_category_access(db, student, category_id)
 
@@ -91,6 +93,7 @@ async def submit_section_test_attempt(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
 ) -> TestAttemptOut:
+    await TEST_ATTEMPT_BY_USER.enforce(f"{student.id}:section:{section_id}")
     category_id = await get_category_id_for_section(db, section_id)
     await assert_student_has_category_access(db, student, category_id)
 

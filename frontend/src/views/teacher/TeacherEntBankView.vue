@@ -425,7 +425,10 @@ async function handleRemoveEditImage(subjectId: number) {
   // A not-yet-saved pick is dropped locally; an image already on the server
   // needs a DELETE of its own.
   if (form.hasImage) {
-    await deleteEntQuestionImage(questionId);
+    // A question some attempt already drew is versioned rather than changed
+    // in place, so the edit continues on whichever id comes back.
+    const updated = await deleteEntQuestionImage(questionId);
+    if (editingQuestionId.value === questionId) editingQuestionId.value = updated.id;
     form.hasImage = false;
     imageVersion.value += 1;
     await loadQuestions(subjectId, questionsPageFor(subjectId).page);

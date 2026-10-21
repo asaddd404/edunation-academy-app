@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import ValidationError
@@ -32,6 +33,7 @@ from app.core.storage import delete_upload, save_ent_question_image
 from app.database import get_db
 from app.deps import require_role
 from app.models.ent_question import EntAnswerVariant, EntChoice, EntLanguage, EntMatchPair, EntQuestion
+from app.models.ent_simulation import EntSimulationQuestion
 from app.models.ent_subject import EntSubject
 from app.models.user import RoleEnum, User
 from app.schemas.ent_import import (
@@ -76,6 +78,58 @@ router = APIRouter(
 )
 
 
+async def _drawn_question_ids(db: AsyncSession, question_ids: set[int]) -> set[int]:
+    """Which of these questions some simulation attempt has drawn."""
+    if not question_ids:
+        return set()
+    rows = await db.scalars(
+        select(EntSimulationQuestion.question_id)
+        .where(EntSimulationQuestion.question_id.in_(question_ids))
+        .distinct()
+    )
+    return set(rows.all())
+
+
+def _new_version(question: EntQuestion, user: User) -> EntQuestion:
+    """Archives `question` and returns an unsaved copy to edit instead.
+
+    Used for any change to a question an attempt has already drawn: editing
+    it in place would replace the choice ids stored answers point at, or the
+    image the student was shown, and past result pages would describe a
+    question nobody was asked. The copy keeps the bank position and image;
+    choices/pairs/variants are copied too, so callers that only change one
+    field (the image endpoints) get a complete question."""
+    question.archived_at = datetime.now(timezone.utc)
+    copy = EntQuestion(
+        subject_id=question.subject_id,
+        qtype=question.qtype,
+        text=question.text,
+        language=question.language,
+        image_path=question.image_path,
+        max_score=question.max_score,
+        order_index=question.order_index,
+        created_by_id=user.id,
+    )
+    copy.choices = [EntChoice(text=c.text, is_correct=c.is_correct, order_index=c.order_index) for c in question.choices]
+    copy.match_pairs = [
+        EntMatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=p.order_index)
+        for p in question.match_pairs
+    ]
+    copy.answer_variants = [EntAnswerVariant(text=v.text) for v in question.answer_variants]
+    return copy
+
+
+async def _delete_image_if_unused(db: AsyncSession, path: str | None) -> None:
+    """An edited question's new version shares its image file with the
+    archived one, so a file goes only when no row (archived or not) still
+    points at it."""
+    if not path:
+        return
+    still_used = await db.scalar(select(EntQuestion.id).where(EntQuestion.image_path == path).limit(1))
+    if still_used is None:
+        delete_upload(path)
+
+
 @router.get("/subjects", response_model=list[EntSubjectOut])
 async def list_subjects(
     db: AsyncSession = Depends(get_db),
@@ -89,7 +143,7 @@ async def list_subjects(
         # is already right there.
         func.count(EntQuestion.id).filter(EntQuestion.language == EntLanguage.ru),
         func.count(EntQuestion.id).filter(EntQuestion.language == EntLanguage.kk),
-    ).outerjoin(EntQuestion, EntQuestion.subject_id == EntSubject.id)
+    ).outerjoin(EntQuestion, (EntQuestion.subject_id == EntSubject.id) & EntQuestion.archived_at.is_(None))
     if user.role != RoleEnum.admin:
         query = query.where(or_(EntSubject.is_active.is_(True), EntSubject.created_by_id == user.id))
     query = query.group_by(EntSubject.id).order_by(EntSubject.name)
@@ -150,7 +204,9 @@ async def update_subject(
     await db.refresh(subject)
     out = EntSubjectOut.model_validate(subject)
     out.question_count = await db.scalar(
-        select(func.count(EntQuestion.id)).where(EntQuestion.subject_id == subject.id)
+        select(func.count(EntQuestion.id)).where(
+            EntQuestion.subject_id == subject.id, EntQuestion.archived_at.is_(None)
+        )
     )
     return out
 
@@ -172,7 +228,7 @@ async def list_subject_questions(
     every caller written before the ru/kk split asks for."""
     await assert_owns_ent_subject(db, user, subject_id)
 
-    filters = [EntQuestion.subject_id == subject_id]
+    filters = [EntQuestion.subject_id == subject_id, EntQuestion.archived_at.is_(None)]
     if language is not None:
         try:
             filters.append(EntQuestion.language == parse_language(language))
@@ -260,6 +316,11 @@ async def update_question(
             selectinload(EntQuestion.answer_variants),
         )
     )
+    if await _drawn_question_ids(db, {question_id}):
+        # Already sat by someone: the edit becomes a new version in the same
+        # place, and the old one is archived (see `_new_version`).
+        question = _new_version(question, user)
+        db.add(question)
     question.qtype = payload.qtype
     question.text = payload.text
     question.language = payload.language
@@ -274,9 +335,11 @@ async def update_question(
     question.answer_variants = [EntAnswerVariant(text=v.strip()) for v in payload.answer_variants if v.strip()]
     await db.commit()
 
+    # May be a new id (see above); the client replaces the row it edited
+    # with whatever comes back.
     question = await db.scalar(
         select(EntQuestion)
-        .where(EntQuestion.id == question_id)
+        .where(EntQuestion.id == question.id)
         .options(
             selectinload(EntQuestion.choices),
             selectinload(EntQuestion.match_pairs),
@@ -294,12 +357,18 @@ async def delete_question(
 ) -> None:
     await assert_owns_ent_question(db, user, question_id)
     question = await db.get(EntQuestion, question_id)
+    if await _drawn_question_ids(db, {question_id}):
+        # Deleting would cascade the question out of every attempt that drew
+        # it; archiving takes it out of the bank and leaves history alone.
+        question.archived_at = datetime.now(timezone.utc)
+        await db.commit()
+        return
     image_path = question.image_path
     await db.delete(question)
     await db.commit()
     # Only after the row is gone, so a failed commit can't leave a live
     # question pointing at a deleted file.
-    delete_upload(image_path)
+    await _delete_image_if_unused(db, image_path)
 
 
 @router.post("/questions/bulk-delete", response_model=EntBulkDeleteOut)
@@ -327,7 +396,9 @@ async def bulk_delete_questions(
             status.HTTP_400_BAD_REQUEST, f"Не более {MAX_BULK_DELETE_BATCH} вопросов за один запрос"
         )
 
-    questions = (await db.scalars(select(EntQuestion).where(EntQuestion.id.in_(ids)))).all()
+    questions = (
+        await db.scalars(select(EntQuestion).where(EntQuestion.id.in_(ids), EntQuestion.archived_at.is_(None)))
+    ).all()
     found_by_id = {q.id: q for q in questions}
     not_found = ids - found_by_id.keys()
 
@@ -337,15 +408,22 @@ async def bulk_delete_questions(
     for subject_id in {q.subject_id for q in questions}:
         await assert_owns_ent_subject(db, user, subject_id)
 
-    image_paths = [q.image_path for q in questions if q.image_path]
+    drawn = await _drawn_question_ids(db, {q.id for q in questions})
+    now = datetime.now(timezone.utc)
+    image_paths = [q.image_path for q in questions if q.image_path and q.id not in drawn]
     for question in questions:
-        await db.delete(question)
+        # Same rule as the single delete: questions an attempt drew are
+        # archived, so the batch never rewrites anyone's results.
+        if question.id in drawn:
+            question.archived_at = now
+        else:
+            await db.delete(question)
     await db.commit()
     # Only after the rows are gone, matching the single-delete endpoint's
     # ordering -- a failed commit can't leave a live question pointing at a
     # file that was already removed.
     for path in image_paths:
-        delete_upload(path)
+        await _delete_image_if_unused(db, path)
 
     deleted_ids = sorted(found_by_id.keys())
     audit_log(
@@ -389,11 +467,16 @@ async def upload_question_image(
 
     question = await _load_question_with_relations(db, question_id)
     old_path = question.image_path
-    question.image_path = await save_ent_question_image(file)
+    new_path = await save_ent_question_image(file)
+    if await _drawn_question_ids(db, {question_id}):
+        question = _new_version(question, user)
+        db.add(question)
+    question.image_path = new_path
     await db.commit()
-    delete_upload(old_path)
+    await _delete_image_if_unused(db, old_path)
 
-    return EntQuestionTeacherOut.model_validate(await _load_question_with_relations(db, question_id))
+    # May be a new version's id; the client continues with whatever it gets.
+    return EntQuestionTeacherOut.model_validate(await _load_question_with_relations(db, question.id))
 
 
 @router.delete("/questions/{question_id}/image", response_model=EntQuestionTeacherOut)
@@ -407,11 +490,14 @@ async def delete_question_image(
     question = await _load_question_with_relations(db, question_id)
     old_path = question.image_path
     if old_path:
+        if await _drawn_question_ids(db, {question_id}):
+            question = _new_version(question, user)
+            db.add(question)
         question.image_path = None
         await db.commit()
-        delete_upload(old_path)
+        await _delete_image_if_unused(db, old_path)
 
-    return EntQuestionTeacherOut.model_validate(await _load_question_with_relations(db, question_id))
+    return EntQuestionTeacherOut.model_validate(await _load_question_with_relations(db, question.id))
 
 
 @router.post("/questions/import-pdf", response_model=EntPdfImportOut)

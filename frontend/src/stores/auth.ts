@@ -112,7 +112,15 @@ export const useAuthStore = defineStore("auth", () => {
     // to ask. An anonymous visitor pays one 401 on first load.
     const token = (await migrateLegacySession()) ?? (await refresh());
     if (token) {
-      user.value = await authApi.fetchMe();
+      try {
+        user.value = await authApi.fetchMe();
+      } catch (error) {
+        // A failed /me (a network blip on first load) must not leave the
+        // store marked initialized with a token and no user -- the next
+        // navigation would then never ask again until a full reload.
+        initialized.value = false;
+        throw error;
+      }
     }
   }
 

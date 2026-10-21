@@ -36,6 +36,7 @@ from app.security import (
     set_refresh_cookie,
     verify_password,
     verify_password_dummy,
+    was_recently_rotated,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -144,6 +145,15 @@ async def refresh(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия не найдена")
 
     user_id = await consume_refresh_token(token)
+    if user_id is None and await was_recently_rotated(token):
+        # Another tab refreshed with this same cookie a moment ago. Leave the
+        # cookie alone -- the browser already holds its replacement -- and
+        # tell the client to retry once with it.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Сессия обновлена в другой вкладке",
+            headers={"X-Refresh-Rotated": "1"},
+        )
     if user_id is None:
         # The cookie is stale or forged; taking it back stops the browser
         # replaying it on every navigation for the next thirty days. The

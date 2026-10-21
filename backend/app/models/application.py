@@ -44,5 +44,9 @@ class Application(Base):
             "category_id",
             unique=True,
             postgresql_where=text("status = 'pending'"),
+            # Mirrored for the SQLite test database, which otherwise builds a
+            # plain unique index and refuses the reapply-after-rejection rows
+            # the real schema allows.
+            sqlite_where=text("status = 'pending'"),
         ),
     )

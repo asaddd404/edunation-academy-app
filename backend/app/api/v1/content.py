@@ -12,12 +12,8 @@ from app.core.authorization import (
     get_category_id_for_lesson,
     get_category_id_for_section,
 )
-from app.core.progress import (
-    get_lesson_progress,
-    get_lessons_without_questions,
-    get_passed_section_ids,
-    is_section_test_unlocked,
-)
+from app.core.progress import get_course_progress, get_lesson_progress
+from app.core.question_scoring import match_answer_token
 from app.database import get_db
 from app.deps import require_role
 from app.models.homework import HomeworkSubmission
@@ -26,7 +22,7 @@ from app.models.question import Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchItemOut, QuestionOut, VideoTicketOut
+from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchAnswerOut, MatchItemOut, QuestionOut, VideoTicketOut
 from app.core.storage import image_response, resolve_upload_path
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
@@ -64,14 +60,15 @@ _QUESTION_LOAD_OPTIONS = (
 
 def build_student_question(question: Question) -> QuestionOut:
     """Never exposes which choice/pair is correct. For matching, the answer
-    side is shuffled so its order can't leak the pairing."""
+    side is shuffled and carries opaque tokens instead of the pair ids, so
+    neither its order nor its ids can leak the pairing."""
     match_prompts: list[MatchItemOut] = []
-    match_answers: list[MatchItemOut] = []
+    match_answers: list[MatchAnswerOut] = []
     if question.match_pairs:
         match_prompts = [MatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
         shuffled = list(question.match_pairs)
         random.shuffle(shuffled)
-        match_answers = [MatchItemOut(id=p.id, text=p.answer_text) for p in shuffled]
+        match_answers = [MatchAnswerOut(id=match_answer_token(question.id, p.id), text=p.answer_text) for p in shuffled]
 
     return QuestionOut(
         id=question.id,
@@ -98,25 +95,21 @@ async def list_sections(
             select(Section)
             .where(Section.category_id == category_id)
             .options(selectinload(Section.lessons), selectinload(Section.test_questions))
-            .order_by(Section.order_index)
+            .order_by(Section.order_index, Section.id)
         )
     ).all()
 
-    unlocked, passed = await get_lesson_progress(db, student.id, category_id)
-    auto_passed = await get_lessons_without_questions(db, category_id)
-    effectively_passed = passed | auto_passed
-    passed_sections = await get_passed_section_ids(db, student.id, category_id)
+    progress = await get_course_progress(db, student.id, category_id)
 
     result = []
     for section in sections:
         out = SectionOut.model_validate(section)
         for lesson_out, lesson in zip(out.lessons, section.lessons):
-            lesson_out.is_unlocked = lesson.id in unlocked
-            lesson_out.is_passed = lesson.id in passed
-        lesson_ids = [lesson.id for lesson in section.lessons]
+            lesson_out.is_unlocked = lesson.id in progress.unlocked_lesson_ids
+            lesson_out.is_passed = lesson.id in progress.passed_lesson_ids
         out.has_test = len(section.test_questions) > 0
-        out.is_test_unlocked = bool(lesson_ids) and all(lid in effectively_passed for lid in lesson_ids)
-        out.is_test_passed = section.id in passed_sections
+        out.is_test_unlocked = section.id in progress.unlocked_test_section_ids
+        out.is_test_passed = section.id in progress.passed_section_ids
         result.append(out)
     return result
 
@@ -138,11 +131,10 @@ async def get_section_test(
     if section is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
 
-    unlocked = await is_section_test_unlocked(db, student.id, section_id, category_id)
-    if not unlocked:
+    progress = await get_course_progress(db, student.id, category_id)
+    if section_id not in progress.unlocked_test_section_ids:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Тест раздела ещё заблокирован")
-
-    passed_sections = await get_passed_section_ids(db, student.id, category_id)
+    passed_sections = progress.passed_section_ids
 
     return SectionTestOut(
         section_id=section_id,
@@ -215,5 +207,5 @@ async def get_lesson_video_ticket(
     if lesson is None or lesson.video_status != VideoStatusEnum.ready:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Видео ещё не готово")
 
-    set_video_ticket_cookie(response, lesson_id)
+    set_video_ticket_cookie(response, lesson_id, student.id)
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")

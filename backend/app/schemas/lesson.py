@@ -77,6 +77,14 @@ class MatchItemOut(BaseModel):
     text: str
 
 
+class MatchAnswerOut(BaseModel):
+    """Answer side of a matching question: `id` is an opaque token (see
+    core.question_scoring.match_answer_token), never the pair id."""
+
+    id: str
+    text: str
+
+
 class QuestionOut(BaseModel):
     """Student-facing view of a question -- never exposes which choice/pair
     is correct. Built manually (see content.build_student_question), not via
@@ -89,7 +97,7 @@ class QuestionOut(BaseModel):
     order_index: int
     choices: list[ChoiceOut] = []
     match_prompts: list[MatchItemOut] = []
-    match_answers: list[MatchItemOut] = []
+    match_answers: list[MatchAnswerOut] = []
 
 
 class LessonDetailOut(BaseModel):
