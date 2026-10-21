@@ -1,5 +1,3 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +7,7 @@ import secrets
 import string
 
 from app.core.audit import audit_log
+from app.core.clock import school_today
 from app.core.category_stats import lesson_stats
 from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.slug import slugify
@@ -44,7 +43,7 @@ async def list_users(
     if users:
         rows = await db.execute(
             select(UserDailyActivity.user_id, UserDailyActivity.total_seconds).where(
-                UserDailyActivity.date == date.today(),
+                UserDailyActivity.date == school_today(),
                 UserDailyActivity.user_id.in_([u.id for u in users]),
             )
         )

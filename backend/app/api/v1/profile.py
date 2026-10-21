@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import image_response, resolve_upload_path, save_avatar_image
-from app.core.rate_limit import UPLOAD_BY_USER
+from app.core.rate_limit import CHANGE_PASSWORD_BY_USER, UPLOAD_BY_USER
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
 from app.schemas.user import ProfileUpdateIn, UserOut
+from app.security import verify_password
 
 router = APIRouter(tags=["profile"])
 
@@ -20,6 +22,11 @@ async def update_my_profile(
     user: User = Depends(get_current_user),
 ) -> UserOut:
     if payload.phone is not None and payload.phone != user.phone:
+        await CHANGE_PASSWORD_BY_USER.enforce(str(user.id))
+        # 400, not 401: a 401 would send the axios interceptor off to refresh
+        # the session over a mistyped password (same as /auth/change-password).
+        if not payload.current_password or not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Для смены номера укажите текущий пароль")
         existing = await db.scalar(select(User).where(User.phone == payload.phone, User.id != user.id))
         if existing is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, "Этот номер телефона уже занят")
@@ -30,7 +37,12 @@ async def update_my_profile(
     if payload.last_name is not None:
         user.last_name = payload.last_name
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost a race for the same number against another account.
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Этот номер телефона уже занят")
     await db.refresh(user)
     return UserOut.model_validate(user)
 

@@ -1,3 +1,5 @@
+import { isAxiosError } from "axios";
+
 import http from "@/api/http";
 import type { AccessToken, AuthResponse, User } from "@/types";
 
@@ -24,9 +26,29 @@ export function login(payload: { phone: string; password: string }) {
  * first load is what converts it into a cookie instead of signing the user
  * out. Remove the parameter once the backend stops accepting a body.
  */
-export function refreshTokens(legacyToken?: string) {
+export async function refreshTokens(legacyToken?: string): Promise<AccessToken> {
   const body = legacyToken ? { refresh_token: legacyToken } : undefined;
-  return http.post<AccessToken>("/auth/refresh", body).then((r) => r.data);
+  const post = () => http.post<AccessToken>("/auth/refresh", body).then((r) => r.data);
+
+  // The refresh cookie is single-use and shared by every tab. When two tabs
+  // refresh at once, the slower one presents a token the faster one just
+  // rotated; the server answers that with a hint instead of a cookie-clearing
+  // 401, and by then the browser holds the replacement -- so one retry wins.
+  const attempt = async () => {
+    try {
+      return await post();
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.headers["x-refresh-rotated"]) return post();
+      throw error;
+    }
+  };
+
+  // Serialised across tabs where the Web Locks API exists, so they do not
+  // race the cookie in the first place; the retry above covers the rest.
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return await navigator.locks.request("edunation-auth-refresh", attempt);
+  }
+  return attempt();
 }
 
 export function logout() {
@@ -45,7 +67,12 @@ export function fetchMe() {
   return http.get<User>("/auth/me").then((r) => r.data);
 }
 
-export function updateProfile(payload: { first_name?: string; last_name?: string; phone?: string }) {
+export function updateProfile(payload: {
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  current_password?: string;
+}) {
   return http.patch<User>("/me", payload).then((r) => r.data);
 }
 

@@ -2,12 +2,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_can_decide_application
 from app.core.notifications import notify
 from app.core.pagination import PageParams, fetch_page, page_params
+from app.core.rate_limit import APPLICATION_BY_USER
 from app.database import get_db
 from app.deps import require_role
 from app.models.application import Application, ApplicationStatusEnum
@@ -46,19 +48,33 @@ async def create_application(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
 ) -> ApplicationOut:
-    existing = await db.scalar(
-        select(Application).where(
-            Application.student_id == student.id,
-            Application.category_id == payload.category_id,
-            Application.status == ApplicationStatusEnum.pending,
-        )
-    )
-    if existing is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Заявка на эту категорию уже подана и ожидает решения")
+    # Each application notifies every teacher on the course, so re-applying
+    # after a rejection is the one way a student can push notifications at
+    # staff in a loop.
+    await APPLICATION_BY_USER.enforce(str(student.id))
 
     category = await db.get(Category, payload.category_id)
-    if category is None:
+    if category is None or not category.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
+
+    statuses = set(
+        (
+            await db.scalars(
+                select(Application.status).where(
+                    Application.student_id == student.id,
+                    Application.category_id == payload.category_id,
+                    Application.status.in_([ApplicationStatusEnum.pending, ApplicationStatusEnum.approved]),
+                )
+            )
+        ).all()
+    )
+    # Approved is checked too: a fresh pending row next to an approved one
+    # made the course page show "на рассмотрении" to a student who already
+    # had access, and queued a decision nobody needed to make.
+    if ApplicationStatusEnum.approved in statuses:
+        raise HTTPException(status.HTTP_409_CONFLICT, "У вас уже есть доступ к этому курсу")
+    if ApplicationStatusEnum.pending in statuses:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заявка на эту категорию уже подана и ожидает решения")
 
     application = Application(student_id=student.id, category_id=payload.category_id)
     db.add(application)
@@ -77,7 +93,12 @@ async def create_application(
             link="/teacher",
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A double-click racing into the one-pending-per-course index.
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Заявка на эту категорию уже подана и ожидает решения")
     await db.refresh(application)
     return ApplicationOut.model_validate(application)
 

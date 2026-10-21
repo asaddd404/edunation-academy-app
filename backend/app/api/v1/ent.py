@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,8 +19,8 @@ from app.core.ent_language import (
     question_pool_filters,
     shortage_message,
 )
-from app.core.question_scoring import grade_question
-from app.core.rating import apply_simulation_xp
+from app.core.question_scoring import grade_question, match_answer_token
+from app.core.rating import SUBMIT_GRACE, apply_simulation_xp
 from app.core.storage import image_response, resolve_upload_path
 from app.database import get_db
 from app.deps import require_role
@@ -34,6 +34,7 @@ from app.schemas.ent_rating import EntLeaderboardEntryOut, EntLeaderboardOut
 from app.schemas.ent_simulation import (
     EntAnswerIn,
     EntChoiceOut,
+    EntMatchAnswerOut,
     EntMatchItemOut,
     EntQuestionStudentOut,
     EntSimulationOut,
@@ -86,12 +87,14 @@ _QUESTION_LOAD_OPTIONS = (
 
 def _build_student_question(question: EntQuestion) -> EntQuestionStudentOut:
     match_prompts: list[EntMatchItemOut] = []
-    match_answers: list[EntMatchItemOut] = []
+    match_answers: list[EntMatchAnswerOut] = []
     if question.match_pairs:
         match_prompts = [EntMatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
         shuffled = list(question.match_pairs)
         random.shuffle(shuffled)
-        match_answers = [EntMatchItemOut(id=p.id, text=p.answer_text) for p in shuffled]
+        match_answers = [
+            EntMatchAnswerOut(id=match_answer_token(question.id, p.id), text=p.answer_text) for p in shuffled
+        ]
 
     return EntQuestionStudentOut(
         id=question.id,
@@ -151,17 +154,28 @@ async def list_subjects(db: AsyncSession = Depends(get_db)) -> list[EntSubjectOu
 MAX_UNFINISHED_SIMULATIONS = 5
 
 
+def _as_utc(moment: datetime) -> datetime:
+    """SQLite hands timestamps back naive; Postgres does not. Both are UTC."""
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
 async def _assert_not_hoarding_attempts(db: AsyncSession, student: User) -> None:
+    # A timed attempt whose deadline (plus grace) has passed can no longer
+    # earn anything, so it no longer counts against the ceiling -- otherwise
+    # the "wait for it to expire" advice below would never come true.
+    deadline_cutoff = datetime.now(timezone.utc) - SUBMIT_GRACE
     unfinished = await db.scalar(
         select(func.count(EntSimulation.id)).where(
             EntSimulation.student_id == student.id,
             EntSimulation.status == EntSimulationStatus.in_progress,
+            or_(EntSimulation.expires_at.is_(None), EntSimulation.expires_at > deadline_cutoff),
         )
     )
     if (unfinished or 0) >= MAX_UNFINISHED_SIMULATIONS:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "У вас слишком много незавершённых попыток. Завершите начатую или дождитесь её истечения.",
+            "У вас слишком много незавершённых попыток. Завершите одну из начатых "
+            "(попытки с таймером перестают учитываться после истечения времени).",
         )
 
 
@@ -394,6 +408,24 @@ async def submit_simulation(
     if simulation.status != EntSimulationStatus.in_progress:
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана")
 
+    # Claims the attempt atomically before anything is graded. The check
+    # above reads a snapshot, so two submits fired together would both pass
+    # it and both grant XP; this conditional UPDATE row-locks the attempt, and
+    # the second one finds it no longer in progress once the first commits.
+    claimed = await db.execute(
+        update(EntSimulation)
+        .where(
+            EntSimulation.id == simulation_id,
+            EntSimulation.student_id == student.id,
+            EntSimulation.status == EntSimulationStatus.in_progress,
+        )
+        .values(status=EntSimulationStatus.submitted)
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана")
+
     answers_by_question: dict[int, EntAnswerIn] = {a.question_id: a for a in payload.answers}
 
     total_score = 0
@@ -410,7 +442,7 @@ async def submit_simulation(
     now = datetime.now(timezone.utc)
     simulation.status = EntSimulationStatus.submitted
     simulation.submitted_at = now
-    simulation.time_expired = bool(simulation.is_timed and simulation.expires_at and now > simulation.expires_at)
+    simulation.time_expired = bool(simulation.is_timed and simulation.expires_at and now > _as_utc(simulation.expires_at))
     simulation.total_score = total_score
     simulation.max_score = max_score
     simulation.xp_earned = await apply_simulation_xp(db, simulation)
@@ -484,7 +516,11 @@ async def get_leaderboard(
     raw_rows = await cached_json(cache_key, settings.leaderboard_cache_seconds, build_rows)
 
     entries = [
-        EntLeaderboardEntryOut(**row, is_me=(row["student_id"] == student.id)) for row in raw_rows
+        EntLeaderboardEntryOut(
+            **{**row, "last_name": student.last_name if row["student_id"] == student.id else row["last_name"]},
+            is_me=(row["student_id"] == student.id),
+        )
+        for row in raw_rows
     ]
 
     # Always surface the requesting student's own standing, even when they
@@ -522,6 +558,11 @@ def _leaderboard_source(period: str):
     return _period_totals_query(cutoff).subquery()
 
 
+def _initial(last_name: str) -> str:
+    last_name = last_name.strip()
+    return f"{last_name[0]}." if last_name else ""
+
+
 async def _leaderboard_rows(db: AsyncSession, period: str, limit: int) -> list[dict]:
     source = _leaderboard_source(period)
 
@@ -544,7 +585,11 @@ async def _leaderboard_rows(db: AsyncSession, period: str, limit: int) -> list[d
             "rank": i + 1,
             "student_id": row.student_id,
             "first_name": row.User.first_name,
-            "last_name": row.User.last_name,
+            # Initial only: the board is shown to every enrolled student, and
+            # most of them are minors -- a full name plus a score ranking is
+            # more than classmates need. The viewer's own row gets the full
+            # name back in `get_leaderboard`.
+            "last_name": _initial(row.User.last_name),
             "total_xp": row.total_xp,
             "simulations_completed": row.simulations_completed,
             "best_score": row.best_score,

@@ -8,13 +8,30 @@ from app.core.pagination import PageParams, fetch_page, page_params
 from app.core.storage import image_response, resolve_upload_path
 from app.database import get_db
 from app.deps import get_current_user
-from app.models.application import Application
+from app.models.application import Application, ApplicationStatusEnum
 from app.models.category import Category
 from app.models.user import RoleEnum, User
 from app.schemas.category import CategoryOut
 from app.schemas.pagination import Page
 
 router = APIRouter(prefix="/categories", tags=["categories"])
+
+# Which of a student's applications to a category speaks for it. Approved
+# wins outright -- the access check only asks whether *any* approved row
+# exists, so showing "rejected" or "pending" next to it would lock the
+# catalog UI out of a course the API serves. Rows arrive in no particular
+# order, so this has to be decided, not left to whichever came last.
+_STATUS_PRIORITY = {
+    ApplicationStatusEnum.approved.value: 3,
+    ApplicationStatusEnum.pending.value: 2,
+    ApplicationStatusEnum.rejected.value: 1,
+}
+
+
+def _most_relevant(current: str | None, candidate: str) -> str:
+    if current is None or _STATUS_PRIORITY[candidate] > _STATUS_PRIORITY[current]:
+        return candidate
+    return current
 
 
 @router.get("", response_model=Page[CategoryOut])
@@ -32,16 +49,17 @@ async def list_categories(
             await db.scalars(select(Application).where(Application.student_id == user.id))
         ).all()
         for app_ in applications:
-            # Keep the most relevant status per category (an approved/rejected
-            # decision takes precedence over an older pending row if re-applied).
-            status_by_category[app_.category_id] = app_.status.value
+            status_by_category[app_.category_id] = _most_relevant(
+                status_by_category.get(app_.category_id), app_.status.value
+            )
 
     stats = await lesson_stats(db, [c.id for c in categories])
 
     result = []
     for category in categories:
         out = CategoryOut.model_validate(category)
-        out.my_application_status = status_by_category.get(category.id)
+        status_value = status_by_category.get(category.id)
+        out.my_application_status = ApplicationStatusEnum(status_value) if status_value else None
         out.lesson_count, out.total_duration_seconds = stats.get(category.id, (0, 0))
         result.append(out)
     return Page.of(result, total, params.page, params.per_page)
@@ -72,18 +90,24 @@ async def get_category(
     user: User = Depends(get_current_user),
 ) -> CategoryOut:
     category = await db.get(Category, category_id)
-    if category is None:
+    # A deactivated course is hidden from students, as in the listing above;
+    # staff still see it so they can manage it.
+    if category is None or (not category.is_active and user.role == RoleEnum.student):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
 
     out = CategoryOut.model_validate(category)
     if user.role == RoleEnum.student:
-        application = await db.scalar(
-            select(Application)
-            .where(Application.student_id == user.id, Application.category_id == category_id)
-            .order_by(Application.created_at.desc())
-        )
-        if application is not None:
-            out.my_application_status = application.status.value
+        statuses = (
+            await db.scalars(
+                select(Application.status).where(
+                    Application.student_id == user.id, Application.category_id == category_id
+                )
+            )
+        ).all()
+        best: str | None = None
+        for status_ in statuses:
+            best = _most_relevant(best, status_.value)
+        out.my_application_status = ApplicationStatusEnum(best) if best else None
 
     stats = await lesson_stats(db, [category_id])
     out.lesson_count, out.total_duration_seconds = stats.get(category_id, (0, 0))

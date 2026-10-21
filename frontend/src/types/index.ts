@@ -108,14 +108,21 @@ export interface Question {
   order_index: number;
   choices: Choice[];
   match_prompts: Choice[];
-  match_answers: Choice[];
+  // Answer-side ids are opaque tokens, deliberately unrelated to the prompt
+  // ids -- the backend grades by recomputing them.
+  match_answers: MatchAnswer[];
+}
+
+export interface MatchAnswer {
+  id: string;
+  text: string;
 }
 
 export interface AnswerPayload {
   question_id: number;
   choice_id?: number;
   choice_ids?: number[];
-  pairs?: Record<string, number>;
+  pairs?: Record<string, string>;
   text?: string;
 }
 
@@ -409,7 +416,7 @@ export interface EntQuestionStudent {
   max_score: number;
   choices: EntChoiceOption[];
   match_prompts: EntMatchItem[];
-  match_answers: EntMatchItem[];
+  match_answers: MatchAnswer[];
 }
 
 export interface EntSimulation {
@@ -428,7 +435,7 @@ export interface EntSimulationAnswerPayload {
   question_id: number;
   choice_id?: number;
   choice_ids?: number[];
-  pairs?: Record<string, number>;
+  pairs?: Record<string, string>;
   text?: string;
 }
 

@@ -12,7 +12,11 @@ async def get_ordered_lesson_ids(db: AsyncSession, category_id: int) -> list[int
         select(Lesson.id)
         .join(Section, Section.id == Lesson.section_id)
         .where(Section.category_id == category_id)
-        .order_by(Section.order_index, Lesson.order_index)
+        # The ids break ties: order_index is assigned as max()+1, which two
+        # concurrent creates can duplicate, and without a total order Postgres
+        # may return tied rows differently per query -- flipping which lesson
+        # counts as "next" and so which one is unlocked.
+        .order_by(Section.order_index, Section.id, Lesson.order_index, Lesson.id)
     )
     return [row[0] for row in result.all()]
 
@@ -65,8 +69,36 @@ async def get_lesson_progress(db: AsyncSession, student_id: int, category_id: in
     return unlocked, passed
 
 
+def section_test_unlocked(section_lesson_ids: list[int], earlier_lesson_ids: list[int], effectively_passed: set[int]) -> bool:
+    """The one rule for when a section's test opens, shared by the section
+    listing and the test endpoints so the UI and the API cannot disagree.
+
+    Every lesson in the section must be passed (or have no mini-test yet). A
+    section with no lessons at all opens its test once everything before it
+    is passed -- not immediately, which would let its test be sat out of
+    order, and not never, which would strand a test-only section."""
+    required = section_lesson_ids or earlier_lesson_ids
+    return all(lid in effectively_passed for lid in required)
+
+
 async def get_lesson_ids_in_section(db: AsyncSession, section_id: int) -> list[int]:
     result = await db.execute(select(Lesson.id).where(Lesson.section_id == section_id))
+    return [row[0] for row in result.all()]
+
+
+async def get_lesson_ids_before_section(db: AsyncSession, section_id: int, category_id: int) -> list[int]:
+    """Lessons of every section ordered before `section_id` in its category."""
+    target = await db.scalar(select(Section.order_index).where(Section.id == section_id))
+    if target is None:
+        return []
+    result = await db.execute(
+        select(Lesson.id)
+        .join(Section, Section.id == Lesson.section_id)
+        .where(
+            Section.category_id == category_id,
+            (Section.order_index < target) | ((Section.order_index == target) & (Section.id < section_id)),
+        )
+    )
     return [row[0] for row in result.all()]
 
 
@@ -88,9 +120,7 @@ async def is_section_test_unlocked(db: AsyncSession, student_id: int, section_id
     """The section test opens once every lesson in that section has been
     passed (or, per get_lessons_without_questions, has no mini-test yet)."""
     lesson_ids = await get_lesson_ids_in_section(db, section_id)
-    if not lesson_ids:
-        return True
+    earlier = [] if lesson_ids else await get_lesson_ids_before_section(db, section_id, category_id)
     passed = await get_passed_lesson_ids(db, student_id, category_id)
     auto_passed = await get_lessons_without_questions(db, category_id)
-    effectively_passed = passed | auto_passed
-    return all(lid in effectively_passed for lid in lesson_ids)
+    return section_test_unlocked(lesson_ids, earlier, passed | auto_passed)

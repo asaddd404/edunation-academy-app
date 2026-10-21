@@ -45,12 +45,23 @@ def create_access_token(user_id: int, role: str) -> str:
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_access_ttl_minutes),
         "jti": secrets.token_hex(8),
+        "type": "access",
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    """Raises jwt.PyJWTError for anything that is not an access token.
+
+    The video ticket is signed with the same secret, so a valid signature
+    alone does not make a token a session: without the shape check a ticket
+    presented as a bearer token got as far as `payload["sub"]` and answered
+    500. Tokens minted before the `type` claim existed carry no `type`, and
+    are accepted until they expire on their own (fifteen minutes)."""
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    if payload.get("type", "access") != "access" or "purpose" in payload or not str(payload.get("sub", "")).isdigit():
+        raise jwt.InvalidTokenError("Not an access token")
+    return payload
 
 
 def _user_sessions_key(user_id: int | str) -> str:
@@ -70,15 +81,32 @@ async def issue_refresh_token(user_id: int) -> str:
     return token
 
 
+# How long a just-rotated refresh token is remembered as "rotated" rather
+# than "unknown". Two tabs refreshing at once both send the same cookie; the
+# loser must not answer with a cookie-clearing 401, or it deletes the new
+# cookie the winner was just given and both tabs are signed out. It still
+# gets no session -- only the hint to retry with the cookie the browser now
+# holds -- so a stolen, already-rotated token stays worthless.
+REFRESH_ROTATION_GRACE_SECONDS = 60
+
+
 async def consume_refresh_token(token: str) -> int | None:
-    """Validates and deletes the refresh token (rotation). Returns user_id or None."""
+    """Validates and deletes the refresh token (rotation). Returns user_id or None.
+
+    GETDEL, not GET then DELETE: in between, a second request carrying the
+    same token would also see it as valid, and one token would mint two
+    sessions."""
     key = f"refresh:{token}"
-    user_id = await redis_client.get(key)
+    user_id = await redis_client.getdel(key)
     if user_id is None:
         return None
-    await redis_client.delete(key)
     await redis_client.srem(_user_sessions_key(user_id), token)
+    await redis_client.set(f"refresh_rotated:{token}", str(user_id), ex=REFRESH_ROTATION_GRACE_SECONDS)
     return int(user_id)
+
+
+async def was_recently_rotated(token: str) -> bool:
+    return await redis_client.get(f"refresh_rotated:{token}") is not None
 
 
 async def revoke_refresh_token(token: str) -> None:

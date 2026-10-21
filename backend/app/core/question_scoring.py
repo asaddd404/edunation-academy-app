@@ -1,3 +1,7 @@
+import hashlib
+import hmac
+
+from app.config import settings
 from app.models.ent_question import EntQuestion, EntQuestionType
 from app.models.question import Question
 
@@ -10,7 +14,7 @@ GradeableQuestion = EntQuestion | Question
 # Answer payload shapes submitted by the student, per qtype:
 #   single:       {"choice_id": <int>}
 #   multiple:     {"choice_ids": [<int>, ...]}
-#   matching:     {"pairs": {"<pair_id>": <chosen_pair_id>, ...}}
+#   matching:     {"pairs": {"<pair_id>": "<chosen answer token>", ...}}
 #   short_answer: {"text": "<str>"}
 #
 # Scoring rule (2/1/0), confirmed for multiple/matching: full credit
@@ -20,6 +24,21 @@ GradeableQuestion = EntQuestion | Question
 # a partial 1 for those types. Any reference to a choice/pair id that
 # doesn't belong to the question is treated as an invalid answer (0),
 # rather than raising, so one bad entry doesn't fail an entire submission.
+
+
+def match_answer_token(question_id: int, pair_id: int) -> str:
+    """The id a student sees for the *answer* side of a matching pair.
+
+    Each match-pair row holds both halves of a correct pairing, so handing
+    out the row id on both sides gives the key away: the right answer for a
+    prompt is simply the option carrying the same id, shuffled or not. The
+    answer side therefore gets an opaque token the client cannot link back
+    to its prompt, while the grader -- which knows the secret -- can still
+    recompute it. Stable per question, so no per-attempt state is needed and
+    a lesson test with no attempt row works the same as an ЕНТ simulation.
+    """
+    message = f"match-answer:{question_id}:{pair_id}".encode()
+    return hmac.new(settings.jwt_secret.encode(), message, hashlib.sha256).hexdigest()[:20]
 
 
 def _normalize_text(text: str) -> str:
@@ -79,10 +98,12 @@ def grade_matching(question: GradeableQuestion, answer_data: dict | None) -> int
         if prompt_id not in valid_pair_ids or prompt_id in seen_prompt_ids:
             continue
         seen_prompt_ids.add(prompt_id)
-        # Each ent_match_pairs row encodes its own correct pairing, so a
-        # correct match means the student picked this same row's id as
-        # the answer for this prompt.
-        if isinstance(chosen_answer_id, int) and chosen_answer_id == prompt_id:
+        # Each match-pair row encodes its own correct pairing, so a correct
+        # match means the student picked this same row's answer token for
+        # this prompt. A bare int (the pre-token payload) never matches.
+        if isinstance(chosen_answer_id, str) and hmac.compare_digest(
+            chosen_answer_id, match_answer_token(question.id, prompt_id)
+        ):
             correct_count += 1
 
     if correct_count == len(valid_pair_ids):

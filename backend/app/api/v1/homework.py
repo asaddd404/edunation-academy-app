@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,7 +15,7 @@ from app.core.authorization import (
 )
 from app.core.notifications import notify
 from app.core.progress import get_lesson_progress
-from app.core.storage import attachment_response, resolve_upload_path, save_homework_file
+from app.core.storage import attachment_response, delete_upload, resolve_upload_path, save_homework_file
 from app.database import get_db
 from app.deps import get_current_user, require_role
 from app.models.category import teacher_categories
@@ -25,6 +26,8 @@ from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkReviewIn, HomeworkSubmissionOut
 
 router = APIRouter(tags=["homework"])
+
+HOMEWORK_TEXT_MAX_LENGTH = 20_000
 
 
 def _serialize(submission: HomeworkSubmission, *, with_student: bool = False, with_lesson: bool = False) -> HomeworkSubmissionOut:
@@ -39,7 +42,9 @@ def _serialize(submission: HomeworkSubmission, *, with_student: bool = False, wi
 @router.post("/lessons/{lesson_id}/homework", response_model=HomeworkSubmissionOut, status_code=status.HTTP_201_CREATED)
 async def submit_homework(
     lesson_id: int,
-    text_answer: str | None = Form(default=None),
+    # Bounded like every other free-text field: a form field is otherwise
+    # read into a TEXT column whole, up to the 25 MB request ceiling.
+    text_answer: str | None = Form(default=None, max_length=HOMEWORK_TEXT_MAX_LENGTH),
     file: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
@@ -63,11 +68,17 @@ async def submit_homework(
     if submission is None:
         submission = HomeworkSubmission(lesson_id=lesson_id, student_id=student.id)
         db.add(submission)
+    elif submission.status == HomeworkStatusEnum.accepted:
+        # Resubmitting used to reset an accepted piece of work back to
+        # "submitted" and wipe the teacher's feedback with it.
+        raise HTTPException(status.HTTP_409_CONFLICT, "Домашнее задание уже принято учителем")
 
+    replaced_file: str | None = None
     if text_answer is not None:
         submission.text_answer = text_answer
     if file is not None:
         relative_path, original_name = await save_homework_file(file)
+        replaced_file = submission.file_path
         submission.file_path = relative_path
         submission.file_original_name = original_name
 
@@ -91,8 +102,19 @@ async def submit_homework(
             link="/teacher/homework",
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two first submissions racing into the (student, lesson) unique
+        # index: answer like any other conflict instead of a 500, and drop
+        # the file this request wrote, which no row points at.
+        await db.rollback()
+        delete_upload(submission.file_path if file is not None else None)
+        raise HTTPException(status.HTTP_409_CONFLICT, "Домашнее задание уже отправляется, обновите страницу")
     await db.refresh(submission)
+    # Only after the commit, so a failed write never leaves the row pointing
+    # at a file that is gone.
+    delete_upload(replaced_file)
     return HomeworkSubmissionOut.model_validate(submission)
 
 

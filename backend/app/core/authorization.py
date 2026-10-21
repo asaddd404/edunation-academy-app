@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.application import Application, ApplicationStatusEnum
-from app.models.category import teacher_categories
+from app.models.category import Category, teacher_categories
 from app.models.ent_question import EntQuestion
 from app.models.ent_subject import EntSubject
 from app.models.lesson import Lesson
@@ -94,12 +94,19 @@ async def assert_teacher_owns_question(db: AsyncSession, teacher: User, question
 
 
 async def assert_student_has_category_access(db: AsyncSession, student: User, category_id: int) -> None:
+    # Joined to the category so that deactivating a course actually closes
+    # it: before, `is_active` only hid it from the catalog listing while every
+    # lesson, test and video stayed reachable by id.
     approved = await db.scalar(
-        select(Application.id).where(
+        select(Application.id)
+        .join(Category, Category.id == Application.category_id)
+        .where(
             Application.student_id == student.id,
             Application.category_id == category_id,
             Application.status == ApplicationStatusEnum.approved,
+            Category.is_active.is_(True),
         )
+        .limit(1)
     )
     if approved is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к этой категории")

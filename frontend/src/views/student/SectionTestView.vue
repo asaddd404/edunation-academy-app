@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
@@ -48,7 +49,7 @@ function toggleMultipleChoice(questionId: number, choiceId: number, checked: boo
   answers[questionId] = current;
 }
 
-function setMatchPair(questionId: number, promptId: number, answerId: number) {
+function setMatchPair(questionId: number, promptId: number, answerId: string) {
   const current = answers[questionId] ?? { question_id: questionId, pairs: {} };
   current.pairs = { ...(current.pairs ?? {}), [String(promptId)]: answerId };
   answers[questionId] = current;
@@ -79,8 +80,10 @@ async function handleSubmit() {
   try {
     result.value = await submitSectionTestAttempt(sectionId, Object.values(answers));
     if (result.value.passed) test.value.is_passed = true;
-  } catch {
-    submitError.value = "Не удалось отправить тест. Попробуйте ещё раз.";
+  } catch (e) {
+    // The server's own message matters here: a 429 says to wait, not retry.
+    const detail = isAxiosError(e) ? e.response?.data?.detail : null;
+    submitError.value = typeof detail === "string" ? detail : "Не удалось отправить тест. Попробуйте ещё раз.";
   } finally {
     submitting.value = false;
   }
@@ -147,7 +150,7 @@ async function handleSubmit() {
               <span class="w-1/2 text-ink">{{ prompt.text }}</span>
               <select
                 class="input w-1/2"
-                @change="setMatchPair(question.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
+                @change="setMatchPair(question.id, prompt.id, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="" disabled selected>Выберите пару</option>
                 <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ opt.text }}</option>

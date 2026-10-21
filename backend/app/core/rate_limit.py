@@ -92,6 +92,13 @@ REFRESH_BY_IP = RateLimit("refresh_ip", limit=120, window_seconds=60)
 # The client pings once a minute; 45s leaves room for clock drift and a tab
 # waking up, while still capping how much activity time can be fabricated.
 ACTIVITY_PING_BY_USER = RateLimit("activity_ping_user", limit=1, window_seconds=45)
+# Applying to a course notifies every teacher on it.
+APPLICATION_BY_USER = RateLimit("application_user", limit=10, window_seconds=60 * 60)
+# Course tests answer with an exact score, so unlimited attempts turn them
+# into an oracle: change one answer, resubmit, watch the score move, and the
+# key falls out in a few dozen requests. Keyed per student *and* test, so a
+# pupil working through a course is never throttled by the previous lesson.
+TEST_ATTEMPT_BY_USER = RateLimit("test_attempt_user", limit=5, window_seconds=10 * 60)
 # PDF parsing is the heaviest thing a teacher can ask for.
 ENT_PDF_IMPORT_BY_USER = RateLimit("ent_pdf_import_user", limit=10, window_seconds=60 * 60)
 BULK_DELETE_BY_USER = RateLimit("ent_bulk_delete_user", limit=20, window_seconds=60 * 60)

@@ -21,7 +21,14 @@ const form = reactive({
   first_name: auth.user?.first_name ?? "",
   last_name: auth.user?.last_name ?? "",
   phone: auth.user?.phone ?? "",
+  current_password: "",
 });
+
+// The phone number is the login, so the server asks for the password before
+// changing it. Compared loosely: the server normalizes the format anyway.
+const phoneChanged = computed(
+  () => form.phone.replace(/[^\d+]/g, "") !== (auth.user?.phone ?? "").replace(/[^\d+]/g, ""),
+);
 
 const saving = ref(false);
 const saveError = ref("");
@@ -73,12 +80,16 @@ async function handleSave() {
       first_name: form.first_name,
       last_name: form.last_name,
       phone: form.phone,
+      ...(phoneChanged.value ? { current_password: form.current_password } : {}),
     });
     auth.setUser(updated);
     form.phone = updated.phone;
+    form.current_password = "";
     saveSuccess.value = true;
   } catch (e) {
-    if (isAxiosError(e) && e.response?.status === 409) {
+    if (isAxiosError(e) && e.response?.status === 400 && typeof e.response.data?.detail === "string") {
+      saveError.value = e.response.data.detail;
+    } else if (isAxiosError(e) && e.response?.status === 409) {
       saveError.value = "Этот номер телефона уже занят другим пользователем.";
     } else if (isAxiosError(e) && e.response?.status === 422) {
       saveError.value = "Проверьте формат номера телефона (+7XXXXXXXXXX).";
@@ -271,6 +282,14 @@ async function handleDeleteAvatar() {
           </svg>
         </template>
       </BaseInput>
+
+      <BaseInput
+        v-if="phoneChanged"
+        v-model="form.current_password"
+        type="password"
+        label="Текущий пароль (для смены номера)"
+        autocomplete="current-password"
+      />
 
       <p v-if="saveError" class="text-sm text-clay">{{ saveError }}</p>
       <p v-if="saveSuccess" class="text-sm text-moss">Изменения сохранены.</p>

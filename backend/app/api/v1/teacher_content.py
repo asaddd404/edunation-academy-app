@@ -42,6 +42,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["teacher-content"], dependencies=[Depends(require_role(RoleEnum.teacher, RoleEnum.admin))])
 
 
+async def _delete_unreferenced_images(db: AsyncSession, paths: set[str]) -> None:
+    """Deletes the lesson-content images in `paths` that no lesson refers to.
+
+    Called after the commit that dropped the reference. A reference in *this*
+    lesson going away does not make a file safe to delete: the same path can
+    sit in another lesson -- a teacher copying content between lessons does
+    exactly that -- or have been pasted into someone's lesson on purpose, so
+    deleting that lesson would wipe the image out of another teacher's
+    course. Filenames are uuids, so a substring match cannot hit a different
+    file by accident."""
+    for path in paths:
+        still_used = await db.scalar(
+            select(Lesson.id)
+            .where(Lesson.description.contains(path) | Lesson.homework_assignment.contains(path))
+            .limit(1)
+        )
+        if still_used is None:
+            delete_upload(path)
+
+
 @router.get("/teacher/categories", response_model=list[CategoryOut])
 async def list_my_categories(
     db: AsyncSession = Depends(get_db),
@@ -260,8 +280,7 @@ async def delete_section(
     )
     for lesson_id in lesson_ids:
         delete_video_assets(lesson_id)
-    for path in images:
-        delete_upload(path)
+    await _delete_unreferenced_images(db, images)
 
 
 @router.post("/teacher/sections/{section_id}/lessons", response_model=LessonTeacherOut, status_code=status.HTTP_201_CREATED)
@@ -319,8 +338,7 @@ async def update_lesson(
 
     # Only after the commit -- if the write failed, the rows still reference
     # these files and deleting them would leave broken images behind.
-    for path in dropped_images:
-        delete_upload(path)
+    await _delete_unreferenced_images(db, dropped_images)
 
     return LessonTeacherOut.model_validate(lesson)
 
@@ -349,8 +367,7 @@ async def delete_lesson(
         lesson_id=lesson_id,
     )
     delete_video_assets(lesson_id)
-    for path in images:
-        delete_upload(path)
+    await _delete_unreferenced_images(db, images)
 
 
 @router.get("/teacher/lessons/{lesson_id}", response_model=LessonTeacherOut)

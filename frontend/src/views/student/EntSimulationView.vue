@@ -201,7 +201,7 @@ function toggleMultipleChoice(questionId: number, choiceId: number, checked: boo
   answers[questionId] = current;
 }
 
-function setMatchPair(questionId: number, promptId: number, answerId: number) {
+function setMatchPair(questionId: number, promptId: number, answerId: string) {
   const current = answers[questionId] ?? { question_id: questionId, pairs: {} };
   current.pairs = { ...(current.pairs ?? {}), [String(promptId)]: answerId };
   answers[questionId] = current;
@@ -219,7 +219,7 @@ function isChoiceChecked(questionId: number, choiceId: number): boolean {
   return (answers[questionId]?.choice_ids ?? []).includes(choiceId);
 }
 
-function selectedPair(questionId: number, promptId: number): number | "" {
+function selectedPair(questionId: number, promptId: number): string {
   return answers[questionId]?.pairs?.[String(promptId)] ?? "";
 }
 
@@ -506,7 +506,7 @@ function timingLabel(r: EntSimulationResult): string {
                 <select
                   class="input sm:w-1/2"
                   :value="selectedPair(currentQuestion.id, prompt.id)"
-                  @change="setMatchPair(currentQuestion.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
+                  @change="setMatchPair(currentQuestion.id, prompt.id, ($event.target as HTMLSelectElement).value)"
                 >
                   <option value="" disabled>Выберите пару</option>
                   <option v-for="opt in currentQuestion.match_answers" :key="opt.id" :value="opt.id">
