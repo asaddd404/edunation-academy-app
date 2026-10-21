@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Bell, GraduationCap, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
+import { Bell, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
+import BrandLogo from "@/components/ui/BrandLogo.vue";
 import { useActivityTracker } from "@/composables/useActivityTracker";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
@@ -36,6 +37,7 @@ const links = computed(() => {
       { to: "/catalog", label: "Каталог" },
       { to: "/my-applications", label: "Мои заявки" },
       { to: "/ent", label: "ЕНТ-тренажёр" },
+      { to: "/tests", label: "Тесты" },
     ];
   }
   if (auth.role === "teacher") {
@@ -161,12 +163,10 @@ function handleLogout() {
       <div class="flex h-16 w-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <router-link
           to="/"
-          class="flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-tight transition-opacity hover:opacity-80"
+          class="flex h-9 shrink-0 items-center transition-opacity hover:opacity-80 sm:h-10"
+          aria-label="Edunation Academy — на главную"
         >
-          <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-header-fg/15">
-            <GraduationCap :size="18" :stroke-width="2" />
-          </span>
-          <span class="hidden sm:inline">Edunation Academy</span>
+          <BrandLogo on-color class="h-full" />
         </router-link>
 
         <div v-if="auth.isAuthenticated" class="hidden max-w-md flex-1 md:block">

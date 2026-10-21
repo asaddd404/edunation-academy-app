@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -15,9 +16,16 @@ class TestAttempt(Base):
     # attempt or a section-test attempt, never both.
     lesson_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"), nullable=True)
     section_id: Mapped[int | None] = mapped_column(ForeignKey("sections.id", ondelete="CASCADE"), nullable=True)
-    score: Mapped[int] = mapped_column(Integer, nullable=False)
-    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # NULL while the attempt is in progress: an attempt is created when the
+    # student starts the test (so the server knows which questions it drew)
+    # and graded when they submit.
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # The questions this attempt drew, in the order shown. NULL on attempts
+    # from before per-attempt draws existed.
+    question_ids: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     student: Mapped["User"] = relationship()
     lesson: Mapped["Lesson | None"] = relationship()

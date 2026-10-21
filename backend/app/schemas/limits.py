@@ -42,3 +42,6 @@ MAX_ANSWERS_PER_ATTEMPT = 500
 MAX_CHOICES_PER_ANSWER = 32
 MAX_BULK_QUESTIONS = 1000
 MAX_SUBJECTS_PER_SIMULATION = 20
+
+# A test's per-attempt question count: 0 means "the whole bank".
+QuestionsPerAttempt = Annotated[int, Field(ge=0, le=100)]

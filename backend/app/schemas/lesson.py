@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models.ent_question import EntQuestionType
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.limits import OptionalRichText, OptionalShortText, ShortText
+from app.schemas.limits import OptionalRichText, OptionalShortText, QuestionsPerAttempt, ShortText
 
 
 class LessonIn(BaseModel):
@@ -20,6 +20,8 @@ class LessonUpdateIn(BaseModel):
     title: OptionalShortText = None
     description: OptionalRichText = None
     homework_assignment: OptionalRichText = None
+    # 0 = every question in the bank, every attempt.
+    questions_per_attempt: QuestionsPerAttempt | None = None
 
 
 class LessonTeacherOut(BaseModel):
@@ -36,6 +38,7 @@ class LessonTeacherOut(BaseModel):
     video_status: str
     video_duration_seconds: int | None
     video_error: str | None
+    questions_per_attempt: int | None = None
 
 
 class LessonSummaryOut(BaseModel):
@@ -53,6 +56,7 @@ class LessonSummaryOut(BaseModel):
     # them nothing.
     question_count: int = 0
     has_homework: bool = False
+    questions_per_attempt: int | None = None
 
 
 class VideoTicketOut(BaseModel):
@@ -113,7 +117,9 @@ class LessonDetailOut(BaseModel):
     created_at: datetime
     is_unlocked: bool = False
     is_passed: bool = False
-    questions: list[QuestionOut] = []
+    has_test: bool = False
+    # Questions one attempt of the lesson's mini-test shows.
+    test_question_count: int = 0
     my_homework: HomeworkSubmissionOut | None = None
     video_status: str
     video_duration_seconds: int | None

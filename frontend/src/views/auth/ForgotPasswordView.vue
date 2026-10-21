@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BrandLogo from "@/components/ui/BrandLogo.vue";
 // Deliberately not a working reset flow: there is no SMS/email delivery
 // channel yet, so issuing reset tokens would only create links nobody can
 // receive. This page exists so a locked-out user sees a route forward
@@ -14,6 +15,7 @@ const steps = [
 <template>
   <div class="flex min-h-[60vh] items-center justify-center px-4 py-10">
     <div class="card w-full max-w-md p-6 sm:p-8">
+      <div class="mb-6 flex justify-center"><BrandLogo layout="vertical" class="h-24" /></div>
       <h1 class="font-display text-display-sm text-ink">Восстановление пароля</h1>
       <p class="mt-3 text-sm leading-relaxed text-ink-2">
         Автоматическое восстановление по SMS пока не подключено. Но доступ к аккаунту можно вернуть — через

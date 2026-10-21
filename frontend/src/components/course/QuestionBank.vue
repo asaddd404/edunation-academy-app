@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { onMounted } from "vue";
 
-import { createQuestion, listLessonQuestions } from "@/api/lessons";
+import { createQuestion, listLessonQuestions, updateLesson } from "@/api/lessons";
 import { deleteQuestion, updateQuestion } from "@/api/questions";
-import { createSectionQuestion, listSectionQuestions } from "@/api/sections";
+import { createSectionQuestion, listSectionQuestions, updateSection } from "@/api/sections";
 import GlossaryTextField from "@/components/shared/GlossaryTextField.vue";
 import SmartText from "@/components/shared/SmartText.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { QuestionSavePayload, QuestionTeacher, QuestionType } from "@/types";
 
-const props = defineProps<{ lessonId?: number; sectionId?: number }>();
+const props = defineProps<{ lessonId?: number; sectionId?: number; perAttempt?: number | null }>();
+const emit = defineEmits<{ (e: "update:perAttempt", value: number | null): void }>();
 
 const QTYPE_LABEL: Record<QuestionType, string> = {
   single: "Один правильный ответ",
@@ -61,6 +62,37 @@ async function load() {
 }
 
 onMounted(load);
+
+// How many questions one attempt draws from this bank. 0 in the input = all.
+// With a bank larger than that, every attempt a student starts gets a
+// different selection -- the backend avoids the previous attempt's questions.
+const perAttemptInput = ref<number>(props.perAttempt ?? 0);
+const perAttemptSaving = ref(false);
+const perAttemptSaved = ref(false);
+const perAttemptError = ref("");
+
+const effectivePerAttempt = computed(() =>
+  perAttemptInput.value > 0 ? Math.min(perAttemptInput.value, questions.value.length) : questions.value.length,
+);
+
+async function savePerAttempt() {
+  const value = Math.max(0, Math.min(100, Math.floor(Number(perAttemptInput.value) || 0)));
+  perAttemptInput.value = value;
+  if (value === (props.perAttempt ?? 0)) return;
+  perAttemptSaving.value = true;
+  perAttemptSaved.value = false;
+  perAttemptError.value = "";
+  try {
+    if (props.lessonId) await updateLesson(props.lessonId, { questions_per_attempt: value });
+    else await updateSection(props.sectionId!, { questions_per_attempt: value });
+    emit("update:perAttempt", value || null);
+    perAttemptSaved.value = true;
+  } catch {
+    perAttemptError.value = "Не удалось сохранить настройку.";
+  } finally {
+    perAttemptSaving.value = false;
+  }
+}
 
 function openCreateForm() {
   Object.assign(form, blankForm());
@@ -195,6 +227,32 @@ async function handleDelete(questionId: number) {
       </li>
       <li v-if="!questions.length" class="text-sm text-ink-2">Вопросов пока нет.</li>
     </ul>
+
+    <div v-if="!loading && questions.length" class="mb-3 space-y-1.5 rounded-lg bg-paper-2 p-3 text-sm">
+      <label class="flex flex-wrap items-center gap-2 text-ink">
+        Вопросов в одной попытке:
+        <input
+          v-model.number="perAttemptInput"
+          type="number"
+          min="0"
+          max="100"
+          class="input w-20 py-1"
+          :disabled="perAttemptSaving"
+          @change="savePerAttempt"
+        />
+        <span class="text-ink-3">(0 — все)</span>
+        <span v-if="perAttemptSaved" class="text-moss">Сохранено</span>
+      </label>
+      <p v-if="perAttemptError" class="text-clay">{{ perAttemptError }}</p>
+      <p v-else-if="effectivePerAttempt < questions.length" class="text-ink-3">
+        В банке {{ questions.length }}, ученик получает {{ effectivePerAttempt }} случайных — каждая новая попытка
+        будет с другими вопросами.
+      </p>
+      <p v-else class="text-ink-3">
+        Каждая попытка показывает все {{ questions.length }} вопр. в новом порядке. Чтобы попытки отличались вопросами,
+        добавьте в банк больше вопросов, чем в попытке.
+      </p>
+    </div>
 
     <BaseButton v-if="!formOpen" variant="secondary" @click="openCreateForm">Добавить вопрос</BaseButton>
 

@@ -10,7 +10,6 @@ from sqlalchemy.orm import selectinload
 from app.core.authorization import (
     assert_student_has_category_access,
     get_category_id_for_lesson,
-    get_category_id_for_section,
 )
 from app.core.progress import get_course_progress, get_lesson_progress
 from app.core.question_scoring import match_answer_token
@@ -25,7 +24,6 @@ from app.schemas.homework import HomeworkSubmissionOut
 from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchAnswerOut, MatchItemOut, QuestionOut, VideoTicketOut
 from app.core.storage import image_response, resolve_upload_path
 from app.schemas.section import SectionOut
-from app.schemas.test_attempt import SectionTestOut
 from app.security import set_video_ticket_cookie
 
 router = APIRouter(tags=["content"], dependencies=[Depends(require_role(RoleEnum.student))])
@@ -51,24 +49,26 @@ async def get_lesson_content_image(filename: str) -> FileResponse:
     return image_response(path)
 
 
-_QUESTION_LOAD_OPTIONS = (
-    selectinload(Question.choices),
-    selectinload(Question.match_pairs),
-    selectinload(Question.answer_variants),
-)
-
-
-def build_student_question(question: Question) -> QuestionOut:
+def build_student_question(question: Question, rng: random.Random | None = None) -> QuestionOut:
     """Never exposes which choice/pair is correct. For matching, the answer
     side is shuffled and carries opaque tokens instead of the pair ids, so
-    neither its order nor its ids can leak the pairing."""
+    neither its order nor its ids can leak the pairing.
+
+    With `rng` (an attempt's seeded generator), the options are shuffled
+    too, reproducibly for that attempt -- the same question looks different
+    from one attempt to the next, but not from one page reload to the next."""
+    shuffle = rng.shuffle if rng is not None else random.shuffle
     match_prompts: list[MatchItemOut] = []
     match_answers: list[MatchAnswerOut] = []
     if question.match_pairs:
         match_prompts = [MatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
         shuffled = list(question.match_pairs)
-        random.shuffle(shuffled)
+        shuffle(shuffled)
         match_answers = [MatchAnswerOut(id=match_answer_token(question.id, p.id), text=p.answer_text) for p in shuffled]
+
+    choices = list(question.choices)
+    if rng is not None:
+        rng.shuffle(choices)
 
     return QuestionOut(
         id=question.id,
@@ -76,7 +76,7 @@ def build_student_question(question: Question) -> QuestionOut:
         text=question.text,
         max_score=question.max_score,
         order_index=question.order_index,
-        choices=[ChoiceOut(id=c.id, text=c.text) for c in question.choices],
+        choices=[ChoiceOut(id=c.id, text=c.text) for c in choices],
         match_prompts=match_prompts,
         match_answers=match_answers,
     )
@@ -114,36 +114,6 @@ async def list_sections(
     return result
 
 
-@router.get("/sections/{section_id}/test", response_model=SectionTestOut)
-async def get_section_test(
-    section_id: int,
-    db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_role(RoleEnum.student)),
-) -> SectionTestOut:
-    category_id = await get_category_id_for_section(db, section_id)
-    await assert_student_has_category_access(db, student, category_id)
-
-    section = await db.scalar(
-        select(Section)
-        .where(Section.id == section_id)
-        .options(selectinload(Section.test_questions).options(*_QUESTION_LOAD_OPTIONS))
-    )
-    if section is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
-
-    progress = await get_course_progress(db, student.id, category_id)
-    if section_id not in progress.unlocked_test_section_ids:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Тест раздела ещё заблокирован")
-    passed_sections = progress.passed_section_ids
-
-    return SectionTestOut(
-        section_id=section_id,
-        is_unlocked=True,
-        is_passed=section_id in passed_sections,
-        questions=[build_student_question(q) for q in section.test_questions],
-    )
-
-
 @router.get("/lessons/{lesson_id}", response_model=LessonDetailOut)
 async def get_lesson(
     lesson_id: int,
@@ -156,7 +126,7 @@ async def get_lesson(
     lesson = await db.scalar(
         select(Lesson)
         .where(Lesson.id == lesson_id)
-        .options(selectinload(Lesson.questions).options(*_QUESTION_LOAD_OPTIONS))
+        .options(selectinload(Lesson.questions))
     )
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
@@ -182,7 +152,11 @@ async def get_lesson(
         created_at=lesson.created_at,
         is_unlocked=True,
         is_passed=lesson_id in passed,
-        questions=[build_student_question(q) for q in lesson.questions],
+        # Only the shape of the test: the questions themselves come from
+        # .../test/attempts/start, one attempt's draw at a time. Listing the
+        # whole bank here would show every question an attempt could ask.
+        has_test=bool(lesson.questions),
+        test_question_count=min(lesson.questions_per_attempt or len(lesson.questions), len(lesson.questions)),
         my_homework=HomeworkSubmissionOut.model_validate(submission) if submission else None,
         video_status=lesson.video_status,
         video_duration_seconds=lesson.video_duration_seconds,
