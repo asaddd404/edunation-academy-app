@@ -49,6 +49,11 @@ class EntSimulation(Base):
     # attempt itself (not recomputed) so a later change to the XP formula
     # never rewrites what a past attempt actually earned.
     xp_earned: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Whether this attempt can place the student on the leaderboard, which
+    # ranks by best score. Only a timed attempt submitted within its limit
+    # qualifies: untimed is open-book practice (it still earns XP), and an
+    # overrun did not keep the exam's conditions. Frozen at submit time.
+    counts_for_rating: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     student: Mapped["User"] = relationship()

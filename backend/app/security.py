@@ -222,36 +222,47 @@ def refresh_cookie_clear_header() -> dict[str, str]:
     return {"set-cookie": probe.headers["set-cookie"]}
 
 
-def create_video_ticket(lesson_id: int) -> str:
+def create_video_ticket(lesson_id: int, user_id: int) -> str:
     """Short-lived, stateless token that authorizes GET access to one
-    lesson's HLS manifest/segments. Carried as a query param instead of a
-    bearer header because native <video>/hls.js requests can't attach one."""
+    lesson's HLS manifest/segments, for one user. Carried in a path-scoped
+    httpOnly cookie because native <video>/hls.js requests can't attach a
+    bearer header.
+
+    `sub` binds it to the person it was issued to, so the video endpoint can
+    re-check that *they* still have access (see app.api.v1.video) rather
+    than trusting whoever holds the cookie for its whole lifetime."""
     now = datetime.now(timezone.utc)
     payload = {
         "purpose": "video",
         "lesson_id": lesson_id,
+        "sub": str(user_id),
         "iat": now,
         "exp": now + timedelta(minutes=settings.video_ticket_ttl_minutes),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
-def decode_video_ticket(token: str, lesson_id: int) -> None:
-    """Raises jwt.PyJWTError (via decode) or ValueError if the ticket is
-    invalid, expired, or scoped to a different lesson."""
+def decode_video_ticket(token: str, lesson_id: int) -> int:
+    """Returns the user id the ticket was issued to. Raises jwt.PyJWTError
+    (via decode) or ValueError if the ticket is invalid, expired, scoped to a
+    different lesson, or predates user binding."""
     payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     if payload.get("purpose") != "video" or payload.get("lesson_id") != lesson_id:
         raise ValueError("Ticket not valid for this lesson")
+    sub = str(payload.get("sub", ""))
+    if not sub.isdigit():
+        raise ValueError("Ticket is not bound to a user")
+    return int(sub)
 
 
-def set_video_ticket_cookie(response: Response, lesson_id: int) -> None:
+def set_video_ticket_cookie(response: Response, lesson_id: int, user_id: int) -> None:
     """Scopes the cookie to this lesson's own video path, so the browser
     only ever sends it on manifest/segment requests for that lesson --
     matches native <video>/HLS playback, which can't attach a bearer header
     or forward query params to segment requests it issues itself."""
     response.set_cookie(
         key="video_ticket",
-        value=create_video_ticket(lesson_id),
+        value=create_video_ticket(lesson_id, user_id),
         max_age=settings.video_ticket_ttl_minutes * 60,
         path=f"/api/v1/video/lessons/{lesson_id}",
         httponly=True,

@@ -660,7 +660,12 @@ function timingLabel(r: EntSimulationResult): string {
             class="max-h-72 w-full rounded-xl border border-line object-contain"
           />
 
-          <ul v-if="answer.choices.length" class="space-y-1.5 text-sm">
+          <p v-if="!answer.answer_revealed" class="text-sm text-ink-3">
+            Вы не ответили на этот вопрос — правильный ответ показывается только для вопросов, на которые вы
+            ответили.
+          </p>
+
+          <ul v-else-if="answer.choices.length" class="space-y-1.5 text-sm">
             <li
               v-for="(choice, i) in answer.choices"
               :key="choice.id"

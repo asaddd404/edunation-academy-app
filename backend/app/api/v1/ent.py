@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -133,7 +133,9 @@ async def list_subjects(db: AsyncSession = Depends(get_db)) -> list[EntSubjectOu
     rows = (
         await db.execute(
             select(EntSubject, func.count(EntQuestion.id))
-            .outerjoin(EntQuestion, EntQuestion.subject_id == EntSubject.id)
+            .outerjoin(
+                EntQuestion, (EntQuestion.subject_id == EntSubject.id) & EntQuestion.archived_at.is_(None)
+            )
             .where(EntSubject.is_active.is_(True))
             .group_by(EntSubject.id)
             .order_by(EntSubject.name)
@@ -360,10 +362,31 @@ async def get_simulation(
     )
 
 
+def _was_answered(answer_data: dict | None) -> bool:
+    """Whether the student actually attempted the question."""
+    if not answer_data:
+        return False
+    text = answer_data.get("text")
+    return bool(
+        answer_data.get("choice_id") is not None
+        or answer_data.get("choice_ids")
+        or answer_data.get("pairs")
+        or (isinstance(text, str) and text.strip())
+    )
+
+
 def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
     answers = []
     for item in simulation.items:
         question = item.question
+        # The correct answer is shown only for questions the student tried.
+        # Revealing every key unconditionally turned "start, submit blank,
+        # read the results" into a way to dump the bank a few dozen
+        # questions at a time without studying any of it.
+        revealed = _was_answered(item.answer_data)
+        choices = [EntChoiceTeacherOut.model_validate(c) for c in question.choices]
+        if not revealed:
+            choices = [c.model_copy(update={"is_correct": False}) for c in choices]
         answers.append(
             EntSimulationResultAnswerOut(
                 question_id=question.id,
@@ -376,9 +399,14 @@ def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
                 score_awarded=item.score_awarded or 0,
                 is_correct=(item.score_awarded or 0) == question.max_score,
                 given_answer=item.answer_data,
-                choices=[EntChoiceTeacherOut.model_validate(c) for c in question.choices],
-                match_pairs=[EntMatchPairTeacherOut.model_validate(p) for p in question.match_pairs],
-                answer_variants=[EntAnswerVariantOut.model_validate(v) for v in question.answer_variants],
+                answer_revealed=revealed,
+                choices=choices,
+                match_pairs=(
+                    [EntMatchPairTeacherOut.model_validate(p) for p in question.match_pairs] if revealed else []
+                ),
+                answer_variants=(
+                    [EntAnswerVariantOut.model_validate(v) for v in question.answer_variants] if revealed else []
+                ),
             )
         )
     return EntSimulationResultOut(
@@ -475,13 +503,18 @@ def _period_totals_query(cutoff: datetime):
     `StudentRating` only ever holds the lifetime aggregate, so a week/month
     board has to be summed from the attempts themselves. `xp_earned` is frozen
     on each attempt at submit time, which is what makes this equal to the
-    running total when the window covers everything."""
+    running total when the window covers everything.
+
+    `best_score` only considers rated attempts (see
+    `EntSimulation.counts_for_rating`), and a student with none in the window
+    is left off the board -- it ranks results, not activity."""
+    best_rated = func.max(case((EntSimulation.counts_for_rating.is_(True), EntSimulation.total_score)))
     return (
         select(
             EntSimulation.student_id.label("student_id"),
             func.coalesce(func.sum(EntSimulation.xp_earned), 0).label("total_xp"),
             func.count().label("simulations_completed"),
-            func.coalesce(func.max(EntSimulation.total_score), 0).label("best_score"),
+            best_rated.label("best_score"),
         )
         .where(
             EntSimulation.status == EntSimulationStatus.submitted,
@@ -489,6 +522,7 @@ def _period_totals_query(cutoff: datetime):
             EntSimulation.submitted_at >= cutoff,
         )
         .group_by(EntSimulation.student_id)
+        .having(best_rated.is_not(None))
     )
 
 
@@ -508,7 +542,9 @@ async def get_leaderboard(
     # per minute for everyone rather than once per keypress per student --
     # without this, a refresh key is a load generator, and the week/month
     # periods re-aggregate every submitted attempt each time.
-    cache_key = f"ent:leaderboard:{period}:{limit}"
+    # v2: ranked by best rated score; entries cached under the old key were
+    # ordered by XP and must not be served after the switch.
+    cache_key = f"ent:leaderboard:v2:{period}:{limit}"
 
     async def build_rows() -> list[dict]:
         return await _leaderboard_rows(db, period, limit)
@@ -533,7 +569,7 @@ async def get_leaderboard(
             return await _own_standing(db, period, student)
 
         own = await cached_json(
-            f"ent:leaderboard:{period}:me:{student.id}",
+            f"ent:leaderboard:v2:{period}:me:{student.id}",
             settings.leaderboard_cache_seconds,
             build_me,
         )
@@ -547,12 +583,16 @@ def _leaderboard_source(period: str):
     """The per-student totals the board is built from, as a subquery."""
     if period == "all":
         # Fast path: the running aggregate is already what we want.
-        return select(
-            StudentRating.student_id.label("student_id"),
-            StudentRating.total_xp.label("total_xp"),
-            StudentRating.simulations_completed.label("simulations_completed"),
-            func.coalesce(StudentRating.best_score, 0).label("best_score"),
-        ).subquery()
+        return (
+            select(
+                StudentRating.student_id.label("student_id"),
+                StudentRating.total_xp.label("total_xp"),
+                StudentRating.simulations_completed.label("simulations_completed"),
+                StudentRating.best_score.label("best_score"),
+            )
+            .where(StudentRating.best_score.is_not(None))
+            .subquery()
+        )
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period])
     return _period_totals_query(cutoff).subquery()
@@ -573,7 +613,10 @@ async def _leaderboard_rows(db: AsyncSession, period: str, limit: int) -> list[d
         await db.execute(
             select(source, User)
             .join(User, User.id == source.c.student_id)
-            .order_by(source.c.total_xp.desc(), source.c.student_id)
+            # Best rated score decides the place; XP only breaks ties. Ranking
+            # by summed XP rewarded whoever sat the most attempts, not whoever
+            # scored best.
+            .order_by(source.c.best_score.desc(), source.c.total_xp.desc(), source.c.student_id)
             .limit(limit)
         )
     ).all()
@@ -599,16 +642,48 @@ async def _leaderboard_rows(db: AsyncSession, period: str, limit: int) -> list[d
     ]
 
 
+async def _unranked_standing(db: AsyncSession, period: str, student: User) -> dict | None:
+    """The student's own stats when they have no rated attempt yet: off the
+    board (no rank, no best score), but their XP and attempt count still show
+    on their profile and the ЕНТ page instead of reading as zero."""
+    filters = [EntSimulation.student_id == student.id, EntSimulation.status == EntSimulationStatus.submitted]
+    if period != "all":
+        filters.append(EntSimulation.submitted_at >= datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period]))
+    row = (
+        await db.execute(select(func.coalesce(func.sum(EntSimulation.xp_earned), 0), func.count()).where(*filters))
+    ).one()
+    total_xp, attempts = row
+    if not attempts:
+        return None
+    return {
+        "rank": None,
+        "student_id": student.id,
+        "first_name": student.first_name,
+        "last_name": student.last_name,
+        "total_xp": total_xp,
+        "simulations_completed": attempts,
+        "best_score": None,
+        "has_avatar": student.avatar_path is not None,
+    }
+
+
 async def _own_standing(db: AsyncSession, period: str, student: User) -> dict | None:
     """Where one student sits, for when they are outside the top rows."""
     source = _leaderboard_source(period)
 
     my_row = (await db.execute(select(source).where(source.c.student_id == student.id))).one_or_none()
     if my_row is None:
-        return None
+        return await _unranked_standing(db, period, student)
 
     better_count = await db.scalar(
-        select(func.count()).select_from(source).where(source.c.total_xp > my_row.total_xp)
+        select(func.count())
+        .select_from(source)
+        .where(
+            or_(
+                source.c.best_score > my_row.best_score,
+                and_(source.c.best_score == my_row.best_score, source.c.total_xp > my_row.total_xp),
+            )
+        )
     )
     return {
         "rank": (better_count or 0) + 1,

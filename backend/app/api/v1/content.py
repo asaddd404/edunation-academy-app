@@ -12,13 +12,7 @@ from app.core.authorization import (
     get_category_id_for_lesson,
     get_category_id_for_section,
 )
-from app.core.progress import (
-    get_lesson_progress,
-    get_lessons_without_questions,
-    get_passed_section_ids,
-    is_section_test_unlocked,
-    section_test_unlocked,
-)
+from app.core.progress import get_course_progress, get_lesson_progress
 from app.core.question_scoring import match_answer_token
 from app.database import get_db
 from app.deps import require_role
@@ -105,24 +99,18 @@ async def list_sections(
         )
     ).all()
 
-    unlocked, passed = await get_lesson_progress(db, student.id, category_id)
-    auto_passed = await get_lessons_without_questions(db, category_id)
-    effectively_passed = passed | auto_passed
-    passed_sections = await get_passed_section_ids(db, student.id, category_id)
+    progress = await get_course_progress(db, student.id, category_id)
 
     result = []
-    earlier_lesson_ids: list[int] = []
     for section in sections:
         out = SectionOut.model_validate(section)
         for lesson_out, lesson in zip(out.lessons, section.lessons):
-            lesson_out.is_unlocked = lesson.id in unlocked
-            lesson_out.is_passed = lesson.id in passed
-        lesson_ids = [lesson.id for lesson in section.lessons]
+            lesson_out.is_unlocked = lesson.id in progress.unlocked_lesson_ids
+            lesson_out.is_passed = lesson.id in progress.passed_lesson_ids
         out.has_test = len(section.test_questions) > 0
-        out.is_test_unlocked = section_test_unlocked(lesson_ids, earlier_lesson_ids, effectively_passed)
-        out.is_test_passed = section.id in passed_sections
+        out.is_test_unlocked = section.id in progress.unlocked_test_section_ids
+        out.is_test_passed = section.id in progress.passed_section_ids
         result.append(out)
-        earlier_lesson_ids.extend(lesson_ids)
     return result
 
 
@@ -143,11 +131,10 @@ async def get_section_test(
     if section is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
 
-    unlocked = await is_section_test_unlocked(db, student.id, section_id, category_id)
-    if not unlocked:
+    progress = await get_course_progress(db, student.id, category_id)
+    if section_id not in progress.unlocked_test_section_ids:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Тест раздела ещё заблокирован")
-
-    passed_sections = await get_passed_section_ids(db, student.id, category_id)
+    passed_sections = progress.passed_section_ids
 
     return SectionTestOut(
         section_id=section_id,
@@ -220,5 +207,5 @@ async def get_lesson_video_ticket(
     if lesson is None or lesson.video_status != VideoStatusEnum.ready:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Видео ещё не готово")
 
-    set_video_ticket_cookie(response, lesson_id)
+    set_video_ticket_cookie(response, lesson_id, student.id)
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")

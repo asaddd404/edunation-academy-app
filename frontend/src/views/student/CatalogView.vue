@@ -92,13 +92,20 @@ const categoryItems = computed<MillerItem[]>(() =>
   })),
 );
 
+// A section opens only after every earlier section's test is passed, so
+// a locked section names the test that is holding it back -- otherwise its
+// lessons just look broken.
 const sectionItems = computed<MillerItem[]>(() =>
-  sections.value.map((s) => ({
-    id: s.id,
-    label: s.title,
-    kind: "folder",
-    meta: `${s.lessons.length} ур.`,
-  })),
+  sections.value.map((s, index) => {
+    const blocker = sections.value.slice(0, index).find((earlier) => earlier.has_test && !earlier.is_test_passed);
+    const blocked = blocker && s.lessons.length > 0 && !s.lessons[0].is_unlocked;
+    return {
+      id: s.id,
+      label: s.title,
+      kind: "folder",
+      meta: blocked ? `после теста «${blocker.title}»` : `${s.lessons.length} ур.`,
+    };
+  }),
 );
 
 const TEST_ITEM_PREFIX = "test-";

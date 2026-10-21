@@ -450,6 +450,8 @@ export interface EntSimulationResultAnswer {
   score_awarded: number;
   is_correct: boolean;
   given_answer: EntSimulationAnswerPayload | null;
+  /** False when the question was left unanswered: its key is withheld. */
+  answer_revealed: boolean;
   choices: EntChoiceTeacher[];
   match_pairs: EntMatchPairTeacher[];
   answer_variants: EntAnswerVariant[];
@@ -487,20 +489,24 @@ export interface EntSimulationSummary {
 export type LeaderboardPeriod = "week" | "month" | "all";
 
 export interface EntLeaderboardEntry {
-  rank: number;
+  /** null only on `me` before any rated (timed, on-time) attempt: not on the board yet. */
+  rank: number | null;
   student_id: number;
   first_name: string;
   last_name: string;
   /** For a period board this is XP earned *within* that period, not lifetime. */
   total_xp: number;
   simulations_completed: number;
-  best_score: number;
+  best_score: number | null;
   is_me: boolean;
   has_avatar: boolean;
 }
 
+/** A row that is actually on the board: always ranked, always scored. */
+export type RankedLeaderboardEntry = EntLeaderboardEntry & { rank: number; best_score: number };
+
 export interface EntLeaderboard {
-  entries: EntLeaderboardEntry[];
+  entries: RankedLeaderboardEntry[];
   me: EntLeaderboardEntry | null;
 }
 

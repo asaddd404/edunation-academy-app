@@ -490,7 +490,7 @@ async def get_teacher_video_ticket(
     if lesson is None or lesson.video_status != VideoStatusEnum.ready:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Видео ещё не готово")
 
-    set_video_ticket_cookie(response, lesson_id)
+    set_video_ticket_cookie(response, lesson_id, teacher.id)
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")
 
 

@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,18 +9,31 @@ from app.models.section import Section
 from app.models.test_attempt import TestAttempt
 
 
-async def get_ordered_lesson_ids(db: AsyncSession, category_id: int) -> list[int]:
-    result = await db.execute(
-        select(Lesson.id)
+async def get_ordered_sections(db: AsyncSession, category_id: int) -> list[tuple[int, list[int]]]:
+    """Every section of the category in course order, each with its lesson
+    ids in order. Sections without lessons are included: they can still
+    carry a test that gates what comes after them."""
+    section_ids = (
+        await db.scalars(
+            select(Section.id)
+            .where(Section.category_id == category_id)
+            # The ids break ties: order_index is assigned as max()+1, which two
+            # concurrent creates can duplicate, and without a total order
+            # Postgres may return tied rows differently per query -- flipping
+            # which lesson counts as "next" and so which one is unlocked.
+            .order_by(Section.order_index, Section.id)
+        )
+    ).all()
+    lessons_by_section: dict[int, list[int]] = {sid: [] for sid in section_ids}
+    rows = await db.execute(
+        select(Lesson.id, Lesson.section_id)
         .join(Section, Section.id == Lesson.section_id)
         .where(Section.category_id == category_id)
-        # The ids break ties: order_index is assigned as max()+1, which two
-        # concurrent creates can duplicate, and without a total order Postgres
-        # may return tied rows differently per query -- flipping which lesson
-        # counts as "next" and so which one is unlocked.
-        .order_by(Section.order_index, Section.id, Lesson.order_index, Lesson.id)
+        .order_by(Lesson.order_index, Lesson.id)
     )
-    return [row[0] for row in result.all()]
+    for lesson_id, section_id in rows.all():
+        lessons_by_section[section_id].append(lesson_id)
+    return [(sid, lessons_by_section[sid]) for sid in section_ids]
 
 
 async def get_passed_lesson_ids(db: AsyncSession, student_id: int, category_id: int) -> set[int]:
@@ -48,58 +63,14 @@ async def get_lessons_without_questions(db: AsyncSession, category_id: int) -> s
     return {row[0] for row in result.all()}
 
 
-def compute_unlocked_ids(ordered_lesson_ids: list[int], effectively_passed_ids: set[int]) -> set[int]:
-    """A lesson is unlocked if it's first in the category-wide order, or the
-    lesson immediately before it (in that order) has been passed."""
-    unlocked: set[int] = set()
-    for index, lesson_id in enumerate(ordered_lesson_ids):
-        if index == 0 or ordered_lesson_ids[index - 1] in effectively_passed_ids:
-            unlocked.add(lesson_id)
-        else:
-            break
-    return unlocked
-
-
-async def get_lesson_progress(db: AsyncSession, student_id: int, category_id: int) -> tuple[set[int], set[int]]:
-    """Returns (unlocked_lesson_ids, passed_lesson_ids) for a student in a category."""
-    ordered = await get_ordered_lesson_ids(db, category_id)
-    passed = await get_passed_lesson_ids(db, student_id, category_id)
-    auto_passed = await get_lessons_without_questions(db, category_id)
-    unlocked = compute_unlocked_ids(ordered, passed | auto_passed)
-    return unlocked, passed
-
-
-def section_test_unlocked(section_lesson_ids: list[int], earlier_lesson_ids: list[int], effectively_passed: set[int]) -> bool:
-    """The one rule for when a section's test opens, shared by the section
-    listing and the test endpoints so the UI and the API cannot disagree.
-
-    Every lesson in the section must be passed (or have no mini-test yet). A
-    section with no lessons at all opens its test once everything before it
-    is passed -- not immediately, which would let its test be sat out of
-    order, and not never, which would strand a test-only section."""
-    required = section_lesson_ids or earlier_lesson_ids
-    return all(lid in effectively_passed for lid in required)
-
-
-async def get_lesson_ids_in_section(db: AsyncSession, section_id: int) -> list[int]:
-    result = await db.execute(select(Lesson.id).where(Lesson.section_id == section_id))
-    return [row[0] for row in result.all()]
-
-
-async def get_lesson_ids_before_section(db: AsyncSession, section_id: int, category_id: int) -> list[int]:
-    """Lessons of every section ordered before `section_id` in its category."""
-    target = await db.scalar(select(Section.order_index).where(Section.id == section_id))
-    if target is None:
-        return []
+async def get_sections_with_test(db: AsyncSession, category_id: int) -> set[int]:
     result = await db.execute(
-        select(Lesson.id)
-        .join(Section, Section.id == Lesson.section_id)
-        .where(
-            Section.category_id == category_id,
-            (Section.order_index < target) | ((Section.order_index == target) & (Section.id < section_id)),
-        )
+        select(Question.section_id)
+        .join(Section, Section.id == Question.section_id)
+        .where(Section.category_id == category_id)
+        .distinct()
     )
-    return [row[0] for row in result.all()]
+    return {row[0] for row in result.all()}
 
 
 async def get_passed_section_ids(db: AsyncSession, student_id: int, category_id: int) -> set[int]:
@@ -116,11 +87,65 @@ async def get_passed_section_ids(db: AsyncSession, student_id: int, category_id:
     return {row[0] for row in result.all()}
 
 
-async def is_section_test_unlocked(db: AsyncSession, student_id: int, section_id: int, category_id: int) -> bool:
-    """The section test opens once every lesson in that section has been
-    passed (or, per get_lessons_without_questions, has no mini-test yet)."""
-    lesson_ids = await get_lesson_ids_in_section(db, section_id)
-    earlier = [] if lesson_ids else await get_lesson_ids_before_section(db, section_id, category_id)
+@dataclass(frozen=True)
+class CourseProgress:
+    unlocked_lesson_ids: set[int]
+    passed_lesson_ids: set[int]
+    unlocked_test_section_ids: set[int]
+    passed_section_ids: set[int]
+
+
+def compute_progress(
+    ordered_sections: list[tuple[int, list[int]]],
+    effectively_passed: set[int],
+    sections_with_test: set[int],
+    passed_sections: set[int],
+) -> tuple[set[int], set[int]]:
+    """Walks the course in order and returns (unlocked lessons, sections
+    whose test is open). This is the single rule for course progression:
+
+    - a lesson opens once every lesson before it is passed (or has no
+      mini-test yet) *and* every earlier section test has been passed --
+      the end-of-section test is what lets a student into the next section;
+    - a section's test opens once everything before it and every lesson in
+      it is passed. A section with no lessons therefore opens its test when
+      the course reaches it, neither immediately nor never.
+    """
+    unlocked: set[int] = set()
+    tests_open: set[int] = set()
+    chain_open = True
+    for section_id, lesson_ids in ordered_sections:
+        for lesson_id in lesson_ids:
+            if chain_open:
+                unlocked.add(lesson_id)
+            chain_open = chain_open and lesson_id in effectively_passed
+        if chain_open:
+            tests_open.add(section_id)
+        if section_id in sections_with_test and section_id not in passed_sections:
+            chain_open = False
+    return unlocked, tests_open
+
+
+async def get_course_progress(db: AsyncSession, student_id: int, category_id: int) -> CourseProgress:
+    ordered = await get_ordered_sections(db, category_id)
     passed = await get_passed_lesson_ids(db, student_id, category_id)
     auto_passed = await get_lessons_without_questions(db, category_id)
-    return section_test_unlocked(lesson_ids, earlier, passed | auto_passed)
+    sections_with_test = await get_sections_with_test(db, category_id)
+    passed_sections = await get_passed_section_ids(db, student_id, category_id)
+    unlocked, tests_open = compute_progress(ordered, passed | auto_passed, sections_with_test, passed_sections)
+    # A lesson the student has already passed stays open. Gating on section
+    # tests is new; without this, a pupil who got ahead before it existed
+    # would find their own finished lessons locked behind a test.
+    unlocked |= passed
+    return CourseProgress(unlocked, passed, tests_open, passed_sections)
+
+
+async def get_lesson_progress(db: AsyncSession, student_id: int, category_id: int) -> tuple[set[int], set[int]]:
+    """Returns (unlocked_lesson_ids, passed_lesson_ids) for a student in a category."""
+    progress = await get_course_progress(db, student_id, category_id)
+    return progress.unlocked_lesson_ids, progress.passed_lesson_ids
+
+
+async def is_section_test_unlocked(db: AsyncSession, student_id: int, section_id: int, category_id: int) -> bool:
+    progress = await get_course_progress(db, student_id, category_id)
+    return section_id in progress.unlocked_test_section_ids
