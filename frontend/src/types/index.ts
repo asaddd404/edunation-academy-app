@@ -172,9 +172,8 @@ export interface QuestionTeacher {
 }
 
 export interface QuestionSavePayload {
-  // qtype/max_score are optional here (backend defaults to single/1) so the
-  // legacy single-choice-only create call in CourseBuilderView keeps working
-  // until it's ported to the full QuestionBank editor.
+  // qtype/max_score are optional (the backend defaults them to single/1);
+  // the course builder's editor always sends both.
   qtype?: QuestionType;
   text: string;
   max_score?: number;

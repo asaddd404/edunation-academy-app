@@ -1,26 +1,36 @@
-from pydantic import BaseModel, ConfigDict, model_validator
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.ent_question import EntQuestionType
-from app.schemas.limits import MediumText, QuestionText
+
+# Course-question bounds are the column sizes in app.models.question, not the
+# generic limits.MediumText/QuestionText: those are wider than these columns,
+# so text that passed validation then failed the INSERT -- a teacher pasting
+# a long option got a 500 instead of a message saying what was too long.
+CourseQuestionText = Annotated[str, Field(min_length=1, max_length=1000)]
+ChoiceText = Annotated[str, Field(min_length=1, max_length=500)]
+PairText = Annotated[str, Field(min_length=1, max_length=300)]
+VariantText = Annotated[str, Field(max_length=300)]
 
 
 class ChoiceIn(BaseModel):
-    text: MediumText
+    text: ChoiceText
     is_correct: bool = False
 
 
 class MatchPairIn(BaseModel):
-    prompt_text: MediumText
-    answer_text: MediumText
+    prompt_text: PairText
+    answer_text: PairText
 
 
 class QuestionIn(BaseModel):
     qtype: EntQuestionType = EntQuestionType.single
-    text: QuestionText
+    text: CourseQuestionText
     max_score: int = 1
     choices: list[ChoiceIn] = []
     match_pairs: list[MatchPairIn] = []
-    answer_variants: list[MediumText] = []
+    answer_variants: list[VariantText] = []
 
     @model_validator(mode="after")
     def _validate(self) -> "QuestionIn":

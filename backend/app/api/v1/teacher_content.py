@@ -484,18 +484,41 @@ _QUESTION_LOAD_OPTIONS = (
 )
 
 
+def _reuse_rows(existing: list, wanted: int, make) -> list:
+    """The first `wanted` existing child rows, topped up with new ones.
+
+    Rows are updated in place by position rather than replaced wholesale, so
+    an edit keeps their ids. That matters to a student sitting the test while
+    the teacher edits it: their answer references choice ids, and their
+    matching tokens are minted from pair ids (core.match_tokens). Replacing
+    every row on each save -- fixing a typo, say -- would silently turn
+    every in-flight answer to that question into a wrong one.
+    """
+    rows = list(existing[:wanted])
+    rows.extend(make() for _ in range(wanted - len(rows)))
+    return rows
+
+
 def _apply_question_payload(question: Question, payload: QuestionIn) -> None:
     question.qtype = payload.qtype
     question.text = payload.text
     question.max_score = payload.max_score
-    question.choices = [
-        Choice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
-    ]
-    question.match_pairs = [
-        MatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=i)
-        for i, p in enumerate(payload.match_pairs)
-    ]
-    question.answer_variants = [AnswerVariant(text=v.strip()) for v in payload.answer_variants if v.strip()]
+
+    choices = _reuse_rows(question.choices, len(payload.choices), Choice)
+    for i, (row, choice) in enumerate(zip(choices, payload.choices)):
+        row.text, row.is_correct, row.order_index = choice.text, choice.is_correct, i
+    question.choices = choices
+
+    pairs = _reuse_rows(question.match_pairs, len(payload.match_pairs), MatchPair)
+    for i, (row, pair) in enumerate(zip(pairs, payload.match_pairs)):
+        row.prompt_text, row.answer_text, row.order_index = pair.prompt_text, pair.answer_text, i
+    question.match_pairs = pairs
+
+    texts = [v.strip() for v in payload.answer_variants if v.strip()]
+    variants = _reuse_rows(question.answer_variants, len(texts), AnswerVariant)
+    for row, text in zip(variants, texts):
+        row.text = text
+    question.answer_variants = variants
 
 
 @router.get("/teacher/lessons/{lesson_id}/questions", response_model=list[QuestionTeacherOut])
@@ -580,7 +603,10 @@ async def create_section_question(
     return QuestionTeacherOut.model_validate(question)
 
 
-@router.patch("/teacher/questions/{question_id}", response_model=QuestionTeacherOut)
+@router.put("/teacher/questions/{question_id}", response_model=QuestionTeacherOut)
+# PATCH predates PUT here and is kept for clients still sending it; the
+# semantics were always a full replace, which is what PUT says.
+@router.patch("/teacher/questions/{question_id}", response_model=QuestionTeacherOut, deprecated=True)
 async def update_question(
     question_id: int,
     payload: QuestionIn,

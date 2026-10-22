@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { CheckCircle2, Clock, Coins, Target, Trophy } from "@lucide/vue";
+import { CheckCircle2, Clock, Coins, Trophy, XCircle } from "@lucide/vue";
 import { computed, onBeforeUnmount, reactive, ref } from "vue";
 import type { RouteLocationRaw } from "vue-router";
 
 import { submitTestAttempt } from "@/api/lessons";
 import SmartText from "@/components/shared/SmartText.vue";
 import QuestionRenderer from "@/components/test/QuestionRenderer.vue";
-import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { AnswerPayload, TestAttemptResult, TestSession } from "@/types";
 import { formatDuration, isAnswered } from "@/utils/answers";
@@ -138,37 +137,61 @@ async function submit() {
     </template>
 
     <!-- Result -->
-    <div v-else-if="phase === 'result' && result" class="space-y-4">
-      <div class="flex flex-wrap items-center gap-2">
-        <BaseBadge :tone="result.passed ? 'success' : 'danger'">{{ result.passed ? "PASS" : "FAIL" }}</BaseBadge>
-        <span class="text-sm text-ink-2">Попытка №{{ result.attempt_number }}</span>
-      </div>
-
-      <div>
-        <div class="mb-1 flex items-center justify-between text-sm">
-          <span class="inline-flex items-center gap-1.5 text-ink-2"><Target :size="14" /> Точность</span>
-          <span class="font-semibold tabular-nums text-ink">{{ result.score }}%</span>
-        </div>
-        <div class="h-2 overflow-hidden rounded-full bg-paper-2" role="progressbar" :aria-valuenow="result.score" aria-valuemin="0" aria-valuemax="100">
-          <div
-            class="h-full rounded-full transition-all duration-500"
-            :class="result.passed ? 'bg-green-600 dark:bg-green-500' : 'bg-red-500 dark:bg-red-400'"
-            :style="{ width: `${result.score}%` }"
-          />
+    <div v-else-if="phase === 'result' && result" class="space-y-4 motion-safe:animate-fade-up">
+      <div
+        class="relative overflow-hidden rounded-2xl p-4 text-white sm:p-5"
+        :class="result.passed ? 'bg-gradient-to-br from-brand-deep via-brand to-brand-deep' : 'bg-gradient-to-br from-zinc-700 to-zinc-800'"
+      >
+        <div
+          v-if="result.passed"
+          class="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-brand-glow/25 blur-2xl"
+          aria-hidden="true"
+        />
+        <div class="relative flex items-center gap-4">
+          <!-- Accuracy ring: the stroke length is the score. -->
+          <svg viewBox="0 0 44 44" class="h-16 w-16 shrink-0 -rotate-90 sm:h-20 sm:w-20" aria-hidden="true">
+            <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" stroke-width="4" class="text-white/15" />
+            <circle
+              cx="22"
+              cy="22"
+              r="18"
+              fill="none"
+              stroke-width="4"
+              stroke-linecap="round"
+              :stroke="result.passed ? '#2dd4bf' : '#f87171'"
+              :stroke-dasharray="`${(result.score / 100) * 113.1} 113.1`"
+              class="transition-[stroke-dasharray] duration-700"
+            />
+          </svg>
+          <div class="min-w-0">
+            <span
+              class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tracking-wide"
+              :class="result.passed ? 'bg-green-400/20 text-green-200' : 'bg-red-400/20 text-red-200'"
+            >
+              <component :is="result.passed ? CheckCircle2 : XCircle" :size="12" /> {{ result.passed ? "PASS" : "FAIL" }}
+            </span>
+            <p class="mt-1 text-3xl font-bold tabular-nums leading-none">{{ result.score }}%</p>
+            <p class="mt-1 text-xs text-white/70">Точность · попытка №{{ result.attempt_number }}</p>
+          </div>
+          <div v-if="result.passed" class="ml-auto text-right">
+            <p class="text-[11px] uppercase tracking-wide text-white/60">Получено</p>
+            <p class="text-2xl font-bold tabular-nums text-gold-light motion-safe:animate-pop-in">+{{ result.xp_earned }}</p>
+            <p class="text-[11px] text-white/60">XP</p>
+          </div>
         </div>
       </div>
 
       <dl class="grid grid-cols-3 gap-2 text-center">
-        <div class="rounded-xl bg-paper-2 p-3">
-          <dt class="flex items-center justify-center gap-1 text-xs text-ink-3"><CheckCircle2 :size="13" /> Верно</dt>
+        <div class="rounded-xl border border-line bg-paper-2/60 p-3">
+          <dt class="flex items-center justify-center gap-1 text-xs text-ink-3"><CheckCircle2 :size="13" class="text-green-600 dark:text-green-400" /> Верно</dt>
           <dd class="mt-1 font-semibold tabular-nums text-ink">{{ result.correct_count }} из {{ result.question_count }}</dd>
         </div>
-        <div class="rounded-xl bg-paper-2 p-3">
-          <dt class="flex items-center justify-center gap-1 text-xs text-ink-3"><Coins :size="13" /> XP</dt>
+        <div class="rounded-xl border border-line bg-paper-2/60 p-3">
+          <dt class="flex items-center justify-center gap-1 text-xs text-ink-3"><Coins :size="13" class="text-gold" /> XP</dt>
           <dd class="mt-1 font-semibold tabular-nums text-moss">+{{ result.xp_earned }}</dd>
         </div>
-        <div class="rounded-xl bg-paper-2 p-3">
-          <dt class="flex items-center justify-center gap-1 text-xs text-ink-3"><Clock :size="13" /> Время</dt>
+        <div class="rounded-xl border border-line bg-paper-2/60 p-3">
+          <dt class="flex items-center justify-center gap-1 text-xs text-ink-3"><Clock :size="13" class="text-brand-glow" /> Время</dt>
           <dd class="mt-1 font-semibold tabular-nums text-ink">{{ formatDuration(result.duration_seconds) }}</dd>
         </div>
       </dl>
