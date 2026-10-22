@@ -186,11 +186,16 @@ async def create_section(
     section = Section(category_id=category_id, title=payload.title, description=payload.description, order_index=next_order)
     db.add(section)
     await db.commit()
-    await db.refresh(section)
-    # A brand-new section has no lessons yet -- set this explicitly rather
-    # than letting SectionOut.model_validate touch the unloaded relationship,
-    # which would trigger a lazy load outside an awaited context.
-    section.lessons = []
+
+    # Re-fetched with lessons eager-loaded, the same as update_section.
+    # Assigning `section.lessons = []` instead -- what this used to do --
+    # is itself a lazy load: SQLAlchemy reads the old collection to diff
+    # the new one against it, outside an awaited context, and the request
+    # died with MissingGreenlet. Every section created from the course
+    # builder was a 500.
+    section = await db.scalar(
+        select(Section).where(Section.id == section.id).options(selectinload(Section.lessons))
+    )
     return SectionOut.model_validate(section)
 
 

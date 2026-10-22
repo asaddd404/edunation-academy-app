@@ -9,6 +9,7 @@ import QuestionRenderer from "@/components/test/QuestionRenderer.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { AnswerPayload, TestAttemptResult, TestSession } from "@/types";
 import { formatDuration, isAnswered } from "@/utils/answers";
+import { pluralRu } from "@/utils/subjectTheme";
 
 /**
  * A lesson mini-test or section test, end to end: start an attempt (which
@@ -105,7 +106,7 @@ async function submit() {
     <!-- Not started -->
     <div v-if="phase === 'idle' || phase === 'starting'" class="space-y-3">
       <p class="text-sm text-ink-2">
-        {{ questionCount }} вопрос(ов). Время идёт с момента старта: чем точнее и быстрее — тем больше XP.
+        {{ questionCount }} {{ pluralRu(questionCount, ["вопрос", "вопроса", "вопросов"]) }}. Время идёт с момента старта: чем точнее и быстрее — тем больше XP.
         <template v-if="isPassed">Тест уже пройден — повторная попытка принесёт XP, только если улучшит результат.</template>
       </p>
       <p v-if="error" class="text-sm text-clay">{{ error }}</p>

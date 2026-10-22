@@ -3,15 +3,15 @@ from typing import Annotated
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.phone import validate_phone
-from app.schemas.limits import Password, ShortText
+from app.schemas.limits import NonBlankShortText, Password, ShortText
 from app.schemas.user import UserOut
 
 
 class RegisterIn(BaseModel):
     phone: ShortText
     password: Password
-    first_name: ShortText
-    last_name: ShortText
+    first_name: NonBlankShortText
+    last_name: NonBlankShortText
 
     @field_validator("phone")
     @classmethod

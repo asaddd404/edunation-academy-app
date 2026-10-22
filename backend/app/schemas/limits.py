@@ -9,13 +9,36 @@ types. Without them the only limit on `description` is the body-size cap --
 
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import AfterValidator, Field
 
 # --- text ------------------------------------------------------------------
 ShortText = Annotated[str, Field(max_length=200)]
 """Titles, names, subject and category names."""
 
 OptionalShortText = Annotated[str | None, Field(default=None, max_length=200)]
+
+
+def _not_blank(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("Поле не может быть пустым")
+    return stripped
+
+
+def _not_blank_if_given(value: str | None) -> str | None:
+    return None if value is None else _not_blank(value)
+
+
+NonBlankShortText = Annotated[str, Field(max_length=200), AfterValidator(_not_blank)]
+"""A name or title: required, trimmed, and not just spaces. Plain ShortText
+let `"   "` through, which made a nameless user, a blank lesson title, and a
+category whose slug fell back to the generic `category`."""
+
+OptionalNonBlankShortText = Annotated[
+    str | None, Field(default=None, max_length=200), AfterValidator(_not_blank_if_given)
+]
+"""For PATCH bodies: omitted (None) leaves the field alone, but a value that
+is given must still be a real one -- renaming a lesson to "" is refused."""
 
 MediumText = Annotated[str, Field(max_length=2000)]
 """Feedback, glossary explanations, a single answer option."""

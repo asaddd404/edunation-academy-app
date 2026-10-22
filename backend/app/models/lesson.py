@@ -36,4 +36,8 @@ class Lesson(Base):
     video_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     section: Mapped["Section"] = relationship(back_populates="lessons")
-    questions: Mapped[list["Question"]] = relationship(back_populates="lesson", order_by="Question.order_index")
+    # See Section.lessons: nulling questions.lesson_id would break the
+    # exactly-one-owner CHECK, so deletion is left to the FK cascade.
+    questions: Mapped[list["Question"]] = relationship(
+        back_populates="lesson", order_by="Question.order_index", cascade="all, delete-orphan", passive_deletes=True
+    )

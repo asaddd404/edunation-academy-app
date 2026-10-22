@@ -9,6 +9,9 @@ declare module "vue-router" {
     roles?: Role[];
     /** Authenticated users get bounced to their role home. */
     guestOnly?: boolean;
+    /** Remount the view when a path param changes (see App.vue). For views
+     * that load one record by `route.params.id` at setup. */
+    remountOnParams?: boolean;
   }
 }
 
@@ -72,13 +75,13 @@ const router = createRouter({
       path: "/lessons/:id",
       name: "lesson",
       component: () => import("@/views/student/LessonView.vue"),
-      meta: { roles: ["student"] },
+      meta: { roles: ["student"], remountOnParams: true },
     },
     {
       path: "/sections/:id/test",
       name: "section-test",
       component: () => import("@/views/student/SectionTestView.vue"),
-      meta: { roles: ["student"] },
+      meta: { roles: ["student"], remountOnParams: true },
     },
     {
       path: "/ent",
@@ -101,7 +104,7 @@ const router = createRouter({
       path: "/ent/:id",
       name: "ent-simulation",
       component: () => import("@/views/student/EntSimulationView.vue"),
-      meta: { roles: ["student"] },
+      meta: { roles: ["student"], remountOnParams: true },
     },
     {
       path: "/teacher",
@@ -119,7 +122,7 @@ const router = createRouter({
       path: "/teacher/categories/:id",
       name: "teacher-course-builder",
       component: () => import("@/views/teacher/CourseBuilderView.vue"),
-      meta: { roles: ["teacher", "admin"] },
+      meta: { roles: ["teacher", "admin"], remountOnParams: true },
     },
     {
       path: "/teacher/homework",

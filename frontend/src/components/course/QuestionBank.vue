@@ -13,6 +13,7 @@ import BaseButton from "@/components/ui/BaseButton.vue";
 import type { QuestionSavePayload, QuestionTeacher } from "@/types";
 import { optionLetter } from "@/utils/examOptions";
 import { QTYPE_LABEL } from "@/utils/questionForm";
+import { pluralRu } from "@/utils/subjectTheme";
 
 /** The questions of one lesson mini-test or one section test: listed with
  * their answer key, edited in place, added at the bottom. */
@@ -125,7 +126,7 @@ async function remove(questionId: number) {
             <div class="min-w-0 flex-1">
               <div class="mb-1 flex flex-wrap gap-1.5">
                 <BaseBadge tone="neutral">{{ QTYPE_LABEL[q.qtype] }}</BaseBadge>
-                <BaseBadge tone="neutral">{{ q.max_score }} балл(а)</BaseBadge>
+                <BaseBadge tone="neutral">{{ q.max_score }} {{ pluralRu(q.max_score, ["балл", "балла", "баллов"]) }}</BaseBadge>
               </div>
               <p class="text-sm font-medium text-ink"><SmartText :text="q.text" /></p>
             </div>

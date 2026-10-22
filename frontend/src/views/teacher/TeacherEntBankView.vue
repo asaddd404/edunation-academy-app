@@ -525,7 +525,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
   <PageContainer>
     <PageHeader
       title="Банк вопросов ЕНТ-симулятора"
-      subtitle="Выберите предмет слева, затем добавляйте и редактируйте вопросы всех типов — один/несколько ответов, сопоставление, короткий ответ."
+      subtitle="Выберите предмет в списке, затем добавляйте и редактируйте вопросы всех типов — один/несколько ответов, сопоставление, короткий ответ."
     />
 
     <EntPdfImportModal
@@ -606,7 +606,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
           v-if="!selectedSubject"
           class="flex h-64 items-center justify-center rounded-xl border border-dashed border-line text-sm text-ink-3"
         >
-          Выберите предмет слева
+          Выберите предмет в списке
         </div>
 
         <template v-else>

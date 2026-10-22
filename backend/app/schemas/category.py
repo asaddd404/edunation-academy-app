@@ -3,17 +3,17 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.models.application import ApplicationStatusEnum
-from app.schemas.limits import MediumText, OptionalMediumText, OptionalShortText, ShortText
+from app.schemas.limits import MediumText, NonBlankShortText, OptionalMediumText, OptionalNonBlankShortText, OptionalShortText, ShortText
 
 
 class CategoryIn(BaseModel):
-    name: ShortText
+    name: NonBlankShortText
     slug: OptionalShortText = None
     description: OptionalMediumText = None
 
 
 class CategoryUpdateIn(BaseModel):
-    name: OptionalShortText = None
+    name: OptionalNonBlankShortText = None
     description: OptionalMediumText = None
     is_active: bool | None = None
 

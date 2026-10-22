@@ -6,6 +6,9 @@ defineProps<{
   placeholder?: string;
   error?: string;
   inputmode?: "text" | "tel" | "numeric" | "decimal" | "email" | "url" | "search" | "none";
+  /** Mirror the server's limit, so the browser stops typing at it instead of
+   * the server refusing the save afterwards. */
+  maxlength?: number;
 }>();
 
 defineEmits<{ (e: "update:modelValue", value: string): void }>();
@@ -26,6 +29,7 @@ defineEmits<{ (e: "update:modelValue", value: string): void }>();
         :value="modelValue"
         :placeholder="placeholder"
         :inputmode="inputmode"
+        :maxlength="maxlength"
         class="input"
         :class="{ 'pl-10': $slots.icon }"
         @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"

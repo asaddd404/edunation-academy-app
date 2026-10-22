@@ -17,7 +17,14 @@ class Section(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     category: Mapped["Category"] = relationship()
-    lessons: Mapped[list["Lesson"]] = relationship(back_populates="section", order_by="Lesson.order_index")
+    # The children's foreign keys are ON DELETE CASCADE; passive_deletes
+    # leaves the delete to the database. Without it the ORM, before deleting
+    # a section, first tried to detach its lessons by setting
+    # lessons.section_id to NULL -- a NOT NULL column -- so deleting any
+    # section that had a lesson was a 500.
+    lessons: Mapped[list["Lesson"]] = relationship(
+        back_populates="section", order_by="Lesson.order_index", cascade="all, delete-orphan", passive_deletes=True
+    )
     test_questions: Mapped[list["Question"]] = relationship(
-        back_populates="section", order_by="Question.order_index"
+        back_populates="section", order_by="Question.order_index", cascade="all, delete-orphan", passive_deletes=True
     )

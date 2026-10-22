@@ -18,6 +18,7 @@ import { describePlan, planAnswerKey, type KeyAssignment } from "@/utils/answerK
 import { FLAG_CHIP_CLASS, flagInfo, isReady, rankFlags } from "@/utils/entImportFlags";
 import { requiredMaxScore, savableProblem } from "@/utils/entQuestionValidity";
 import { EXAM_LANGUAGES, LANGUAGE_LABEL, otherLanguage } from "@/utils/examLanguage";
+import { pluralRu } from "@/utils/subjectTheme";
 
 const props = defineProps<{
   subjects: EntSubject[];
@@ -870,7 +871,7 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
             <BaseButton
               variant="secondary"
               :disabled="!includedCount || phase === 'saving'"
-              :title="`${blockedCount} вопрос(ов) без ответа будут сохранены с первым вариантом, отмеченным верным`"
+              :title="`${blockedCount} ${pluralRu(blockedCount, ['вопрос', 'вопроса', 'вопросов'])} без ответа будут сохранены с первым вариантом, отмеченным верным`"
               @click="save('all')"
             >
               Сохранить все, включая {{ blockedCount }} без ответа
