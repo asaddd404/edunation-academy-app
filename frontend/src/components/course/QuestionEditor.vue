@@ -22,6 +22,7 @@ import {
   validate,
   variantRow,
 } from "@/utils/questionForm";
+import { pluralRu } from "@/utils/subjectTheme";
 
 /**
  * Builds or edits one lesson/section test question, beside a live preview
@@ -291,7 +292,7 @@ watch(() => form.qtype, () => (previewAnswer.value = undefined));
           <strong class="text-ink">{{ form.answerVariants.map((v) => v.text.trim()).filter(Boolean).join(" / ") || "—" }}</strong>
         </template>
       </div>
-      <p class="mt-3 text-[11px] text-ink-3">{{ form.maxScore }} балл(а) · {{ QTYPE_LABEL[form.qtype] }}</p>
+      <p class="mt-3 text-[11px] text-ink-3">{{ form.maxScore }} {{ pluralRu(form.maxScore, ["балл", "балла", "баллов"]) }} · {{ QTYPE_LABEL[form.qtype] }}</p>
     </aside>
   </div>
 </template>

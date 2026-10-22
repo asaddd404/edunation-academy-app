@@ -21,6 +21,15 @@ const categories = useCategoriesStore();
 const applications = useApplicationsStore();
 
 const search = ref(typeof route.query.q === "string" ? route.query.q : "");
+// The navbar search lands here as `?q=`. Read once at setup it only worked
+// when arriving from another page: searching again while already on the
+// catalog changed the URL and left the filter as it was.
+watch(
+  () => route.query.q,
+  (q) => {
+    if (typeof q === "string") search.value = q;
+  },
+);
 const applyingId = ref<number | null>(null);
 
 const sections = ref<Section[]>([]);

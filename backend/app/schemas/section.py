@@ -3,16 +3,16 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.lesson import LessonSummaryOut
-from app.schemas.limits import OptionalMediumText, OptionalShortText, ShortText
+from app.schemas.limits import NonBlankShortText, OptionalMediumText, OptionalNonBlankShortText, ShortText
 
 
 class SectionIn(BaseModel):
-    title: ShortText
+    title: NonBlankShortText
     description: OptionalMediumText = None
 
 
 class SectionUpdateIn(BaseModel):
-    title: OptionalShortText = None
+    title: OptionalNonBlankShortText = None
     description: OptionalMediumText = None
 
 

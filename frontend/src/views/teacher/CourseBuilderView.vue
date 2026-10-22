@@ -10,6 +10,7 @@ import {
   Trash2,
   Video,
 } from "@lucide/vue";
+import { isAxiosError } from "axios";
 import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
@@ -185,18 +186,42 @@ function cancelEditSection(sectionId: number) {
   sectionEditForms[sectionId].open = false;
 }
 
+// One banner for every structural action below. None of them caught a
+// failure before: a refused save or a server error left the form exactly
+// as it was, and the teacher had no way to tell nothing had happened.
+const actionError = ref("");
+
+async function guarded(failure: string, action: () => Promise<void>): Promise<boolean> {
+  actionError.value = "";
+  try {
+    await action();
+    return true;
+  } catch (e) {
+    const detail = isAxiosError(e) ? e.response?.data?.detail : null;
+    actionError.value =
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail) && detail[0]?.msg
+          ? `${failure}: ${String(detail[0].msg).replace(/^Value error, /, "")}`
+          : failure;
+    return false;
+  }
+}
+
 async function saveSection(sectionId: number) {
   const form = sectionEditForms[sectionId];
   if (!form.title.trim()) return;
-  await updateSection(sectionId, { title: form.title, description: form.description || undefined });
+  const ok = await guarded("Не удалось сохранить раздел", () =>
+    updateSection(sectionId, { title: form.title, description: form.description || undefined }).then(() => undefined),
+  );
+  if (!ok) return;
   form.open = false;
   await load();
 }
 
 async function handleDeleteSection(sectionId: number) {
   if (!confirm("Удалить раздел и все его уроки? Это действие необратимо.")) return;
-  await deleteSection(sectionId);
-  await load();
+  if (await guarded("Не удалось удалить раздел", () => deleteSection(sectionId).then(() => undefined))) await load();
 }
 
 async function startEditLesson(lessonId: number) {
@@ -218,19 +243,21 @@ function cancelEditLesson(lessonId: number) {
 async function saveLesson(lessonId: number) {
   const form = lessonEditForms[lessonId];
   if (!form.title.trim()) return;
-  await updateLesson(lessonId, {
-    title: form.title,
-    description: form.description || undefined,
-    homework_assignment: form.homework || undefined,
-  });
+  const ok = await guarded("Не удалось сохранить урок", () =>
+    updateLesson(lessonId, {
+      title: form.title,
+      description: form.description || undefined,
+      homework_assignment: form.homework || undefined,
+    }),
+  );
+  if (!ok) return;
   form.open = false;
   await load();
 }
 
 async function handleDeleteLesson(lessonId: number) {
   if (!confirm("Удалить урок вместе с видео, вопросами и домашкой? Это действие необратимо.")) return;
-  await deleteLesson(lessonId);
-  await load();
+  if (await guarded("Не удалось удалить урок", () => deleteLesson(lessonId).then(() => undefined))) await load();
 }
 onBeforeUnmount(() => {
   for (const timer of Object.values(pollTimers)) clearTimeout(timer);
@@ -284,7 +311,13 @@ async function handleDeleteVideo(lessonId: number) {
 
 async function handleCreateSection() {
   if (!newSectionTitle.value.trim()) return;
-  await createSection(categoryId, { title: newSectionTitle.value, description: newSectionDescription.value || undefined });
+  const ok = await guarded("Не удалось создать раздел", () =>
+    createSection(categoryId, {
+      title: newSectionTitle.value,
+      description: newSectionDescription.value || undefined,
+    }).then(() => undefined),
+  );
+  if (!ok) return;
   newSectionTitle.value = "";
   newSectionDescription.value = "";
   await load();
@@ -297,11 +330,14 @@ function openLessonForm(sectionId: number) {
 async function handleCreateLesson(sectionId: number) {
   const form = lessonForms[sectionId];
   if (!form?.title.trim()) return;
-  await createLesson(sectionId, {
-    title: form.title,
-    description: form.description || undefined,
-    homework_assignment: form.homework || undefined,
-  });
+  const ok = await guarded("Не удалось создать урок", () =>
+    createLesson(sectionId, {
+      title: form.title,
+      description: form.description || undefined,
+      homework_assignment: form.homework || undefined,
+    }),
+  );
+  if (!ok) return;
   lessonForms[sectionId] = { title: "", description: "", homework: "", open: false };
   await load();
 }
@@ -324,6 +360,15 @@ async function handleCreateLesson(sectionId: number) {
     </div>
 
     <template v-else>
+      <div
+        v-if="actionError"
+        class="sticky z-20 mb-4 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-50 p-3 text-sm text-red-700 shadow-sm dark:bg-red-950/60 dark:text-red-300"
+        :style="{ top: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }"
+        role="alert"
+      >
+        <span class="flex-1">{{ actionError }}</span>
+        <button type="button" class="shrink-0 underline underline-offset-2" @click="actionError = ''">Закрыть</button>
+      </div>
       <div v-if="category" class="card mb-6 flex flex-col gap-4 p-4 sm:flex-row">
         <img
           v-if="category.has_image"
@@ -374,7 +419,7 @@ async function handleCreateLesson(sectionId: number) {
 
       <div class="space-y-6">
         <form class="card flex flex-col gap-3 p-4 sm:flex-row sm:items-end" @submit.prevent="handleCreateSection">
-          <BaseInput v-model="newSectionTitle" label="Новый раздел" class="flex-1" />
+          <BaseInput v-model="newSectionTitle" label="Новый раздел" :maxlength="200" class="flex-1" />
           <BaseInput v-model="newSectionDescription" label="Описание" class="flex-1" />
           <BaseButton type="submit">Добавить</BaseButton>
         </form>
@@ -423,7 +468,7 @@ async function handleCreateLesson(sectionId: number) {
 
           <div v-else class="space-y-3 border-b border-line bg-paper-2 p-4">
             <p class="text-sm font-medium text-ink">Редактирование раздела</p>
-            <BaseInput v-model="sectionEditForms[section.id].title" label="Название раздела" />
+            <BaseInput v-model="sectionEditForms[section.id].title" label="Название раздела" :maxlength="200" />
             <BaseInput v-model="sectionEditForms[section.id].description" label="Описание раздела" />
             <div class="flex gap-2">
               <BaseButton @click="saveSection(section.id)">Сохранить раздел</BaseButton>
@@ -497,7 +542,7 @@ async function handleCreateLesson(sectionId: number) {
                 <p class="text-sm font-medium text-ink">Материалы урока</p>
                 <p v-if="lessonEditForms[lesson.id].loading" class="text-sm text-ink-2">Загрузка…</p>
                 <template v-else>
-                  <BaseInput v-model="lessonEditForms[lesson.id].title" label="Название урока" />
+                  <BaseInput v-model="lessonEditForms[lesson.id].title" label="Название урока" :maxlength="200" />
                   <RichTextEditor v-model="lessonEditForms[lesson.id].description" label="Описание и теория (видит ученик под видео)" />
                   <RichTextEditor
                     v-model="lessonEditForms[lesson.id].homework"
@@ -604,7 +649,7 @@ async function handleCreateLesson(sectionId: number) {
 
           <div v-if="lessonForms[section.id]?.open" class="mt-3 space-y-3 rounded-xl border border-line bg-paper-2 p-4">
             <p class="text-sm font-medium text-ink">Новый урок</p>
-            <BaseInput v-model="lessonForms[section.id].title" label="Название урока" />
+            <BaseInput v-model="lessonForms[section.id].title" label="Название урока" :maxlength="200" />
             <RichTextEditor v-model="lessonForms[section.id].description" label="Описание и теория (видит ученик под видео)" />
             <RichTextEditor
               v-model="lessonForms[section.id].homework"

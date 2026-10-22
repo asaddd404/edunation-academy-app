@@ -23,7 +23,7 @@ import type {
 } from "@/types";
 import { isAnswered as isAnsweredBy } from "@/utils/answers";
 import { optionLetter, scorePercent, scoreTone } from "@/utils/examOptions";
-import { capitalize } from "@/utils/subjectTheme";
+import { capitalize, pluralRu } from "@/utils/subjectTheme";
 
 const route = useRoute();
 const simulationId = Number(route.params.id);
@@ -180,6 +180,26 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("resize", measureHeader);
 });
+
+// Finishing by hand with questions left blank asks first: one stray click
+// on "Завершить" used to submit the whole exam with those answers as zero.
+// The timer's own submit (useExamTimer above) does not ask -- time is up.
+const confirmingSubmit = ref(false);
+
+function requestSubmit() {
+  if (unansweredCount.value > 0 && !confirmingSubmit.value) {
+    confirmingSubmit.value = true;
+    return;
+  }
+  confirmingSubmit.value = false;
+  void handleSubmit();
+}
+
+function backToFirstUnanswered() {
+  confirmingSubmit.value = false;
+  const index = questions.value.findIndex((q) => !isAnswered(q));
+  if (index >= 0) goTo(index);
+}
 
 async function handleSubmit() {
   if (submitting || !exam.value) return;
@@ -357,7 +377,7 @@ function timingLabel(r: EntSimulationResult): string {
         <section ref="questionCardRef" class="card space-y-4 p-5">
           <div class="flex flex-wrap items-center gap-2 text-xs text-ink-3">
             <BaseBadge tone="neutral">{{ capitalize(currentQuestion.subject_name) }}</BaseBadge>
-            <span>{{ currentQuestion.max_score }} балл(а)</span>
+            <span>{{ currentQuestion.max_score }} {{ pluralRu(currentQuestion.max_score, ["балл", "балла", "баллов"]) }}</span>
           </div>
 
           <p class="text-body-lg font-medium text-ink"><SmartText :text="currentQuestion.text" /></p>
@@ -394,7 +414,28 @@ function timingLabel(r: EntSimulationResult): string {
           <p v-else class="mb-3 text-sm text-moss">Все вопросы отвечены.</p>
 
           <p v-if="errorMessage" class="mb-3 text-sm text-clay">{{ errorMessage }}</p>
-          <BaseButton variant="cta" class="w-full sm:w-auto" :disabled="submitting" @click="handleSubmit">
+          <div
+            v-if="confirmingSubmit && unansweredCount > 0"
+            class="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-ink"
+            role="alert"
+          >
+            <p class="font-medium">
+              Сдать с {{ unansweredCount }}
+              {{ pluralRu(unansweredCount, ["вопросом", "вопросами", "вопросами"]) }} без ответа?
+            </p>
+            <p class="mt-0.5 text-ink-2">За них будет 0 баллов, вернуться к экзамену после сдачи нельзя.</p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <BaseButton variant="secondary" @click="backToFirstUnanswered">К первому без ответа</BaseButton>
+              <BaseButton variant="danger" :disabled="submitting" @click="requestSubmit">Всё равно сдать</BaseButton>
+            </div>
+          </div>
+          <BaseButton
+            v-else
+            variant="cta"
+            class="w-full sm:w-auto"
+            :disabled="submitting"
+            @click="requestSubmit"
+          >
             Завершить и сдать
           </BaseButton>
         </div>

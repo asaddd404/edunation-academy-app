@@ -52,6 +52,9 @@ async def submit_homework(
     if lesson_id not in unlocked:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Урок ещё заблокирован")
 
+    # Whitespace is no answer: without this, "   " passed the check below
+    # and a blank submission landed in the teacher's review queue.
+    text_answer = (text_answer or "").strip() or None
     if not text_answer and file is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Добавьте текст ответа или файл")
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from "axios";
 import { Ban, Copy, KeyRound, Search, UserCheck, X } from "@lucide/vue";
 import { computed, onMounted, reactive, ref } from "vue";
 
@@ -99,11 +100,36 @@ onMounted(async () => {
 
 const updatingUserId = ref<number | null>(null);
 
-async function handleRoleChange(user: User, role: Role) {
+// A role change is staged, then confirmed: it used to apply on the select's
+// change event, so one slip of the thumb on a phone made a student an admin.
+const pendingRole = ref<{ user: User; role: Role } | null>(null);
+// A refusal from the server for one user's row (e.g. an admin demoting or
+// blocking themselves), shown under that row instead of being dropped.
+const actionError = ref<{ userId: number; message: string } | null>(null);
+
+function describeFailure(e: unknown, fallback: string): string {
+  const detail = isAxiosError(e) ? e.response?.data?.detail : null;
+  return typeof detail === "string" ? detail : fallback;
+}
+
+const ROLE_NAME: Record<Role, string> = { student: "учеником", teacher: "учителем", admin: "администратором" };
+
+function stageRoleChange(user: User, role: Role) {
+  actionError.value = null;
+  pendingRole.value = role === user.role ? null : { user, role };
+}
+
+async function confirmRoleChange() {
+  if (!pendingRole.value) return;
+  const { user, role } = pendingRole.value;
   updatingUserId.value = user.id;
   try {
     await adminApi.updateUser(user.id, { role });
+    pendingRole.value = null;
     await Promise.all([loadUsers(usersPage.page), loadRoleCounts()]);
+  } catch (e) {
+    actionError.value = { userId: user.id, message: describeFailure(e, "Не удалось сменить роль.") };
+    pendingRole.value = null;
   } finally {
     updatingUserId.value = null;
   }
@@ -111,9 +137,12 @@ async function handleRoleChange(user: User, role: Role) {
 
 async function handleActiveToggle(user: User) {
   updatingUserId.value = user.id;
+  actionError.value = null;
   try {
     await adminApi.updateUser(user.id, { is_active: !user.is_active });
     await loadUsers(usersPage.page);
+  } catch (e) {
+    actionError.value = { userId: user.id, message: describeFailure(e, "Не удалось изменить статус.") };
   } finally {
     updatingUserId.value = null;
   }
@@ -225,16 +254,35 @@ async function copyPassword() {
 
           <ActivityBadge :total-seconds="user.today_activity_seconds" class="w-fit" />
 
+          <!-- Bound to the staged role while one is pending, so cancelling
+               moves the select back to the user's real role. -->
           <select
-            :value="user.role"
+            :value="pendingRole?.user.id === user.id ? pendingRole.role : user.role"
             :disabled="updatingUserId === user.id"
             class="input min-h-11 w-full px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-            @change="handleRoleChange(user, ($event.target as HTMLSelectElement).value as Role)"
+            aria-label="Роль"
+            @change="stageRoleChange(user, ($event.target as HTMLSelectElement).value as Role)"
           >
             <option value="student">Ученик</option>
             <option value="teacher">Учитель</option>
             <option value="admin">Админ</option>
           </select>
+          <div
+            v-if="pendingRole?.user.id === user.id"
+            class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-sm text-ink"
+            role="alert"
+          >
+            <p>
+              Сделать {{ user.first_name }} {{ user.last_name }} <strong>{{ ROLE_NAME[pendingRole.role] }}</strong>?
+            </p>
+            <div class="mt-2 flex gap-2">
+              <BaseButton :disabled="updatingUserId === user.id" @click="confirmRoleChange">Подтвердить</BaseButton>
+              <BaseButton variant="secondary" @click="pendingRole = null">Отмена</BaseButton>
+            </div>
+          </div>
+          <p v-if="actionError?.userId === user.id" class="text-sm text-red-600 dark:text-red-400" role="alert">
+            {{ actionError.message }}
+          </p>
 
           <div class="flex gap-2">
             <button
@@ -283,15 +331,33 @@ async function copyPassword() {
               </td>
               <td class="px-4 py-3">
                 <select
-                  :value="user.role"
+                  :value="pendingRole?.user.id === user.id ? pendingRole.role : user.role"
                   :disabled="updatingUserId === user.id"
                   class="input px-2 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-                  @change="handleRoleChange(user, ($event.target as HTMLSelectElement).value as Role)"
+                  aria-label="Роль"
+                  @change="stageRoleChange(user, ($event.target as HTMLSelectElement).value as Role)"
                 >
                   <option value="student">Ученик</option>
                   <option value="teacher">Учитель</option>
                   <option value="admin">Админ</option>
                 </select>
+                <div v-if="pendingRole?.user.id === user.id" class="mt-1.5 flex items-center gap-1.5 text-xs" role="alert">
+                  <span class="text-ink-2">Сменить роль?</span>
+                  <button
+                    type="button"
+                    class="rounded-md bg-moss px-2 py-1 font-medium text-moss-fg disabled:opacity-50"
+                    :disabled="updatingUserId === user.id"
+                    @click="confirmRoleChange"
+                  >
+                    Да
+                  </button>
+                  <button type="button" class="rounded-md px-2 py-1 text-ink-2 hover:bg-paper-2" @click="pendingRole = null">
+                    Отмена
+                  </button>
+                </div>
+                <p v-if="actionError?.userId === user.id" class="mt-1.5 max-w-[14rem] text-xs text-red-600 dark:text-red-400" role="alert">
+                  {{ actionError.message }}
+                </p>
               </td>
               <td class="px-4 py-3">
                 <span
