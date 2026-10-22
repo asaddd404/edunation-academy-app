@@ -627,7 +627,7 @@ async function handleCreateLesson(sectionId: number) {
                   </section>
 
                   <section class="border-t border-line pt-3">
-                    <p class="mb-2 flex items-center gap-1.5 text-sm font-medium text-ink">
+                    <p class="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium text-ink">
                       <ListChecks :size="15" :stroke-width="1.8" class="text-ink-3" />
                       Мини-тест урока
                       <span class="font-normal text-ink-3">— ученик проходит после видео</span>

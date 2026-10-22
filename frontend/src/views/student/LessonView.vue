@@ -12,6 +12,7 @@ import RichContent from "@/components/richtext/RichContent.vue";
 import CourseTestPanel from "@/components/test/CourseTestPanel.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
+import FilePicker from "@/components/ui/FilePicker.vue";
 import type { LessonDetail } from "@/types";
 import { isRichDocEmpty, parseRichContent } from "@/utils/richContent";
 
@@ -76,18 +77,14 @@ async function handleSubmitHomework() {
   }
 }
 
-function handleFileChange(event: Event) {
-  const input = event.target as HTMLInputElement;
-  homeworkFile.value = input.files?.[0] ?? null;
-}
 </script>
 
 <template>
   <PageContainer>
-    <div v-if="loading" class="space-y-6">
+    <div v-if="loading" class="mx-auto max-w-3xl space-y-6">
       <div class="h-8 w-2/3 animate-pulse rounded-lg bg-paper-2"></div>
       <div class="h-64 w-full animate-pulse rounded-2xl bg-paper-2"></div>
-      <div class="h-40 w-full max-w-[42rem] animate-pulse rounded-2xl bg-paper-2"></div>
+      <div class="h-40 w-full animate-pulse rounded-2xl bg-paper-2"></div>
     </div>
 
     <div v-else-if="loadError" class="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
@@ -95,7 +92,10 @@ function handleFileChange(event: Event) {
       <BaseButton variant="secondary" @click="load">Повторить</BaseButton>
     </div>
 
-    <template v-else-if="lesson">
+    <div v-else-if="lesson" class="mx-auto max-w-3xl">
+      <!-- One centred reading column: on a laptop the cards used to sit in a
+           narrow strip on the left while the header's badge hung off the far
+           right edge, half a screen away from anything it described. -->
       <PageHeader :title="lesson.title">
         <template #actions>
           <BaseBadge :tone="lesson.is_passed ? 'success' : 'neutral'">
@@ -114,9 +114,9 @@ function handleFileChange(event: Event) {
         </p>
         <p v-else-if="videoError" class="rounded-xl border border-line p-4 text-sm text-clay">{{ videoError }}</p>
 
-        <RichContent :content="lesson.description" class="max-w-[70ch]" />
+        <RichContent :content="lesson.description" />
 
-        <div class="max-w-[42rem] space-y-8">
+        <div class="space-y-8">
           <CourseTestPanel
             v-if="lesson.question_count"
             title="Мини-тест"
@@ -127,7 +127,7 @@ function handleFileChange(event: Event) {
             @passed="lesson.is_passed = true"
           />
 
-          <section v-if="hasHomework" class="card space-y-3 p-4">
+          <section v-if="hasHomework" class="card space-y-3 p-4 sm:p-5">
             <h2 class="text-lg font-medium text-ink">Домашнее задание</h2>
             <RichContent :content="lesson.homework_assignment" />
 
@@ -158,7 +158,21 @@ function handleFileChange(event: Event) {
             </div>
 
             <textarea v-model="homeworkText" rows="4" placeholder="Текст ответа…" class="input" />
-            <input type="file" accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx" class="text-sm text-ink-2" @change="handleFileChange" />
+            <div class="space-y-1.5">
+              <FilePicker
+                :file="homeworkFile"
+                accept=".jpg,.jpeg,.png,.pdf,.txt,.doc,.docx"
+                label="Прикрепить решение"
+                @pick="homeworkFile = $event"
+                @clear="homeworkFile = null"
+              />
+              <p class="text-xs text-ink-3">
+                <template v-if="lesson.my_homework?.file_original_name && !homeworkFile">
+                  Уже прикреплён: {{ lesson.my_homework.file_original_name }} ·
+                </template>
+                jpg, png, pdf, txt, doc
+              </p>
+            </div>
             <p v-if="homeworkError" class="text-sm text-clay">{{ homeworkError }}</p>
             <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
               Отправить домашку
@@ -166,6 +180,6 @@ function handleFileChange(event: Event) {
           </section>
         </div>
       </div>
-    </template>
+    </div>
   </PageContainer>
 </template>

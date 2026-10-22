@@ -123,6 +123,17 @@ const HISTORY_TONES: Record<string, string> = {
   danger: "bg-red-500/15 text-red-600 dark:text-red-400",
 };
 
+/** "22.10.2026, 16:25" -- seconds are noise in a history list. */
+function formatAttemptDate(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function historyTone(s: EntSimulationSummary): string {
   return HISTORY_TONES[scoreTone(historyPercent(s))];
 }
@@ -273,10 +284,12 @@ function historyTone(s: EntSimulationSummary): string {
           <label class="flex items-center justify-between gap-3 rounded-xl border border-line p-3">
             <span class="flex flex-col">
               <span class="text-sm font-medium text-ink">Режим с таймером</span>
-              <span class="text-xs text-ink-3">
-                Экзаменационные условия — {{ durationLabel }} на {{ selectedSubjectIds.length || "…" }}
+              <!-- With nothing picked the old line read "0 минут на … предметов". -->
+              <span v-if="selectedSubjectIds.length" class="text-xs text-ink-3">
+                Экзаменационные условия — {{ durationLabel }} на {{ selectedSubjectIds.length }}
                 {{ pluralRu(selectedSubjectIds.length, ["предмет", "предмета", "предметов"]) }}
               </span>
+              <span v-else class="text-xs text-ink-3">Экзаменационные условия — время зависит от числа предметов</span>
             </span>
             <input v-model="isTimed" type="checkbox" class="h-5 w-5 accent-moss" />
           </label>
@@ -349,10 +362,10 @@ function historyTone(s: EntSimulationSummary): string {
                      for, and the ring reads faster than "34/60". -->
                 <span
                   v-if="s.status !== 'in_progress'"
-                  class="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl text-xs font-bold tabular-nums"
+                  class="flex h-11 w-11 shrink-0 items-baseline justify-center rounded-xl pt-[13px] text-xs font-bold tabular-nums"
                   :class="historyTone(s)"
                 >
-                  {{ historyPercent(s) }}<span class="text-[9px] font-medium opacity-70">%</span>
+                  {{ historyPercent(s) }}<span class="text-[10px] font-medium opacity-70">%</span>
                 </span>
                 <span
                   v-else
@@ -370,14 +383,16 @@ function historyTone(s: EntSimulationSummary): string {
                     {{ s.status === "in_progress" ? "Не завершена" : `${s.total_score} / ${s.max_score} баллов` }}
                   </span>
                   <span class="block truncate text-xs text-ink-3">
-                    {{ new Date(s.started_at).toLocaleString("ru-RU") }} · {{ timingLabel(s) }}
+                    {{ formatAttemptDate(s.started_at) }} · {{ timingLabel(s) }}
                   </span>
                 </span>
 
                 <span v-if="s.status !== 'in_progress'" class="shrink-0 rounded-full bg-moss/15 px-2.5 py-1 text-xs font-semibold text-moss">
                   +{{ s.xp_earned ?? 0 }} XP
                 </span>
-                <LanguageChip :language="s.language" />
+                <!-- Every attempt is labelled; on a phone the chip was what
+                     pushed the date and timing into an ellipsis. -->
+                <LanguageChip :language="s.language" class="hidden sm:inline-flex" />
                 <svg
                   class="h-4 w-4 shrink-0 text-ink-3 transition-transform duration-200 group-hover:translate-x-1"
                   viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"

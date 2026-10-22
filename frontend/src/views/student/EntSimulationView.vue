@@ -20,6 +20,7 @@ import type {
   EntSimulation,
   EntSimulationAnswerPayload,
   EntSimulationResult,
+  EntSimulationResultAnswer,
 } from "@/types";
 import { isAnswered as isAnsweredBy } from "@/utils/answers";
 import { optionLetter, scorePercent, scoreTone } from "@/utils/examOptions";
@@ -199,6 +200,12 @@ function backToFirstUnanswered() {
   confirmingSubmit.value = false;
   const index = questions.value.findIndex((q) => !isAnswered(q));
   if (index >= 0) goTo(index);
+}
+
+/** Whether the student picked this option, for the review after submit. */
+function wasChosen(answer: EntSimulationResultAnswer, choiceId: number): boolean {
+  const given = answer.given_answer;
+  return given?.choice_id === choiceId || (given?.choice_ids ?? []).includes(choiceId);
 }
 
 async function handleSubmit() {
@@ -550,19 +557,32 @@ function timingLabel(r: EntSimulationResult): string {
               v-for="(choice, i) in answer.choices"
               :key="choice.id"
               class="flex items-center gap-2.5 rounded-lg px-2 py-1.5"
-              :class="choice.is_correct ? 'bg-green-600/10' : ''"
+              :class="
+                choice.is_correct ? 'bg-green-600/10' : wasChosen(answer, choice.id) ? 'bg-red-500/10' : ''
+              "
             >
               <span
                 class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
                 :class="
                   choice.is_correct
                     ? 'bg-green-600 text-white dark:bg-green-500 dark:text-zinc-900'
-                    : 'bg-paper-2 text-ink-3'
+                    : wasChosen(answer, choice.id)
+                      ? 'bg-red-500 text-white dark:bg-red-400 dark:text-zinc-900'
+                      : 'bg-paper-2 text-ink-3'
                 "
               >
                 {{ optionLetter(i) }}
               </span>
-              <span :class="choice.is_correct ? 'font-medium text-ink' : 'text-ink-2'">{{ choice.text }}</span>
+              <span class="flex-1" :class="choice.is_correct ? 'font-medium text-ink' : 'text-ink-2'">{{ choice.text }}</span>
+              <!-- The review used to mark only the right answer, so a wrong
+                   pick was indistinguishable from an untouched option. -->
+              <span
+                v-if="wasChosen(answer, choice.id)"
+                class="shrink-0 text-[11px] font-medium"
+                :class="choice.is_correct ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
+              >
+                ваш ответ
+              </span>
             </li>
           </ul>
 
@@ -573,6 +593,9 @@ function timingLabel(r: EntSimulationResult): string {
           </ul>
 
           <ul v-else-if="answer.answer_variants.length" class="space-y-1 text-sm text-ink-2">
+            <li v-if="answer.given_answer?.text" :class="answer.is_correct ? '' : 'text-red-600 dark:text-red-400'">
+              Ваш ответ: <span class="font-medium">{{ answer.given_answer.text }}</span>
+            </li>
             <li>Верный ответ: {{ answer.answer_variants.map((v) => v.text).join(", ") }}</li>
           </ul>
         </section>
