@@ -63,17 +63,18 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     security_opt:
       - no-new-privileges:true
+    # Started directly as the image's redis user (uid 999, gid 1000), not as
+    # root. As root the entrypoint first runs `find /data ... -exec chown`,
+    # then drops privileges with setpriv -- and under `cap_drop: ALL` both
+    # fail: setpriv without SETUID/SETGID (exit 127), and, once AOF has
+    # created the 0700 `appendonlydir`, `find` without DAC_READ_SEARCH
+    # ("Permission denied", exit 1). Granting capabilities back one restart
+    # loop at a time is how the site went down twice; skipping the root
+    # branch needs none at all. The volume's files are already owned by
+    # 999:1000, so there is nothing for that chown to do anyway.
+    user: "999:1000"
     cap_drop:
       - ALL
-    # The redis entrypoint starts as root and drops to the redis user with
-    # setpriv, which needs exactly these two capabilities. `cap_drop: ALL`
-    # takes them away, setpriv fails with EPERM, and the container exits 127
-    # into a restart loop -- which is how this was found, by taking the site
-    # down on deploy. Granting the two back keeps every other capability
-    # dropped.
-    cap_add:
-      - SETUID
-      - SETGID
 
   backend:
     build: ./backend
