@@ -36,6 +36,7 @@ const links = computed(() => {
       { to: "/catalog", label: "Каталог" },
       { to: "/my-applications", label: "Мои заявки" },
       { to: "/ent", label: "ЕНТ-тренажёр" },
+      { to: "/leaderboard", label: "Тесты и Рейтинг" },
     ];
   }
   if (auth.role === "teacher") {

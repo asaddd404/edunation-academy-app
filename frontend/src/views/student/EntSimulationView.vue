@@ -11,6 +11,7 @@ import {
 } from "@/api/ent";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import SmartText from "@/components/shared/SmartText.vue";
+import QuestionRenderer from "@/components/test/QuestionRenderer.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import { useExamTimer } from "@/composables/useExamTimer";
@@ -20,6 +21,7 @@ import type {
   EntSimulationAnswerPayload,
   EntSimulationResult,
 } from "@/types";
+import { isAnswered as isAnsweredBy } from "@/utils/answers";
 import { optionLetter, scorePercent, scoreTone } from "@/utils/examOptions";
 import { capitalize } from "@/utils/subjectTheme";
 
@@ -57,18 +59,7 @@ const questions = computed<EntQuestionStudent[]>(() => exam.value?.questions ?? 
 const currentQuestion = computed<EntQuestionStudent | null>(() => questions.value[currentIndex.value] ?? null);
 
 function isAnswered(question: EntQuestionStudent): boolean {
-  const answer = answers[question.id];
-  if (!answer) return false;
-  switch (question.qtype) {
-    case "single":
-      return answer.choice_id != null;
-    case "multiple":
-      return (answer.choice_ids?.length ?? 0) > 0;
-    case "matching":
-      return Object.keys(answer.pairs ?? {}).length > 0;
-    default:
-      return (answer.text ?? "").trim().length > 0;
-  }
+  return isAnsweredBy(question.qtype, answers[question.id]);
 }
 
 const answeredCount = computed(() => questions.value.filter(isAnswered).length);
@@ -189,39 +180,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("resize", measureHeader);
 });
-
-function setSingleChoice(questionId: number, choiceId: number) {
-  answers[questionId] = { question_id: questionId, choice_id: choiceId };
-}
-
-function toggleMultipleChoice(questionId: number, choiceId: number, checked: boolean) {
-  const current = answers[questionId] ?? { question_id: questionId, choice_ids: [] };
-  const list = current.choice_ids ?? [];
-  current.choice_ids = checked ? [...list, choiceId] : list.filter((id) => id !== choiceId);
-  answers[questionId] = current;
-}
-
-function setMatchPair(questionId: number, promptId: number, answerId: number) {
-  const current = answers[questionId] ?? { question_id: questionId, pairs: {} };
-  current.pairs = { ...(current.pairs ?? {}), [String(promptId)]: answerId };
-  answers[questionId] = current;
-}
-
-function setShortAnswer(questionId: number, text: string) {
-  answers[questionId] = { question_id: questionId, text };
-}
-
-function isChoiceSelected(questionId: number, choiceId: number): boolean {
-  return answers[questionId]?.choice_id === choiceId;
-}
-
-function isChoiceChecked(questionId: number, choiceId: number): boolean {
-  return (answers[questionId]?.choice_ids ?? []).includes(choiceId);
-}
-
-function selectedPair(questionId: number, promptId: number): number | "" {
-  return answers[questionId]?.pairs?.[String(promptId)] ?? "";
-}
 
 async function handleSubmit() {
   if (submitting || !exam.value) return;
@@ -411,121 +369,7 @@ function timingLabel(r: EntSimulationResult): string {
             class="max-h-96 w-full rounded-xl border border-line object-contain"
           />
 
-          <div class="space-y-2">
-            <template v-if="currentQuestion.qtype === 'single'">
-              <label
-                v-for="(choice, i) in currentQuestion.choices"
-                :key="choice.id"
-                class="group/opt flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-sm text-ink transition-all duration-150"
-                :class="
-                  isChoiceSelected(currentQuestion.id, choice.id)
-                    ? 'border-moss bg-moss/10 shadow-sm'
-                    : 'border-line hover:border-moss/50 hover:bg-paper-2'
-                "
-              >
-                <!-- The native control stays in the DOM (keyboard, screen
-                     readers, form semantics) but the lettered badge is what
-                     the student actually sees and clicks. -->
-                <input
-                  type="radio"
-                  class="sr-only"
-                  :name="`q-${currentQuestion.id}`"
-                  :value="choice.id"
-                  :checked="isChoiceSelected(currentQuestion.id, choice.id)"
-                  @change="setSingleChoice(currentQuestion.id, choice.id)"
-                />
-                <span
-                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-colors duration-150"
-                  :class="
-                    isChoiceSelected(currentQuestion.id, choice.id)
-                      ? 'bg-moss text-moss-fg'
-                      : 'bg-paper-2 text-ink-2 group-hover/opt:bg-line'
-                  "
-                >
-                  {{ optionLetter(i) }}
-                </span>
-                <span class="flex-1">{{ choice.text }}</span>
-              </label>
-            </template>
-
-            <template v-else-if="currentQuestion.qtype === 'multiple'">
-              <label
-                v-for="(choice, i) in currentQuestion.choices"
-                :key="choice.id"
-                class="group/opt flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-sm text-ink transition-all duration-150"
-                :class="
-                  isChoiceChecked(currentQuestion.id, choice.id)
-                    ? 'border-moss bg-moss/10 shadow-sm'
-                    : 'border-line hover:border-moss/50 hover:bg-paper-2'
-                "
-              >
-                <input
-                  type="checkbox"
-                  class="sr-only"
-                  :checked="isChoiceChecked(currentQuestion.id, choice.id)"
-                  @change="
-                    toggleMultipleChoice(currentQuestion.id, choice.id, ($event.target as HTMLInputElement).checked)
-                  "
-                />
-                <!-- Square badge, unlike the single-choice one, so "выберите
-                     несколько" is readable from the shape alone. -->
-                <span
-                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-2 text-sm font-semibold transition-colors duration-150"
-                  :class="
-                    isChoiceChecked(currentQuestion.id, choice.id)
-                      ? 'border-moss bg-moss text-moss-fg'
-                      : 'border-line-strong bg-paper text-ink-2 group-hover/opt:border-moss/50'
-                  "
-                >
-                  {{ optionLetter(i) }}
-                </span>
-                <span class="flex-1">{{ choice.text }}</span>
-              </label>
-            </template>
-
-            <template v-else-if="currentQuestion.qtype === 'matching'">
-              <div
-                v-for="(prompt, i) in currentQuestion.match_prompts"
-                :key="prompt.id"
-                class="flex flex-col gap-2 rounded-xl border px-3.5 py-3 text-sm transition-colors duration-150 sm:flex-row sm:items-center"
-                :class="selectedPair(currentQuestion.id, prompt.id) ? 'border-moss/50 bg-moss/5' : 'border-line'"
-              >
-                <span class="flex flex-1 items-center gap-3">
-                  <span
-                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-colors duration-150"
-                    :class="
-                      selectedPair(currentQuestion.id, prompt.id)
-                        ? 'bg-moss text-moss-fg'
-                        : 'bg-paper-2 text-ink-2'
-                    "
-                  >
-                    {{ optionLetter(i) }}
-                  </span>
-                  <span class="text-ink">{{ prompt.text }}</span>
-                </span>
-                <select
-                  class="input sm:w-1/2"
-                  :value="selectedPair(currentQuestion.id, prompt.id)"
-                  @change="setMatchPair(currentQuestion.id, prompt.id, Number(($event.target as HTMLSelectElement).value))"
-                >
-                  <option value="" disabled>Выберите пару</option>
-                  <option v-for="opt in currentQuestion.match_answers" :key="opt.id" :value="opt.id">
-                    {{ opt.text }}
-                  </option>
-                </select>
-              </div>
-            </template>
-
-            <template v-else>
-              <input
-                type="text"
-                placeholder="Ваш ответ"
-                class="input"
-                :value="answers[currentQuestion.id]?.text ?? ''"
-                @input="setShortAnswer(currentQuestion.id, ($event.target as HTMLInputElement).value)"
-              />
-            </template>
-          </div>
+          <QuestionRenderer v-model="answers[currentQuestion.id]" :question="currentQuestion" />
         </section>
 
         <!-- ── Navigation ────────────────────────────────────────────── -->
@@ -608,7 +452,7 @@ function timingLabel(r: EntSimulationResult): string {
               </div>
               <div class="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
                 <router-link to="/ent" class="btn-primary px-4 py-2 text-sm">Пройти ещё раз</router-link>
-                <router-link to="/ent/leaderboard" class="btn-ghost px-4 py-2 text-sm">Рейтинг</router-link>
+                <router-link to="/leaderboard" class="btn-ghost px-4 py-2 text-sm">Рейтинг</router-link>
               </div>
             </div>
           </div>

@@ -16,9 +16,10 @@ from app.models.notification import Notification
 from app.models.question import AnswerVariant, Choice, MatchPair, Question
 from app.models.section import Section
 from app.models.student_rating import StudentRating
-from app.models.test_attempt import TestAttempt
+from app.models.test_attempt import TestAttempt, TestAttemptStatus
 from app.models.user import RoleEnum, User
 from app.models.user_activity import UserDailyActivity
+from app.models.xp_event import XpEvent, XpSource
 
 __all__ = [
     "Application",
@@ -47,6 +48,9 @@ __all__ = [
     "Section",
     "StudentRating",
     "TestAttempt",
+    "TestAttemptStatus",
     "User",
     "UserDailyActivity",
+    "XpEvent",
+    "XpSource",
 ]

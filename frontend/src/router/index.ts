@@ -87,10 +87,15 @@ const router = createRouter({
       meta: { roles: ["student"] },
     },
     {
-      path: "/ent/leaderboard",
-      name: "ent-leaderboard",
-      component: () => import("@/views/student/EntLeaderboardView.vue"),
+      path: "/leaderboard",
+      name: "leaderboard",
+      component: () => import("@/views/student/LeaderboardView.vue"),
       meta: { roles: ["student"] },
+    },
+    {
+      // The ЕНТ-only board became the overall one; old links still land on it.
+      path: "/ent/leaderboard",
+      redirect: "/leaderboard",
     },
     {
       path: "/ent/:id",

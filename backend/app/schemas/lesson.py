@@ -77,10 +77,19 @@ class MatchItemOut(BaseModel):
     text: str
 
 
+class MatchAnswerOut(BaseModel):
+    """Answer side of a matching question, under an opaque per-attempt token
+    rather than its row id (see core.match_tokens)."""
+
+    id: str
+    text: str
+
+
 class QuestionOut(BaseModel):
     """Student-facing view of a question -- never exposes which choice/pair
     is correct. Built manually (see content.build_student_question), not via
-    model_validate, since matching requires shuffling the answer side."""
+    model_validate, since matching shuffles the answer side and sends it
+    under per-attempt tokens."""
 
     id: int
     qtype: EntQuestionType
@@ -89,7 +98,7 @@ class QuestionOut(BaseModel):
     order_index: int
     choices: list[ChoiceOut] = []
     match_prompts: list[MatchItemOut] = []
-    match_answers: list[MatchItemOut] = []
+    match_answers: list[MatchAnswerOut] = []
 
 
 class LessonDetailOut(BaseModel):
@@ -105,7 +114,9 @@ class LessonDetailOut(BaseModel):
     created_at: datetime
     is_unlocked: bool = False
     is_passed: bool = False
-    questions: list[QuestionOut] = []
+    # The questions themselves are only handed out by starting an attempt
+    # (POST /lessons/{id}/test/start), under that attempt's matching tokens.
+    question_count: int = 0
     my_homework: HomeworkSubmissionOut | None = None
     video_status: str
     video_duration_seconds: int | None

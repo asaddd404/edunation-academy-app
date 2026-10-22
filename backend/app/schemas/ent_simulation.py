@@ -46,6 +46,15 @@ class EntMatchItemOut(BaseModel):
     text: str
 
 
+class EntMatchAnswerOut(BaseModel):
+    """The answer side of a matching question. `id` is an opaque per-attempt
+    token (see core.match_tokens), never the row id -- the row id is what
+    the prompt it pairs with is sent under."""
+
+    id: str
+    text: str
+
+
 class EntChoiceOut(BaseModel):
     id: int
     text: str
@@ -63,7 +72,7 @@ class EntQuestionStudentOut(BaseModel):
     max_score: int
     choices: list[EntChoiceOut] = []
     match_prompts: list[EntMatchItemOut] = []
-    match_answers: list[EntMatchItemOut] = []
+    match_answers: list[EntMatchAnswerOut] = []
 
 
 class EntSimulationOut(BaseModel):
@@ -84,7 +93,8 @@ class EntAnswerIn(BaseModel):
     # Bounded because the grader iterates them: an answer carrying a million
     # ids is one request that pins a worker.
     choice_ids: Annotated[list[int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
-    pairs: Annotated[dict[str, int] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
+    # prompt id -> answer token, as handed out in `match_answers`.
+    pairs: Annotated[dict[str, ShortText] | None, Field(default=None, max_length=MAX_CHOICES_PER_ANSWER)] = None
     text: OptionalMediumText = None
 
 

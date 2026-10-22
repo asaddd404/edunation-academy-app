@@ -4,13 +4,14 @@ import { isAxiosError } from "axios";
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
-import { getEntLeaderboard, listEntSimulations, listEntSubjects, startEntSimulation } from "@/api/ent";
+import { listEntSimulations, listEntSubjects, startEntSimulation } from "@/api/ent";
+import { getLeaderboard } from "@/api/leaderboard";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import LanguageChip from "@/components/ui/LanguageChip.vue";
 import SubjectIcon from "@/components/ui/SubjectIcon.vue";
-import type { EntLeaderboardEntry, EntSimulationSummary, EntSubject, ExamLanguage } from "@/types";
+import type { EntSimulationSummary, EntSubject, ExamLanguage, LeaderboardEntry } from "@/types";
 import { calcExamDurationMinutes, ENT_FULL_SUBJECT_COUNT, formatExamDuration } from "@/utils/examDuration";
 import { EXAM_LANGUAGES, LANGUAGE_LABEL } from "@/utils/examLanguage";
 import { scorePercent, scoreTone } from "@/utils/examOptions";
@@ -20,7 +21,7 @@ const router = useRouter();
 
 const subjects = ref<EntSubject[]>([]);
 const history = ref<EntSimulationSummary[]>([]);
-const myRating = ref<EntLeaderboardEntry | null>(null);
+const myRating = ref<LeaderboardEntry | null>(null);
 const loading = ref(true);
 const starting = ref(false);
 const startError = ref("");
@@ -49,7 +50,7 @@ async function load() {
     const [subjectsRes, historyRes, leaderboard] = await Promise.all([
       listEntSubjects(),
       listEntSimulations(),
-      getEntLeaderboard(1),
+      getLeaderboard(1),
     ]);
     subjects.value = subjectsRes;
     history.value = historyRes;
@@ -131,7 +132,7 @@ function historyTone(s: EntSimulationSummary): string {
   <PageContainer>
     <PageHeader title="ЕНТ-тренажёр" subtitle="Выберите предметы и режим прохождения, чтобы начать пробную симуляцию.">
       <template #actions>
-        <router-link class="text-sm text-moss underline underline-offset-2 hover:opacity-70" to="/ent/leaderboard">
+        <router-link class="text-sm text-moss underline underline-offset-2 hover:opacity-70" to="/leaderboard">
           Топ студентов
         </router-link>
       </template>
@@ -158,7 +159,7 @@ function historyTone(s: EntSimulationSummary): string {
       <div class="space-y-8">
         <router-link
           v-if="myRating"
-          to="/ent/leaderboard"
+          to="/leaderboard"
           class="card group flex items-center gap-4 p-4 transition-all duration-200 hover:border-moss/50 hover:shadow-md"
         >
           <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-moss/10 text-moss">

@@ -98,6 +98,14 @@ export interface Choice {
 
 export type QuestionType = "single" | "multiple" | "matching" | "short_answer";
 
+/** The answer side of a matching question. `id` is an opaque per-attempt
+ * token, never the row id the prompt is sent under -- so the pairing cannot
+ * be read off the payload. */
+export interface MatchAnswer {
+  id: string;
+  text: string;
+}
+
 // Student-facing: answering a question never reveals which choice/pair is
 // correct, and matching's answer side arrives pre-shuffled by the backend.
 export interface Question {
@@ -108,15 +116,26 @@ export interface Question {
   order_index: number;
   choices: Choice[];
   match_prompts: Choice[];
-  match_answers: Choice[];
+  match_answers: MatchAnswer[];
 }
 
 export interface AnswerPayload {
   question_id: number;
   choice_id?: number;
   choice_ids?: number[];
-  pairs?: Record<string, number>;
+  /** prompt id -> answer token */
+  pairs?: Record<string, string>;
   text?: string;
+}
+
+/** The part of a question the shared renderer needs -- satisfied by both
+ * course questions and ЕНТ questions. */
+export interface RenderableQuestion {
+  id: number;
+  qtype: QuestionType;
+  choices: Choice[];
+  match_prompts: Choice[];
+  match_answers: MatchAnswer[];
 }
 
 // Teacher-facing: the full authored question, correct answers included.
@@ -190,7 +209,8 @@ export interface LessonDetail {
   created_at: string;
   is_unlocked: boolean;
   is_passed: boolean;
-  questions: Question[];
+  /** Questions are handed out only by starting an attempt. */
+  question_count: number;
   my_homework: HomeworkSubmission | null;
   video_status: VideoStatus;
   video_duration_seconds: number | null;
@@ -219,17 +239,38 @@ export interface Notification {
   created_at: string;
 }
 
+/** An open lesson/section test attempt. */
+export interface TestSession {
+  attempt_id: number;
+  started_at: string;
+  /** Server-measured, so a reopened tab resumes the clock instead of resetting it. */
+  elapsed_seconds: number;
+  questions: Question[];
+}
+
 export interface TestAttemptResult {
+  attempt_id: number;
+  /** Accuracy, 0-100. */
   score: number;
   passed: boolean;
   attempt_number: number;
+  correct_count: number;
+  question_count: number;
+  earned_points: number;
+  max_points: number;
+  duration_seconds: number;
+  /** What this attempt added: its accuracy + speed value minus XP already
+   * earned on the same test, so an equal retake adds nothing. */
+  xp_earned: number;
+  accuracy_xp: number;
+  speed_bonus: number;
 }
 
 export interface SectionTest {
   section_id: number;
   is_unlocked: boolean;
   is_passed: boolean;
-  questions: Question[];
+  question_count: number;
 }
 
 export type EntQuestionType = "single" | "multiple" | "matching" | "short_answer";
@@ -409,7 +450,7 @@ export interface EntQuestionStudent {
   max_score: number;
   choices: EntChoiceOption[];
   match_prompts: EntMatchItem[];
-  match_answers: EntMatchItem[];
+  match_answers: MatchAnswer[];
 }
 
 export interface EntSimulation {
@@ -424,8 +465,10 @@ export interface EntSimulation {
   questions: EntQuestionStudent[];
 }
 
-export interface EntSimulationAnswerPayload {
-  question_id: number;
+export type EntSimulationAnswerPayload = AnswerPayload;
+
+/** An answer as stored after grading: matching pairs are row ids again. */
+export interface EntGivenAnswer {
   choice_id?: number;
   choice_ids?: number[];
   pairs?: Record<string, number>;
@@ -442,7 +485,7 @@ export interface EntSimulationResultAnswer {
   max_score: number;
   score_awarded: number;
   is_correct: boolean;
-  given_answer: EntSimulationAnswerPayload | null;
+  given_answer: EntGivenAnswer | null;
   choices: EntChoiceTeacher[];
   match_pairs: EntMatchPairTeacher[];
   answer_variants: EntAnswerVariant[];
@@ -479,7 +522,7 @@ export interface EntSimulationSummary {
 
 export type LeaderboardPeriod = "week" | "month" | "all";
 
-export interface EntLeaderboardEntry {
+export interface LeaderboardEntry {
   rank: number;
   student_id: number;
   first_name: string;
@@ -488,13 +531,52 @@ export interface EntLeaderboardEntry {
   total_xp: number;
   simulations_completed: number;
   best_score: number;
+  /** Distinct lesson and section tests passed, lifetime. */
+  tests_passed: number;
   is_me: boolean;
   has_avatar: boolean;
 }
 
-export interface EntLeaderboard {
-  entries: EntLeaderboardEntry[];
-  me: EntLeaderboardEntry | null;
+export interface Leaderboard {
+  entries: LeaderboardEntry[];
+  me: LeaderboardEntry | null;
+}
+
+/** A student's best finished attempt at one lesson or section test. */
+export interface TestLeaderboardEntry {
+  rank: number;
+  student_id: number;
+  first_name: string;
+  last_name: string;
+  has_avatar: boolean;
+  is_me: boolean;
+  passed: boolean;
+  score: number;
+  /** null for attempts recorded before the detail was stored. */
+  correct_count: number | null;
+  question_count: number | null;
+  duration_seconds: number | null;
+  xp_earned: number;
+  attempts: number;
+}
+
+export interface TestLeaderboard {
+  scope: "lesson" | "section";
+  scope_id: number;
+  title: string;
+  entries: TestLeaderboardEntry[];
+  me: TestLeaderboardEntry | null;
+}
+
+export interface LeaderboardScopeCategory {
+  id: number;
+  name: string;
+  sections: {
+    id: number;
+    title: string;
+    has_test: boolean;
+    lessons: { id: number; title: string }[];
+  }[];
 }
 
 /**

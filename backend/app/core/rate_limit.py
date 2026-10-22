@@ -102,8 +102,14 @@ UPLOAD_BY_USER = RateLimit("upload_user", limit=120, window_seconds=60 * 60)
 # a row written per drawn question. Sitting a mock ЕНТ takes an hour; twenty
 # starts an hour is already far more than anyone revising needs.
 ENT_SIMULATION_START_BY_USER = RateLimit("ent_simulation_start_user", limit=20, window_seconds=60 * 60)
-# Cheap per call, but it is the ЕНТ page's aggregate and students refresh it.
-LEADERBOARD_BY_USER = RateLimit("ent_leaderboard_user", limit=120, window_seconds=60)
+# Cheap per call, but they are aggregates and students refresh them.
+LEADERBOARD_BY_USER = RateLimit("leaderboard_user", limit=120, window_seconds=60)
+# Course tests can be retaken without limit, and a submit answers with the
+# score -- so an unthrottled submit is an oracle for guessing the key one
+# option at a time. Starting resumes an open attempt, so it is cheap; the
+# ceiling only stops a script, not a student working through a course.
+TEST_START_BY_USER = RateLimit("test_start_user", limit=120, window_seconds=60 * 60)
+TEST_SUBMIT_BY_USER = RateLimit("test_submit_user", limit=40, window_seconds=60 * 60)
 
 
 def request_ip(request: Request) -> str:

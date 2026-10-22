@@ -47,7 +47,7 @@ export default function (data) {
   // The leaderboard is first on purpose: it is the aggregate the 60-second
   // cache was added for, so this is where the cache either holds or does not.
   const responses = http.batch([
-    ["GET", `${BASE}/api/v1/ent/leaderboard?period=week`, null, auth],
+    ["GET", `${BASE}/api/v1/leaderboard?period=week`, null, auth],
     ["GET", `${BASE}/api/v1/categories`, null, auth],
     ["GET", `${BASE}/api/v1/ent/subjects`, null, auth],
     ["GET", `${BASE}/api/v1/notifications/unread-count`, null, auth],

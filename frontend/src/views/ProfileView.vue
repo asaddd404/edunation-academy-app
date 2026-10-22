@@ -5,13 +5,13 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import { deleteAvatar, getAvatarUrl, updateProfile, uploadAvatar } from "@/api/auth";
 import { getMyTodayActivity } from "@/api/activity";
-import { getEntLeaderboard } from "@/api/ent";
+import { getLeaderboard } from "@/api/leaderboard";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import { useAuthStore } from "@/stores/auth";
-import type { EntLeaderboardEntry } from "@/types";
+import type { LeaderboardEntry } from "@/types";
 import { formatActivityDuration } from "@/utils/activity";
 import { ROLE_LABEL } from "@/utils/roleLabel";
 
@@ -31,7 +31,7 @@ const avatarUploading = ref(false);
 const avatarError = ref("");
 const avatarCacheBust = ref(0);
 
-const myRating = ref<EntLeaderboardEntry | null>(null);
+const myRating = ref<LeaderboardEntry | null>(null);
 
 const DAILY_NORM_SECONDS = 1800;
 const todayActivitySeconds = ref(0);
@@ -54,7 +54,7 @@ onMounted(async () => {
   const today = await getMyTodayActivity();
   todayActivitySeconds.value = today.total_seconds;
   try {
-    const leaderboard = await getEntLeaderboard(1);
+    const leaderboard = await getLeaderboard(1);
     myRating.value = leaderboard.me;
   } catch (e) {
     // A student with no approved course yet gets a 403 here -- that's fine,
