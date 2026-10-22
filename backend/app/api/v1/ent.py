@@ -1,6 +1,5 @@
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -8,10 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import settings
 from app.core.authorization import assert_student_has_any_course_access
-from app.core.cache import cached_json
-from app.core.rate_limit import ENT_SIMULATION_START_BY_USER, LEADERBOARD_BY_USER
+from app.core.rate_limit import ENT_SIMULATION_START_BY_USER
 from app.core.ent_language import (
     QuestionShortage,
     UnknownLanguageError,
@@ -19,6 +16,7 @@ from app.core.ent_language import (
     question_pool_filters,
     shortage_message,
 )
+from app.core.match_tokens import decode_match_answer, ent_scope, match_answer_token
 from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
 from app.core.storage import image_response, resolve_upload_path
@@ -27,13 +25,12 @@ from app.deps import require_role
 from app.models.ent_question import EntQuestion, EntQuestionType
 from app.models.ent_simulation import EntSimulation, EntSimulationQuestion, EntSimulationStatus
 from app.models.ent_subject import EntSubject
-from app.models.student_rating import StudentRating
 from app.models.user import RoleEnum, User
 from app.schemas.ent_question import EntAnswerVariantOut, EntChoiceTeacherOut, EntMatchPairTeacherOut
-from app.schemas.ent_rating import EntLeaderboardEntryOut, EntLeaderboardOut
 from app.schemas.ent_simulation import (
     EntAnswerIn,
     EntChoiceOut,
+    EntMatchAnswerOut,
     EntMatchItemOut,
     EntQuestionStudentOut,
     EntSimulationOut,
@@ -84,14 +81,17 @@ _QUESTION_LOAD_OPTIONS = (
 )
 
 
-def _build_student_question(question: EntQuestion) -> EntQuestionStudentOut:
+def _build_student_question(question: EntQuestion, simulation_id: int) -> EntQuestionStudentOut:
     match_prompts: list[EntMatchItemOut] = []
-    match_answers: list[EntMatchItemOut] = []
+    match_answers: list[EntMatchAnswerOut] = []
     if question.match_pairs:
+        scope = ent_scope(simulation_id)
         match_prompts = [EntMatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
         shuffled = list(question.match_pairs)
         random.shuffle(shuffled)
-        match_answers = [EntMatchItemOut(id=p.id, text=p.answer_text) for p in shuffled]
+        match_answers = [
+            EntMatchAnswerOut(id=match_answer_token(scope, p.id), text=p.answer_text) for p in shuffled
+        ]
 
     return EntQuestionStudentOut(
         id=question.id,
@@ -293,7 +293,7 @@ async def start_simulation(
         started_at=simulation.started_at,
         expires_at=simulation.expires_at,
         remaining_seconds=_remaining_seconds(simulation),
-        questions=[_build_student_question(item.question) for item in simulation.items],
+        questions=[_build_student_question(item.question, simulation.id) for item in simulation.items],
     )
 
 
@@ -301,6 +301,7 @@ async def _get_own_simulation(db: AsyncSession, student: User, simulation_id: in
     simulation = await db.scalar(
         select(EntSimulation)
         .where(EntSimulation.id == simulation_id, EntSimulation.student_id == student.id)
+        .execution_options(populate_existing=True)
         .options(selectinload(EntSimulation.items).selectinload(EntSimulationQuestion.question).options(*_QUESTION_LOAD_OPTIONS))
     )
     if simulation is None:
@@ -342,7 +343,7 @@ async def get_simulation(
         started_at=simulation.started_at,
         expires_at=simulation.expires_at,
         remaining_seconds=_remaining_seconds(simulation),
-        questions=[_build_student_question(item.question) for item in simulation.items],
+        questions=[_build_student_question(item.question, simulation.id) for item in simulation.items],
     )
 
 
@@ -390,10 +391,23 @@ async def submit_simulation(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationResultOut:
+    # Row lock before the status check: two concurrent submits of the same
+    # attempt would otherwise both read `in_progress`, both grade, and both
+    # award XP. The second now waits here until the first commits, then sees
+    # `submitted` and is turned away. (The xp_events unique key is the
+    # backstop if anything ever reaches the award twice anyway.)
+    locked = await db.scalar(
+        select(EntSimulation.id)
+        .where(EntSimulation.id == simulation_id, EntSimulation.student_id == student.id)
+        .with_for_update()
+    )
+    if locked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Симуляция не найдена")
     simulation = await _get_own_simulation(db, student, simulation_id)
     if simulation.status != EntSimulationStatus.in_progress:
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана")
 
+    scope = ent_scope(simulation.id)
     answers_by_question: dict[int, EntAnswerIn] = {a.question_id: a for a in payload.answers}
 
     total_score = 0
@@ -401,6 +415,9 @@ async def submit_simulation(
     for item in simulation.items:
         answer = answers_by_question.get(item.question_id)
         answer_data = answer.model_dump(exclude_none=True, exclude={"question_id"}) if answer else None
+        # Stored as row ids, not tokens, so the result screen can line the
+        # answer up with match_pairs the way it always has.
+        answer_data = decode_match_answer([p.id for p in item.question.match_pairs], scope, answer_data)
         score = grade_question(item.question, answer_data)
         item.answer_data = answer_data
         item.score_awarded = score
@@ -430,148 +447,3 @@ async def get_simulation_result(
     if simulation.status != EntSimulationStatus.submitted:
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция ещё не сдана")
     return _result_out(simulation)
-
-
-LeaderboardPeriod = Literal["week", "month", "all"]
-
-_PERIOD_DAYS: dict[str, int] = {"week": 7, "month": 30}
-
-
-def _period_totals_query(cutoff: datetime):
-    """Per-student totals over submitted attempts since `cutoff`.
-
-    `StudentRating` only ever holds the lifetime aggregate, so a week/month
-    board has to be summed from the attempts themselves. `xp_earned` is frozen
-    on each attempt at submit time, which is what makes this equal to the
-    running total when the window covers everything."""
-    return (
-        select(
-            EntSimulation.student_id.label("student_id"),
-            func.coalesce(func.sum(EntSimulation.xp_earned), 0).label("total_xp"),
-            func.count().label("simulations_completed"),
-            func.coalesce(func.max(EntSimulation.total_score), 0).label("best_score"),
-        )
-        .where(
-            EntSimulation.status == EntSimulationStatus.submitted,
-            EntSimulation.submitted_at.is_not(None),
-            EntSimulation.submitted_at >= cutoff,
-        )
-        .group_by(EntSimulation.student_id)
-    )
-
-
-@router.get("/leaderboard", response_model=EntLeaderboardOut)
-async def get_leaderboard(
-    limit: int = 20,
-    period: LeaderboardPeriod = "all",
-    db: AsyncSession = Depends(get_db),
-    student: User = Depends(require_student_with_course_access),
-) -> EntLeaderboardOut:
-    await LEADERBOARD_BY_USER.enforce(str(student.id))
-
-    limit = max(1, min(limit, 100))
-
-    # The board is identical for every viewer; only `is_me` differs, and that
-    # is decided below from the rows. So the expensive part is computed once
-    # per minute for everyone rather than once per keypress per student --
-    # without this, a refresh key is a load generator, and the week/month
-    # periods re-aggregate every submitted attempt each time.
-    cache_key = f"ent:leaderboard:{period}:{limit}"
-
-    async def build_rows() -> list[dict]:
-        return await _leaderboard_rows(db, period, limit)
-
-    raw_rows = await cached_json(cache_key, settings.leaderboard_cache_seconds, build_rows)
-
-    entries = [
-        EntLeaderboardEntryOut(**row, is_me=(row["student_id"] == student.id)) for row in raw_rows
-    ]
-
-    # Always surface the requesting student's own standing, even when they
-    # didn't make the top `limit` rows. Cached per student for the same
-    # window: it costs two more aggregate scans, which is exactly what the
-    # cache above exists to avoid paying per request.
-    me = next((e for e in entries if e.is_me), None)
-    if me is None:
-        async def build_me() -> dict | None:
-            return await _own_standing(db, period, student)
-
-        own = await cached_json(
-            f"ent:leaderboard:{period}:me:{student.id}",
-            settings.leaderboard_cache_seconds,
-            build_me,
-        )
-        if own is not None:
-            me = EntLeaderboardEntryOut(**own, is_me=True)
-
-    return EntLeaderboardOut(entries=entries, me=me)
-
-
-def _leaderboard_source(period: str):
-    """The per-student totals the board is built from, as a subquery."""
-    if period == "all":
-        # Fast path: the running aggregate is already what we want.
-        return select(
-            StudentRating.student_id.label("student_id"),
-            StudentRating.total_xp.label("total_xp"),
-            StudentRating.simulations_completed.label("simulations_completed"),
-            func.coalesce(StudentRating.best_score, 0).label("best_score"),
-        ).subquery()
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period])
-    return _period_totals_query(cutoff).subquery()
-
-
-async def _leaderboard_rows(db: AsyncSession, period: str, limit: int) -> list[dict]:
-    source = _leaderboard_source(period)
-
-    # `student_id` tiebreaker, as everywhere else that paginates in this app:
-    # ties on XP are common (a fresh period starts everyone at 0) and without
-    # it Postgres is free to reorder equal rows between requests.
-    rows = (
-        await db.execute(
-            select(source, User)
-            .join(User, User.id == source.c.student_id)
-            .order_by(source.c.total_xp.desc(), source.c.student_id)
-            .limit(limit)
-        )
-    ).all()
-
-    # Plain dicts, not models: this is what goes into the cache, and it
-    # stays readable with `redis-cli GET` when something looks wrong.
-    return [
-        {
-            "rank": i + 1,
-            "student_id": row.student_id,
-            "first_name": row.User.first_name,
-            "last_name": row.User.last_name,
-            "total_xp": row.total_xp,
-            "simulations_completed": row.simulations_completed,
-            "best_score": row.best_score,
-            "has_avatar": row.User.avatar_path is not None,
-        }
-        for i, row in enumerate(rows)
-    ]
-
-
-async def _own_standing(db: AsyncSession, period: str, student: User) -> dict | None:
-    """Where one student sits, for when they are outside the top rows."""
-    source = _leaderboard_source(period)
-
-    my_row = (await db.execute(select(source).where(source.c.student_id == student.id))).one_or_none()
-    if my_row is None:
-        return None
-
-    better_count = await db.scalar(
-        select(func.count()).select_from(source).where(source.c.total_xp > my_row.total_xp)
-    )
-    return {
-        "rank": (better_count or 0) + 1,
-        "student_id": student.id,
-        "first_name": student.first_name,
-        "last_name": student.last_name,
-        "total_xp": my_row.total_xp,
-        "simulations_completed": my_row.simulations_completed,
-        "best_score": my_row.best_score,
-        "has_avatar": student.avatar_path is not None,
-    }

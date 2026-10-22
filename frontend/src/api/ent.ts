@@ -1,7 +1,6 @@
 import http from "@/api/http";
 import type {
   EntBulkCreateResult,
-  EntLeaderboard,
   EntPdfImportResult,
   EntQuestionImport,
   EntQuestionTeacher,
@@ -10,7 +9,6 @@ import type {
   EntSimulationAnswerPayload,
   EntSimulationResult,
   EntSimulationSummary,
-  LeaderboardPeriod,
   EntSubject,
   ExamLanguage,
   Page,
@@ -48,10 +46,6 @@ export function getEntSimulationResult(id: number) {
 
 export function listEntSimulations() {
   return http.get<EntSimulationSummary[]>("/ent/simulations").then((r) => r.data);
-}
-
-export function getEntLeaderboard(limit = 20, period: LeaderboardPeriod = "all") {
-  return http.get<EntLeaderboard>("/ent/leaderboard", { params: { limit, period } }).then((r) => r.data);
 }
 
 // Teacher/admin question bank

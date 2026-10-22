@@ -1,5 +1,12 @@
 import http from "@/api/http";
-import type { AnswerPayload, LessonDetail, QuestionSavePayload, QuestionTeacher, TestAttemptResult } from "@/types";
+import type {
+  AnswerPayload,
+  LessonDetail,
+  QuestionSavePayload,
+  QuestionTeacher,
+  TestAttemptResult,
+  TestSession,
+} from "@/types";
 
 export function getLesson(lessonId: number) {
   return http.get<LessonDetail>(`/lessons/${lessonId}`).then((r) => r.data);
@@ -31,8 +38,14 @@ export function createQuestion(lessonId: number, payload: QuestionSavePayload) {
   return http.post<QuestionTeacher>(`/teacher/lessons/${lessonId}/questions`, payload).then((r) => r.data);
 }
 
-export function submitTestAttempt(lessonId: number, answers: AnswerPayload[]) {
-  return http.post<TestAttemptResult>(`/lessons/${lessonId}/test/attempts`, { answers }).then((r) => r.data);
+/** Opens an attempt at the lesson's mini-test, or resumes the open one. */
+export function startLessonTest(lessonId: number) {
+  return http.post<TestSession>(`/lessons/${lessonId}/test/start`).then((r) => r.data);
+}
+
+/** Grades an open lesson or section test attempt -- once. */
+export function submitTestAttempt(attemptId: number, answers: AnswerPayload[]) {
+  return http.post<TestAttemptResult>(`/test-attempts/${attemptId}/submit`, { answers }).then((r) => r.data);
 }
 
 /** Uploads an image to embed in a lesson's rich description/homework.

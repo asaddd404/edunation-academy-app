@@ -1,5 +1,5 @@
 import http from "@/api/http";
-import type { AnswerPayload, QuestionSavePayload, QuestionTeacher, Section, SectionTest, TestAttemptResult } from "@/types";
+import type { QuestionSavePayload, QuestionTeacher, Section, SectionTest, TestSession } from "@/types";
 
 export function listSections(categoryId: number) {
   return http.get<Section[]>(`/categories/${categoryId}/sections`).then((r) => r.data);
@@ -33,6 +33,8 @@ export function getSectionTest(sectionId: number) {
   return http.get<SectionTest>(`/sections/${sectionId}/test`).then((r) => r.data);
 }
 
-export function submitSectionTestAttempt(sectionId: number, answers: AnswerPayload[]) {
-  return http.post<TestAttemptResult>(`/sections/${sectionId}/test/attempts`, { answers }).then((r) => r.data);
+/** Opens an attempt at the section test, or resumes the open one. Submit
+ * goes through `submitTestAttempt` in api/lessons, same as a lesson test. */
+export function startSectionTest(sectionId: number) {
+  return http.post<TestSession>(`/sections/${sectionId}/test/start`).then((r) => r.data);
 }

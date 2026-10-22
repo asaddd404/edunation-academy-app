@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,7 @@ from app.core.authorization import (
     get_category_id_for_lesson,
     get_category_id_for_section,
 )
+from app.core.match_tokens import attempt_scope, match_answer_token
 from app.core.progress import (
     get_lesson_progress,
     get_lessons_without_questions,
@@ -26,7 +27,7 @@ from app.models.question import Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchItemOut, QuestionOut, VideoTicketOut
+from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchAnswerOut, MatchItemOut, QuestionOut, VideoTicketOut
 from app.core.storage import image_response, resolve_upload_path
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
@@ -55,23 +56,25 @@ async def get_lesson_content_image(filename: str) -> FileResponse:
     return image_response(path)
 
 
-_QUESTION_LOAD_OPTIONS = (
+QUESTION_LOAD_OPTIONS = (
     selectinload(Question.choices),
     selectinload(Question.match_pairs),
     selectinload(Question.answer_variants),
 )
 
 
-def build_student_question(question: Question) -> QuestionOut:
+def build_student_question(question: Question, attempt_id: int) -> QuestionOut:
     """Never exposes which choice/pair is correct. For matching, the answer
-    side is shuffled so its order can't leak the pairing."""
+    side is shuffled and sent under tokens scoped to `attempt_id` (see
+    core.match_tokens), so neither its order nor its ids leak the pairing."""
     match_prompts: list[MatchItemOut] = []
-    match_answers: list[MatchItemOut] = []
+    match_answers: list[MatchAnswerOut] = []
     if question.match_pairs:
+        scope = attempt_scope(attempt_id)
         match_prompts = [MatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
         shuffled = list(question.match_pairs)
         random.shuffle(shuffled)
-        match_answers = [MatchItemOut(id=p.id, text=p.answer_text) for p in shuffled]
+        match_answers = [MatchAnswerOut(id=match_answer_token(scope, p.id), text=p.answer_text) for p in shuffled]
 
     return QuestionOut(
         id=question.id,
@@ -130,13 +133,7 @@ async def get_section_test(
     category_id = await get_category_id_for_section(db, section_id)
     await assert_student_has_category_access(db, student, category_id)
 
-    section = await db.scalar(
-        select(Section)
-        .where(Section.id == section_id)
-        .options(selectinload(Section.test_questions).options(*_QUESTION_LOAD_OPTIONS))
-    )
-    if section is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
+    question_count = await db.scalar(select(func.count(Question.id)).where(Question.section_id == section_id))
 
     unlocked = await is_section_test_unlocked(db, student.id, section_id, category_id)
     if not unlocked:
@@ -148,7 +145,7 @@ async def get_section_test(
         section_id=section_id,
         is_unlocked=True,
         is_passed=section_id in passed_sections,
-        questions=[build_student_question(q) for q in section.test_questions],
+        question_count=question_count or 0,
     )
 
 
@@ -161,13 +158,10 @@ async def get_lesson(
     category_id = await get_category_id_for_lesson(db, lesson_id)
     await assert_student_has_category_access(db, student, category_id)
 
-    lesson = await db.scalar(
-        select(Lesson)
-        .where(Lesson.id == lesson_id)
-        .options(selectinload(Lesson.questions).options(*_QUESTION_LOAD_OPTIONS))
-    )
+    lesson = await db.get(Lesson, lesson_id)
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+    question_count = await db.scalar(select(func.count(Question.id)).where(Question.lesson_id == lesson_id))
 
     unlocked, passed = await get_lesson_progress(db, student.id, category_id)
     if lesson_id not in unlocked:
@@ -190,7 +184,7 @@ async def get_lesson(
         created_at=lesson.created_at,
         is_unlocked=True,
         is_passed=lesson_id in passed,
-        questions=[build_student_question(q) for q in lesson.questions],
+        question_count=question_count or 0,
         my_homework=HomeworkSubmissionOut.model_validate(submission) if submission else None,
         video_status=lesson.video_status,
         video_duration_seconds=lesson.video_duration_seconds,

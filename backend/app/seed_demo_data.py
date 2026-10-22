@@ -58,6 +58,8 @@ from app.models import (
     Section,
     StudentRating,
     TestAttempt,
+    XpEvent,
+    XpSource,
     User,
     teacher_categories,
 )
@@ -508,7 +510,7 @@ COURSES = [
 
 async def wipe(db: AsyncSession) -> None:
     for model in [
-        EntSimulationQuestion, EntSimulation, StudentRating, HomeworkSubmission, TestAttempt,
+        XpEvent, EntSimulationQuestion, EntSimulation, StudentRating, HomeworkSubmission, TestAttempt,
         Choice, MatchPair, AnswerVariant, Question,
         EntChoice, EntMatchPair, EntAnswerVariant, EntQuestion,
         EntSubject, Application, Notification, Lesson, Section,
@@ -838,8 +840,10 @@ async def create_ent_simulations(
     star_ids = {s.id for s in approved_students[:3]}
 
     ratings: dict[int, dict] = {}
+    submitted: list[EntSimulation] = []
 
     def record(sim: EntSimulation) -> None:
+        submitted.append(sim)
         r = ratings.setdefault(sim.student_id, {"total_xp": 0, "count": 0, "best": 0, "last_at": sim.submitted_at})
         r["total_xp"] += sim.xp_earned
         r["count"] += 1
@@ -864,6 +868,15 @@ async def create_ent_simulations(
             sim = create_simulation(db, sid, 0.97, rng, all_questions, now)
             record(sim)
             attempts += 1
+
+    # The leaderboards are summed from the xp_events ledger, so every seeded
+    # simulation needs its ledger row -- ids first, for source_id.
+    await db.flush()
+    for sim in submitted:
+        db.add(XpEvent(
+            student_id=sim.student_id, source=XpSource.ent.value, source_id=sim.id,
+            xp=sim.xp_earned, created_at=sim.submitted_at,
+        ))
 
     for student_id, r in ratings.items():
         db.add(StudentRating(
