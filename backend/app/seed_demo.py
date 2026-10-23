@@ -181,13 +181,19 @@ def validate_content() -> None:
                 except Exception as e:  # noqa: BLE001 -- collected and reported below
                     problems.append(f"{course['name']} / {spec['text'][:60]}: {e}")
     for subject in SUBJECTS:
-        if len(subject["questions"]) != 40:
-            problems.append(f"{subject['name']}: {len(subject['questions'])} вопросов вместо 40")
-        for spec in subject["questions"]:
-            try:
-                EntQuestionIn.model_validate({**_as_api_payload(spec), "language": "ru"})
-            except Exception as e:  # noqa: BLE001
-                problems.append(f"ЕНТ {subject['name']} / {spec['text'][:60]}: {e}")
+        type_split = {}
+        for language, key in (("ru", "questions"), ("kk", "questions_kk")):
+            specs = subject[key]
+            if len(specs) != 40:
+                problems.append(f"{subject['name']} ({language}): {len(specs)} вопросов вместо 40")
+            type_split[language] = sorted(spec["qtype"].value for spec in specs)
+            for spec in specs:
+                try:
+                    EntQuestionIn.model_validate({**_as_api_payload(spec), "language": language})
+                except Exception as e:  # noqa: BLE001
+                    problems.append(f"ЕНТ {subject['name']} ({language}) / {spec['text'][:60]}: {e}")
+        if type_split["ru"] != type_split["kk"]:
+            problems.append(f"{subject['name']}: в казахском банке другое распределение типов вопросов")
     if problems:
         raise SystemExit("Контент не прошёл проверку схемами API:\n  " + "\n  ".join(problems))
 
@@ -226,7 +232,13 @@ def clear_uploads() -> None:
 
 def build_question(spec: dict, model, choice_cls, pair_cls, variant_cls, order_index: int, **owner):
     q = model(qtype=spec["qtype"], text=spec["text"], max_score=spec["max_score"], order_index=order_index, **owner)
-    q.choices = [choice_cls(text=t, is_correct=c, order_index=i) for i, (t, c) in enumerate(spec.get("choices", []))]
+    # The specs list the right option first (easy to write and review); the
+    # app shows options in stored order, so they are shuffled here -- or the
+    # answer to every demo question would be "A". Seeded by the question text,
+    # so a re-seed gives the same order.
+    choices = list(spec.get("choices", []))
+    random.Random(spec["text"]).shuffle(choices)
+    q.choices = [choice_cls(text=t, is_correct=c, order_index=i) for i, (t, c) in enumerate(choices)]
     q.match_pairs = [pair_cls(prompt_text=a, answer_text=b, order_index=i) for i, (a, b) in enumerate(spec.get("pairs", []))]
     q.answer_variants = [variant_cls(text=v) for v in spec.get("variants", [])]
     return q
@@ -299,7 +311,9 @@ async def create_courses(db: AsyncSession, staff: dict[str, User]) -> dict[str, 
     return records
 
 
-async def create_ent_bank(db: AsyncSession, staff: dict[str, User]) -> dict[int, tuple[EntSubject, list[EntQuestion]]]:
+async def create_ent_bank(
+    db: AsyncSession, staff: dict[str, User]
+) -> dict[int, tuple[EntSubject, dict[EntLanguage, list[EntQuestion]]]]:
     bank = {}
     for spec in SUBJECTS:
         q = spec["quotas"]
@@ -308,12 +322,15 @@ async def create_ent_bank(db: AsyncSession, staff: dict[str, User]) -> dict[int,
                              matching_count=q["matching"], short_answer_count=q["short"])
         db.add(subject)
         await db.flush()
-        questions = [build_question(qs, EntQuestion, EntChoice, EntMatchPair, EntAnswerVariant, i,
-                                    subject_id=subject.id, language=EntLanguage.ru, created_by_id=staff[spec["teacher"]].id)
-                     for i, qs in enumerate(spec["questions"])]
-        db.add_all(questions)
+        by_language = {}
+        for language, key in ((EntLanguage.ru, "questions"), (EntLanguage.kk, "questions_kk")):
+            questions = [build_question(qs, EntQuestion, EntChoice, EntMatchPair, EntAnswerVariant, i,
+                                        subject_id=subject.id, language=language, created_by_id=staff[spec["teacher"]].id)
+                         for i, qs in enumerate(spec[key])]
+            db.add_all(questions)
+            by_language[language] = questions
         await db.flush()
-        bank[subject.id] = (subject, questions)
+        bank[subject.id] = (subject, by_language)
     return bank
 
 
@@ -507,7 +524,11 @@ async def create_simulations(db, plans, students, bank, ledger: XpLedger, rng):
             took = timedelta(minutes=rng.randint(15, (duration or 90) - 3))
             expired = timed and rng.random() < 0.1
             submitted = started + (timedelta(minutes=duration + rng.randint(1, 6)) if expired else took)
-            sim = EntSimulation(student_id=student.id, is_timed=timed, duration_minutes=duration, language=EntLanguage.ru,
+            # About a third sat in Kazakh -- the VIP's first one always, so the
+            # demo account has a Kazakh result to open.
+            kazakh = (plan.key == "vip" and n == 0) or rng.random() < 0.3
+            language = EntLanguage.kk if kazakh else EntLanguage.ru
+            sim = EntSimulation(student_id=student.id, is_timed=timed, duration_minutes=duration, language=language,
                                 status=EntSimulationStatus.submitted, started_at=started,
                                 expires_at=started + timedelta(minutes=duration) if timed else None,
                                 submitted_at=submitted, time_expired=expired, created_at=started)
@@ -516,7 +537,8 @@ async def create_simulations(db, plans, students, bank, ledger: XpLedger, rng):
             order, total, max_total = 0, 0, 0
             skill = min(0.97, plan.skill + rng.uniform(-0.08, 0.05))
             for sid in chosen:
-                subject, questions = bank[sid]
+                subject, by_language = bank[sid]
+                questions = by_language[language]
                 drawn = []
                 for qtype, count in ((EntQuestionType.single, subject.single_choice_count), (EntQuestionType.multiple, subject.multiple_choice_count),
                                      (EntQuestionType.matching, subject.matching_count), (EntQuestionType.short_answer, subject.short_answer_count)):
@@ -585,7 +607,7 @@ async def main() -> None:
         staff, plans, students = await create_people(db, rng)
         print("3/8 Курсы, уроки с YouTube, конспекты и тесты…")
         courses = await create_courses(db, staff)
-        print("4/8 Банк ЕНТ: 5 предметов × 40 вопросов…")
+        print("4/8 Банк ЕНТ: 5 предметов × 40 вопросов на русском и казахском…")
         bank = await create_ent_bank(db, staff)
         print("5/8 Заявки и уведомления…")
         await create_applications(db, plans, students, courses, staff, rng)
@@ -599,7 +621,7 @@ async def main() -> None:
         await create_ratings_and_activity(db, plans, students, ledger, sim_stats)
         await db.commit()
     lessons = sum(len(s["lessons"]) for c in COURSES for s in c["sections"])
-    print(f"\nГотово: {len(COURSES)} курсов, {lessons} уроков, {sum(len(s['questions']) for s in SUBJECTS)} вопросов ЕНТ, "
+    print(f"\nГотово: {len(COURSES)} курсов, {lessons} уроков, {sum(len(s['questions']) for s in SUBJECTS)} + {sum(len(s['questions_kk']) for s in SUBJECTS)} вопросов ЕНТ (рус. + каз.), "
           f"{len(plans) + len(STAFF)} пользователей.\n")
     print_accounts(plans)
 

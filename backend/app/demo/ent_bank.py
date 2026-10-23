@@ -2,11 +2,15 @@
 subject with all four question types (26 single, 6 multiple, 4 matching,
 4 short answer).
 
+Each subject carries the same 40 questions in Kazakh as well
+(app.demo.ent_bank_kk), since the exam is sat in one language or the other.
+
 `quotas` is how many of each type one simulation draws per subject:
 mathematical and reading literacy are short sections on the real exam (10),
 history and the profile subjects longer (20).
 """
 
+from app.demo.ent_bank_kk import QUESTIONS_KK
 from app.demo.questions import M, P, S, T
 
 MATH_ENT = [
@@ -252,3 +256,6 @@ SUBJECTS = [
     {"name": "Физика", "slug": "fizika", "teacher": "nurlan", "questions": PHYSICS_ENT,
      "quotas": {"single": 13, "multiple": 3, "matching": 2, "short": 2}},
 ]
+
+for _subject in SUBJECTS:
+    _subject["questions_kk"] = QUESTIONS_KK[_subject["slug"]]
