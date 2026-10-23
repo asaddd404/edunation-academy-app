@@ -117,9 +117,11 @@
 		#   style-src 'unsafe-inline' -- KaTeX writes inline styles into every
 		#     rendered formula; without it every lesson's maths collapses.
 		#   img-src blob: -- hls.js and the editor preview use blob URLs.
+		#   frame-src youtube-nocookie.com -- lesson videos hosted on YouTube;
+		#     the player URL is rebuilt from a validated 11-character id.
 		# script-src has no 'unsafe-inline': the bundle is a static file, and
 		# that is the entry that actually stops injected script.
-		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; report-uri /api/v1/csp-report"
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; report-uri /api/v1/csp-report"
 
 		# Caddy's own version banner tells an attacker which CVEs to try.
 		-Server

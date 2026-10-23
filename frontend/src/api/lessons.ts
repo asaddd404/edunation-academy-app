@@ -14,14 +14,15 @@ export function getLesson(lessonId: number) {
 
 export function createLesson(
   sectionId: number,
-  payload: { title: string; description?: string; homework_assignment?: string },
+  payload: { title: string; description?: string; homework_assignment?: string; video_url?: string },
 ) {
   return http.post(`/teacher/sections/${sectionId}/lessons`, payload).then((r) => r.data);
 }
 
 export function updateLesson(
   lessonId: number,
-  payload: { title?: string; description?: string; homework_assignment?: string },
+  /** `video_url`: a YouTube link, or "" to remove it. */
+  payload: { title?: string; description?: string; homework_assignment?: string; video_url?: string },
 ) {
   return http.patch(`/teacher/lessons/${lessonId}`, payload).then((r) => r.data);
 }

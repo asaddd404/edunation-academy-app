@@ -285,7 +285,7 @@ async def create_lesson(
         section_id=section_id,
         title=payload.title,
         description=payload.description,
-        video_url=payload.video_url,
+        video_url=payload.video_url or None,
         homework_assignment=payload.homework_assignment,
         order_index=next_order,
     )
@@ -319,6 +319,8 @@ async def update_lesson(
     if payload.homework_assignment is not None:
         dropped_images |= orphaned_image_paths(lesson.homework_assignment, payload.homework_assignment)
         lesson.homework_assignment = payload.homework_assignment
+    if payload.video_url is not None:
+        lesson.video_url = payload.video_url or None
     await db.commit()
     await db.refresh(lesson)
 

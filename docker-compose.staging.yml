@@ -20,7 +20,7 @@
 # being measured. The production-only header behaviour is covered by
 # tests/test_security_headers.py instead.
 #
-# Data comes from app.seed_demo_data, not from a production dump. The brief
+# Data comes from app.seed_demo, not from a production dump. The brief
 # asked for an anonymized dump; seeding is better here on both counts --
 # no student's name or phone number leaves the server at all, and the
 # generated volume can be made larger than production, which is what
