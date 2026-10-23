@@ -236,8 +236,10 @@ function handleLogout() {
             <Bell :size="18" :stroke-width="1.8" />
             <span
               v-if="notifications.unreadCount > 0"
-              class="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-clay px-1 text-[10px] font-medium text-white"
+              class="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-clay px-1 text-[10px] font-semibold text-sand ring-2 ring-brand-header"
             >
+              <!-- text-sand, not text-white: --clay flips to near-white in
+                   the dark theme, which left white digits on a white pill. -->
               {{ notifications.unreadCount > 9 ? "9+" : notifications.unreadCount }}
             </span>
           </button>

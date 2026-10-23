@@ -88,7 +88,10 @@ const steps = [
             class="mt-6 font-display text-4xl font-semibold leading-[1.1] tracking-tight text-ink motion-safe:animate-fade-up sm:text-5xl lg:text-6xl"
             style="animation-delay: 80ms"
           >
-            Готовься к ЕНТ<br class="hidden sm:block" />
+            <!-- The explicit space survives Vue's whitespace condensing, which
+                 drops the newline between <br> and <span>: with the <br>
+                 hidden on phones the heading read "ЕНТбез". -->
+            Готовься к ЕНТ{{ " " }}<br class="hidden sm:block" />
             <span class="text-gradient-brand">без зубрёжки вслепую</span>
           </h1>
 

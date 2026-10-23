@@ -126,8 +126,11 @@ select option {
   /* Signature marigold marker -- used only for: active nav link underline,
      "needs review" card edge, selected exam answer. See §6 of the spec.
      Nothing else in the app should reach for marigold. */
+  /* Only the left edge takes the accent. `border-marigold` alone set the
+     colour of every side, so a card meant to carry a thin marker came out
+     fully outlined in the brand colour instead. */
   .marker-edge {
-    @apply border-l-[3px] border-marigold;
+    @apply border-l-[3px] border-l-marigold;
   }
 
   /* Miller Columns catalog browsing -- shared shell classes so both the
@@ -139,8 +142,10 @@ select option {
   .miller-column-card {
     @apply overflow-hidden rounded-2xl border border-line bg-paper shadow-sm transition-all duration-200;
   }
+  /* Flush with the card's left edge (it sat 8px in, matching nothing), and
+     a step below the page's own heading instead of competing with it. */
   .miller-column-title {
-    @apply mb-4 px-2 text-2xl font-bold tracking-tight text-ink;
+    @apply mb-3 text-lg font-semibold tracking-tight text-ink;
   }
   .miller-column-item {
     @apply flex cursor-pointer items-center justify-between gap-2 border-b border-line/60 p-3.5 text-sm font-medium text-ink-2 transition-all duration-150 last:border-b-0 hover:bg-paper-2;

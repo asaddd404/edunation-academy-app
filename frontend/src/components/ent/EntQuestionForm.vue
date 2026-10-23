@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 import GlossaryTextField from "@/components/shared/GlossaryTextField.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
+import FilePicker from "@/components/ui/FilePicker.vue";
 import type { EntQuestionType } from "@/types";
 import { isQuestionFormValid, type QuestionForm } from "@/utils/entQuestionForm";
 import { EXAM_LANGUAGES, LANGUAGE_LABEL } from "@/utils/examLanguage";
@@ -53,10 +54,6 @@ function addAnswerVariant() {
   props.form.answerVariants.push("");
 }
 
-function onImagePicked(event: Event) {
-  const input = event.target as HTMLInputElement;
-  emit("imagePicked", input.files?.[0] ?? null);
-}
 </script>
 
 <template>
@@ -92,19 +89,19 @@ function onImagePicked(event: Event) {
           alt=""
           class="h-20 w-28 rounded-lg border border-line object-cover"
         />
-        <input
-          :key="fileInputKey"
-          type="file"
+        <FilePicker
+          :file="form.imageFile ?? null"
           accept="image/jpeg,image/png,image/webp"
-          class="text-sm text-ink-2 file:mr-3 file:rounded-lg file:border-0 file:bg-paper-2 file:px-3 file:py-2 file:text-sm file:text-ink hover:file:bg-line"
-          @change="onImagePicked"
+          :label="form.hasImage ? 'Заменить изображение' : 'Выбрать изображение'"
+          @pick="emit('imagePicked', $event)"
+          @clear="emit('imagePicked', null)"
         />
         <BaseButton v-if="form.imageFile || form.hasImage" variant="secondary" @click="emit('removeImage')">
           Убрать изображение
         </BaseButton>
       </div>
       <p v-if="form.imageFile" class="mt-1.5 text-xs text-ink-3">
-        Выбрано: {{ form.imageFile?.name }} — загрузится при сохранении вопроса.
+        Загрузится при сохранении вопроса.
       </p>
       <p class="mt-1.5 text-xs text-ink-3">jpg, png или webp, до 5 МБ.</p>
     </div>

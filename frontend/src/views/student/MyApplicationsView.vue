@@ -5,7 +5,6 @@ import { onMounted } from "vue";
 import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
-import BaseButton from "@/components/ui/BaseButton.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useApplicationsStore } from "@/stores/applications";
 import type { ApplicationStatus } from "@/types";
@@ -35,17 +34,15 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
         </div>
       <p class="font-medium text-ink">Заявок пока нет</p>
       <p class="max-w-xs text-sm text-ink-2">Подайте заявку на предмет в каталоге, чтобы получить доступ к урокам и тестам.</p>
-      <router-link to="/catalog">
-        <BaseButton variant="cta">Перейти в каталог</BaseButton>
-      </router-link>
+      <router-link to="/catalog" class="btn-primary">Перейти в каталог</router-link>
     </div>
 
     <ul v-else class="max-w-[42rem] space-y-0">
       <li
         v-for="(application, index) in applications.myApplications"
         :key="application.id"
-        class="relative pb-6 pl-9 last:pb-0"
-        :class="{ 'border-l-2 border-line': index < applications.myApplications.length - 1 }"
+        class="relative border-l-2 pb-6 pl-9 last:pb-0"
+        :class="index < applications.myApplications.length - 1 ? 'border-line' : 'border-transparent'"
       >
         <span
           class="absolute -left-[7px] top-1.5 h-3.5 w-3.5 rounded-full ring-4 ring-sand"
@@ -59,8 +56,12 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
           <p class="mt-1 text-xs text-ink-3">Подано {{ formatDate(application.created_at) }}</p>
           <p v-if="application.decided_at" class="text-xs text-ink-3">Решение принято {{ formatDate(application.decided_at) }}</p>
 
-          <router-link v-if="application.status === 'approved'" :to="`/categories/${application.category_id}`" class="mt-3 inline-block">
-            <BaseButton variant="cta">Перейти к урокам →</BaseButton>
+          <router-link
+            v-if="application.status === 'approved'"
+            :to="`/categories/${application.category_id}`"
+            class="btn-primary mt-3 inline-flex"
+          >
+            Перейти к урокам →
           </router-link>
         </div>
       </li>

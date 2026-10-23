@@ -613,7 +613,9 @@ function questionCardClass(q: EntQuestionTeacher): string {
           <!-- Subject control panel -->
           <div class="card p-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <div class="flex min-w-0 flex-1 items-center gap-2">
+              <!-- Full row on a phone: sharing it with the two buttons left
+                   the subject name truncated to its first two letters. -->
+              <div class="flex min-w-0 flex-1 basis-full items-center gap-2 sm:basis-0">
                 <template v-if="renamingSubjectId === selectedSubject.id">
                   <input
                     v-model="renameValue"
@@ -945,7 +947,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
     <div
       v-if="toast"
       class="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2.5 text-sm shadow-lg"
-      :class="toast.tone === 'error' ? 'bg-clay text-white' : 'bg-moss text-moss-fg'"
+      :class="toast.tone === 'error' ? 'bg-clay text-sand' : 'bg-moss text-moss-fg'"
       role="status"
     >
       {{ toast.message }}
