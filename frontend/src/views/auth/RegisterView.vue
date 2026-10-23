@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { isAxiosError } from "axios";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 
@@ -7,6 +6,7 @@ import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import { useAuthStore } from "@/stores/auth";
 import { localDigitsToPhone, sanitizeLocalPhoneDigits } from "@/utils/phone";
+import { describeApiError } from "@/utils/apiError";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -36,11 +36,8 @@ async function handleSubmit() {
     });
     router.push("/catalog");
   } catch (e) {
-    if (isAxiosError(e) && e.response?.data?.detail) {
-      error.value = String(e.response.data.detail);
-    } else {
-      error.value = "Не удалось зарегистрироваться. Попробуйте ещё раз.";
-    }
+    // `detail` is a list for field errors; String() of it read "[object Object]".
+    error.value = describeApiError(e, "Не удалось зарегистрироваться. Попробуйте ещё раз.");
   } finally {
     submitting.value = false;
   }
@@ -53,8 +50,8 @@ async function handleSubmit() {
       <h1 class="font-display text-display-sm text-ink">Регистрация</h1>
       <form class="mt-6 space-y-4" @submit.prevent="handleSubmit">
         <div class="grid grid-cols-2 gap-3">
-          <BaseInput v-model="firstName" label="Имя" />
-          <BaseInput v-model="lastName" label="Фамилия" />
+          <BaseInput v-model="firstName" label="Имя" :maxlength="100" />
+          <BaseInput v-model="lastName" label="Фамилия" :maxlength="100" />
         </div>
         <BaseInput v-model="localPhoneInput" label="Телефон" placeholder="7XXXXXXXXX" inputmode="tel">
           <template #icon>+7</template>

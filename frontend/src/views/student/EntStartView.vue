@@ -16,6 +16,7 @@ import { calcExamDurationMinutes, ENT_FULL_SUBJECT_COUNT, formatExamDuration } f
 import { EXAM_LANGUAGES, LANGUAGE_LABEL } from "@/utils/examLanguage";
 import { scorePercent, scoreTone } from "@/utils/examOptions";
 import { capitalize, pluralRu } from "@/utils/subjectTheme";
+import { describeApiError } from "@/utils/apiError";
 
 const router = useRouter();
 
@@ -43,9 +44,14 @@ const canStart = computed(() => selectedSubjectIds.value.length > 0 && questions
 
 const totalQuestions = computed(() => selectedSubjectIds.value.length * (questionsPerSubject.value || 0));
 
+/** A failed load, said as such -- it used to fall through to the empty
+ * state, "Предметы ещё не добавлены учителями", which was simply untrue. */
+const loadError = ref("");
+
 async function load() {
   loading.value = true;
   accessDenied.value = false;
+  loadError.value = "";
   try {
     const [subjectsRes, historyRes, leaderboard] = await Promise.all([
       listEntSubjects(),
@@ -59,7 +65,7 @@ async function load() {
     if (isAxiosError(e) && e.response?.status === 403) {
       accessDenied.value = true;
     } else {
-      throw e;
+      loadError.value = describeApiError(e, "Не удалось загрузить тренажёр.");
     }
   } finally {
     loading.value = false;
@@ -155,6 +161,11 @@ function historyTone(s: EntSimulationSummary): string {
       </div>
       <div class="h-52 w-full animate-pulse rounded-2xl bg-paper-2"></div>
       <div class="h-24 w-full animate-pulse rounded-2xl bg-paper-2"></div>
+    </div>
+
+    <div v-else-if="loadError" class="card flex flex-col items-center gap-3 px-6 py-10 text-center" role="alert">
+      <p class="text-red-700 dark:text-red-400">{{ loadError }}</p>
+      <button type="button" class="btn-ghost" @click="load">Повторить</button>
     </div>
 
     <div v-else-if="accessDenied" class="card p-4 text-sm">

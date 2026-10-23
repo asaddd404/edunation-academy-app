@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Target, Trophy, Zap } from "@lucide/vue";
+import { Lock, Target, Trophy, Zap } from "@lucide/vue";
 import { isAxiosError } from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 
@@ -14,6 +14,7 @@ import { useAuthStore } from "@/stores/auth";
 import type { LeaderboardEntry } from "@/types";
 import { formatActivityDuration } from "@/utils/activity";
 import { ROLE_LABEL } from "@/utils/roleLabel";
+import { describeApiError } from "@/utils/apiError";
 
 const auth = useAuthStore();
 
@@ -22,6 +23,18 @@ const form = reactive({
   last_name: auth.user?.last_name ?? "",
   phone: auth.user?.phone ?? "",
 });
+
+// Asked for only when the phone actually changes: the phone is the login,
+// and the server refuses to change it on the strength of an open session.
+const phoneChangePassword = ref("");
+
+/** Same number however it is typed: "8 707 …", "+7 (707) …". */
+function phoneDigits(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  return digits.length === 11 && digits.startsWith("8") ? `7${digits.slice(1)}` : digits;
+}
+
+const phoneChanged = computed(() => phoneDigits(form.phone) !== phoneDigits(auth.user?.phone ?? ""));
 
 const saving = ref(false);
 const saveError = ref("");
@@ -49,22 +62,41 @@ function rankLabel(xp: number): string {
   return RANK_TIERS.find((tier) => xp >= tier.min)?.label ?? "Новичок";
 }
 
-onMounted(async () => {
-  if (auth.user?.role !== "student") return;
-  const today = await getMyTodayActivity();
-  todayActivitySeconds.value = today.total_seconds;
-  try {
-    const leaderboard = await getLeaderboard(1);
-    myRating.value = leaderboard.me;
-  } catch (e) {
-    // A student with no approved course yet gets a 403 here -- that's fine,
-    // the stat cards just render zeros.
-    if (!isAxiosError(e) || e.response?.status !== 403) throw e;
+/** Set when the numbers could not be fetched, so the cards show "—"
+ * instead of a zero the student would read as "my XP is gone". */
+const statsUnavailable = ref(false);
+
+async function loadStats() {
+  statsUnavailable.value = false;
+  // Independent requests: the activity call failing used to skip the
+  // rating call entirely, leaving every card at 0.
+  const [today, leaderboard] = await Promise.allSettled([getMyTodayActivity(), getLeaderboard(1)]);
+  if (today.status === "fulfilled") todayActivitySeconds.value = today.value.total_seconds;
+  else statsUnavailable.value = true;
+  if (leaderboard.status === "fulfilled") {
+    myRating.value = leaderboard.value.me;
+  } else {
+    // A student with no approved course yet gets a 403 -- genuine zeros.
+    const e = leaderboard.reason;
+    if (!isAxiosError(e) || e.response?.status !== 403) statsUnavailable.value = true;
   }
+}
+
+onMounted(() => {
+  if (auth.user?.role === "student") void loadStats();
 });
+
+/** A stat for the cards: the number, or a dash when it could not be loaded. */
+function stat(value: number | undefined): string {
+  return statsUnavailable.value && value === undefined ? "—" : String(value ?? 0);
+}
 
 async function handleSave() {
   if (!form.first_name.trim() || !form.last_name.trim() || !form.phone.trim()) return;
+  if (phoneChanged.value && !phoneChangePassword.value) {
+    saveError.value = "Чтобы сменить номер, введите текущий пароль.";
+    return;
+  }
   saving.value = true;
   saveError.value = "";
   saveSuccess.value = false;
@@ -73,17 +105,19 @@ async function handleSave() {
       first_name: form.first_name,
       last_name: form.last_name,
       phone: form.phone,
+      current_password: phoneChanged.value ? phoneChangePassword.value : undefined,
     });
     auth.setUser(updated);
     form.phone = updated.phone;
+    phoneChangePassword.value = "";
     saveSuccess.value = true;
   } catch (e) {
     if (isAxiosError(e) && e.response?.status === 409) {
       saveError.value = "Этот номер телефона уже занят другим пользователем.";
-    } else if (isAxiosError(e) && e.response?.status === 422) {
-      saveError.value = "Проверьте формат номера телефона (+7XXXXXXXXXX).";
     } else {
-      saveError.value = "Не удалось сохранить изменения.";
+      // Every 422 used to be blamed on the phone number, including an empty
+      // or over-long name; the server says which field it was.
+      saveError.value = describeApiError(e, "Не удалось сохранить изменения.");
     }
   } finally {
     saving.value = false;
@@ -191,7 +225,8 @@ async function handleDeleteAvatar() {
         v-if="auth.user.role === 'student'"
         class="inline-flex items-center rounded-full bg-moss px-3 py-1 text-xs font-semibold text-moss-fg"
       >
-        {{ rankLabel(myRating?.total_xp ?? 0) }} • {{ myRating?.total_xp ?? 0 }} XP
+        <template v-if="statsUnavailable && !myRating">Статистика недоступна</template>
+        <template v-else>{{ rankLabel(myRating?.total_xp ?? 0) }} • {{ myRating?.total_xp ?? 0 }} XP</template>
       </span>
       <span v-else class="text-sm text-ink-3">{{ ROLE_LABEL[auth.user.role] }}</span>
 
@@ -217,17 +252,17 @@ async function handleDeleteAvatar() {
     <div v-if="auth.user?.role === 'student'" class="grid grid-cols-3 gap-3">
       <div class="card flex flex-col items-center gap-1 p-4 text-center">
         <Target :size="22" :stroke-width="1.7" class="text-moss" />
-        <span class="text-xl font-bold text-ink">{{ myRating?.simulations_completed ?? 0 }}</span>
+        <span class="text-xl font-bold text-ink">{{ stat(myRating?.simulations_completed) }}</span>
         <span class="text-xs text-ink-2">Симуляций</span>
       </div>
       <div class="card flex flex-col items-center gap-1 p-4 text-center">
         <Trophy :size="22" :stroke-width="1.7" class="text-moss" />
-        <span class="text-xl font-bold text-ink">{{ myRating?.best_score ?? 0 }}</span>
+        <span class="text-xl font-bold text-ink">{{ stat(myRating?.best_score) }}</span>
         <span class="text-xs text-ink-2">Лучший балл</span>
       </div>
       <div class="card flex flex-col items-center gap-1 p-4 text-center">
         <Zap :size="22" :stroke-width="1.7" class="text-moss" />
-        <span class="text-xl font-bold text-ink">{{ myRating?.total_xp ?? 0 }}</span>
+        <span class="text-xl font-bold text-ink">{{ stat(myRating?.total_xp) }}</span>
         <span class="text-xs text-ink-2">Всего XP</span>
       </div>
     </div>
@@ -244,7 +279,7 @@ async function handleDeleteAvatar() {
     </div>
 
     <form class="card space-y-4 p-4" @submit.prevent="handleSave">
-      <BaseInput v-model="form.first_name" label="Имя">
+      <BaseInput v-model="form.first_name" label="Имя" :maxlength="100">
         <template #icon>
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path
@@ -253,7 +288,7 @@ async function handleDeleteAvatar() {
           </svg>
         </template>
       </BaseInput>
-      <BaseInput v-model="form.last_name" label="Фамилия">
+      <BaseInput v-model="form.last_name" label="Фамилия" :maxlength="100">
         <template #icon>
           <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
             <path
@@ -272,7 +307,21 @@ async function handleDeleteAvatar() {
         </template>
       </BaseInput>
 
-      <p v-if="saveError" class="text-sm text-clay">{{ saveError }}</p>
+      <div v-if="phoneChanged" class="space-y-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+        <BaseInput
+          v-model="phoneChangePassword"
+          label="Пароль для смены номера"
+          type="password"
+          placeholder="Подтвердите смену номера"
+        >
+          <template #icon><Lock :size="15" :stroke-width="1.8" /></template>
+        </BaseInput>
+        <p class="text-xs text-ink-2">
+          Номер телефона — это ваш логин. Чтобы никто не сменил его из открытой сессии, подтвердите паролем.
+        </p>
+      </div>
+
+      <p v-if="saveError" class="text-sm text-red-700 dark:text-red-400" role="alert">{{ saveError }}</p>
       <p v-if="saveSuccess" class="text-sm text-moss">Изменения сохранены.</p>
 
       <BaseButton type="submit" variant="cta" class="w-full" :disabled="saving">Сохранить</BaseButton>

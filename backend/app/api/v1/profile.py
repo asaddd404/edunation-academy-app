@@ -1,14 +1,16 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.storage import image_response, resolve_upload_path, save_avatar_image
-from app.core.rate_limit import UPLOAD_BY_USER
+from app.core.audit import audit_log
+from app.core.rate_limit import CHANGE_PASSWORD_BY_USER, UPLOAD_BY_USER
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.user import User
 from app.schemas.user import ProfileUpdateIn, UserOut
+from app.security import verify_password
 
 router = APIRouter(tags=["profile"])
 
@@ -16,13 +18,27 @@ router = APIRouter(tags=["profile"])
 @router.patch("/me", response_model=UserOut)
 async def update_my_profile(
     payload: ProfileUpdateIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> UserOut:
-    if payload.phone is not None and payload.phone != user.phone:
+    phone_changed = payload.phone is not None and payload.phone != user.phone
+    if phone_changed:
+        # The phone is the login: changing it decides who can sign in next.
+        # Checked before anything about the new number is revealed, so a
+        # borrowed session cannot use the 409 below to probe which numbers
+        # are registered; and rate-limited with password changes, so this is
+        # not a way around the login limiter for guessing the password.
+        await CHANGE_PASSWORD_BY_USER.enforce(str(user.id))
+        if not payload.current_password:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Чтобы сменить номер, введите текущий пароль")
+        # 400, not 401: a 401 would send the frontend off to refresh the session.
+        if not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Текущий пароль указан неверно")
         existing = await db.scalar(select(User).where(User.phone == payload.phone, User.id != user.id))
         if existing is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, "Этот номер телефона уже занят")
+        old_phone = user.phone
         user.phone = payload.phone
 
     if payload.first_name is not None:
@@ -32,6 +48,15 @@ async def update_my_profile(
 
     await db.commit()
     await db.refresh(user)
+    if phone_changed:
+        audit_log(
+            "auth.phone.change",
+            actor_id=user.id,
+            actor_role=user.role.value,
+            request=request,
+            old_phone=old_phone,
+            new_phone=user.phone,
+        )
     return UserOut.model_validate(user)
 
 

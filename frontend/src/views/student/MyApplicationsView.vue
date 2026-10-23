@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Trophy } from "@lucide/vue";
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
 
 import ApplicationStatusBadge from "@/components/application/ApplicationStatusBadge.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
@@ -8,10 +8,29 @@ import PageHeader from "@/components/layout/PageHeader.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useApplicationsStore } from "@/stores/applications";
 import type { ApplicationStatus } from "@/types";
+import { describeApiError } from "@/utils/apiError";
 
 const applications = useApplicationsStore();
 
-onMounted(() => applications.fetchMine());
+// Loading and failure are states of their own: before, the empty state
+// ("Заявок пока нет") showed while the list was still on its way, and stayed
+// when it failed -- telling a student with five applications they had none.
+const loading = ref(true);
+const loadError = ref("");
+
+async function load(page = 1) {
+  loading.value = true;
+  loadError.value = "";
+  try {
+    await applications.fetchMine(page);
+  } catch (e) {
+    loadError.value = describeApiError(e, "Не удалось загрузить заявки.");
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => load());
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "long", year: "numeric" });
@@ -28,7 +47,16 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
   <PageContainer>
     <PageHeader title="Мои заявки" />
 
-    <div v-if="!applications.myApplications.length" class="card flex flex-col items-center gap-3 px-6 py-12 text-center">
+    <div v-if="loading" class="max-w-[42rem] space-y-3">
+      <div v-for="i in 3" :key="i" class="h-28 animate-pulse rounded-2xl bg-paper-2" />
+    </div>
+
+    <div v-else-if="loadError" class="card flex flex-col items-center gap-3 px-6 py-10 text-center" role="alert">
+      <p class="text-red-700 dark:text-red-400">{{ loadError }}</p>
+      <button type="button" class="btn-ghost" @click="load()">Повторить</button>
+    </div>
+
+    <div v-else-if="!applications.myApplications.length" class="card flex flex-col items-center gap-3 px-6 py-12 text-center">
       <div class="flex h-16 w-16 items-center justify-center rounded-full bg-moss/15 text-moss">
           <Trophy :size="30" :stroke-width="1.6" />
         </div>
@@ -72,7 +100,7 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
       :pages="applications.myApplicationsPage.pages"
       :total="applications.myApplicationsPage.total"
       class="mt-4"
-      @change="applications.fetchMine"
+      @change="load"
     />
   </PageContainer>
 </template>

@@ -15,7 +15,7 @@ import type { MillerItem } from "@/components/catalog/MillerColumn.vue";
  */
 const props = defineProps<{
   /** Levels from root to current; the last one is what gets rendered. */
-  levels: { title: string; items: MillerItem[]; loading?: boolean; emptyText?: string }[];
+  levels: { title: string; items: MillerItem[]; loading?: boolean; emptyText?: string; error?: string }[];
   /** Breadcrumb labels for the levels already drilled into. */
   crumbs: string[];
   search: string;
@@ -25,6 +25,7 @@ const emit = defineEmits<{
   (e: "select", itemId: number | string): void;
   (e: "back"): void;
   (e: "update:search", value: string): void;
+  (e: "retry"): void;
 }>();
 
 const current = computed(() => props.levels[props.levels.length - 1]);
@@ -86,6 +87,13 @@ const filtered = computed(() => {
     <div :key="levels.length" class="motion-safe:animate-drill-in space-y-2 pt-4">
         <div v-if="current.loading" class="space-y-2">
           <div v-for="n in 5" :key="n" class="h-14 animate-pulse rounded-xl bg-paper-2" />
+        </div>
+
+        <div v-else-if="current.error" class="card space-y-2 p-6 text-center text-sm" role="alert">
+          <p class="text-red-700 dark:text-red-400">{{ current.error }}</p>
+          <button type="button" class="font-medium text-moss underline underline-offset-2" @click="emit('retry')">
+            Повторить
+          </button>
         </div>
 
         <p v-else-if="!filtered.length" class="card p-6 text-center text-sm text-ink-3">

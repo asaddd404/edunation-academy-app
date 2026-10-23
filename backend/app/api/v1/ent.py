@@ -151,6 +151,85 @@ async def list_subjects(db: AsyncSession = Depends(get_db)) -> list[EntSubjectOu
 MAX_UNFINISHED_SIMULATIONS = 5
 
 
+# Hard cutoff for timed attempts. Answers are accepted until the deadline
+# plus this grace -- which only covers the round trip of the client's own
+# auto-submit fired at 00:00, and a little clock skew -- and not after: past
+# it the attempt is closed with what the server has, which is nothing, so
+# answers written once time was up can never count.
+SUBMIT_GRACE = timedelta(seconds=30)
+
+
+def _past_cutoff(simulation: EntSimulation, now: datetime) -> bool:
+    return bool(simulation.is_timed and simulation.expires_at and now > simulation.expires_at + SUBMIT_GRACE)
+
+
+async def _finalize(
+    db: AsyncSession, simulation: EntSimulation, answers: dict[int, EntAnswerIn], now: datetime
+) -> None:
+    """Grades and closes an in-progress attempt (caller holds its row lock
+    and commits). Unanswered questions score 0."""
+    scope = ent_scope(simulation.id)
+    total_score = 0
+    max_score = 0
+    for item in simulation.items:
+        answer = answers.get(item.question_id)
+        answer_data = answer.model_dump(exclude_none=True, exclude={"question_id"}) if answer else None
+        # Stored as row ids, not tokens, so the result screen can line the
+        # answer up with match_pairs the way it always has.
+        answer_data = decode_match_answer([p.id for p in item.question.match_pairs], scope, answer_data)
+        score = grade_question(item.question, answer_data)
+        item.answer_data = answer_data
+        item.score_awarded = score
+        total_score += score
+        max_score += item.question.max_score
+
+    simulation.status = EntSimulationStatus.submitted
+    simulation.submitted_at = now
+    simulation.time_expired = bool(simulation.is_timed and simulation.expires_at and now > simulation.expires_at)
+    simulation.total_score = total_score
+    simulation.max_score = max_score
+    simulation.xp_earned = await apply_simulation_xp(db, simulation)
+
+
+async def _lock_own_simulation(db: AsyncSession, student: User, simulation_id: int) -> EntSimulation:
+    # Row lock before any status check: two concurrent submits of the same
+    # attempt would otherwise both read `in_progress`, both grade, and both
+    # award XP. The second now waits here until the first commits, then sees
+    # `submitted` and is turned away. (The xp_events unique key is the
+    # backstop if anything ever reaches the award twice anyway.)
+    locked = await db.scalar(
+        select(EntSimulation.id)
+        .where(EntSimulation.id == simulation_id, EntSimulation.student_id == student.id)
+        .with_for_update()
+    )
+    if locked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Симуляция не найдена")
+    return await _get_own_simulation(db, student, simulation_id)
+
+
+async def _close_expired_attempts(db: AsyncSession, student: User) -> None:
+    """Closes the student's timed attempts that are past the cutoff -- a tab
+    closed mid-exam never submits, and an attempt left open would keep
+    counting towards MAX_UNFINISHED_SIMULATIONS and show as unfinished."""
+    now = datetime.now(timezone.utc)
+    expired_ids = (
+        await db.scalars(
+            select(EntSimulation.id).where(
+                EntSimulation.student_id == student.id,
+                EntSimulation.status == EntSimulationStatus.in_progress,
+                EntSimulation.is_timed.is_(True),
+                EntSimulation.expires_at < now - SUBMIT_GRACE,
+            )
+        )
+    ).all()
+    for simulation_id in expired_ids:
+        simulation = await _lock_own_simulation(db, student, simulation_id)
+        if simulation.status == EntSimulationStatus.in_progress:
+            await _finalize(db, simulation, {}, now)
+    if expired_ids:
+        await db.commit()
+
+
 async def _assert_not_hoarding_attempts(db: AsyncSession, student: User) -> None:
     unfinished = await db.scalar(
         select(func.count(EntSimulation.id)).where(
@@ -172,6 +251,7 @@ async def start_simulation(
     student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationOut:
     await ENT_SIMULATION_START_BY_USER.enforce(str(student.id))
+    await _close_expired_attempts(db, student)
     await _assert_not_hoarding_attempts(db, student)
 
     try:
@@ -314,6 +394,7 @@ async def list_simulations(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> list[EntSimulationSummaryOut]:
+    await _close_expired_attempts(db, student)
     simulations = (
         await db.scalars(
             select(EntSimulation)
@@ -331,6 +412,14 @@ async def get_simulation(
     student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationOut:
     simulation = await _get_own_simulation(db, student, simulation_id)
+    if simulation.status == EntSimulationStatus.in_progress and _past_cutoff(simulation, datetime.now(timezone.utc)):
+        # Reopened after time ran out (the tab was closed, the device slept):
+        # nothing more can be answered, so the attempt is closed here and the
+        # client is sent to the result like any finished attempt.
+        simulation = await _lock_own_simulation(db, student, simulation_id)
+        if simulation.status == EntSimulationStatus.in_progress:
+            await _finalize(db, simulation, {}, datetime.now(timezone.utc))
+            await db.commit()
     if simulation.status != EntSimulationStatus.in_progress:
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана, смотрите /ent/simulations/{id}/result")
 
@@ -391,46 +480,15 @@ async def submit_simulation(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_student_with_course_access),
 ) -> EntSimulationResultOut:
-    # Row lock before the status check: two concurrent submits of the same
-    # attempt would otherwise both read `in_progress`, both grade, and both
-    # award XP. The second now waits here until the first commits, then sees
-    # `submitted` and is turned away. (The xp_events unique key is the
-    # backstop if anything ever reaches the award twice anyway.)
-    locked = await db.scalar(
-        select(EntSimulation.id)
-        .where(EntSimulation.id == simulation_id, EntSimulation.student_id == student.id)
-        .with_for_update()
-    )
-    if locked is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Симуляция не найдена")
-    simulation = await _get_own_simulation(db, student, simulation_id)
+    simulation = await _lock_own_simulation(db, student, simulation_id)
     if simulation.status != EntSimulationStatus.in_progress:
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана")
 
-    scope = ent_scope(simulation.id)
-    answers_by_question: dict[int, EntAnswerIn] = {a.question_id: a for a in payload.answers}
-
-    total_score = 0
-    max_score = 0
-    for item in simulation.items:
-        answer = answers_by_question.get(item.question_id)
-        answer_data = answer.model_dump(exclude_none=True, exclude={"question_id"}) if answer else None
-        # Stored as row ids, not tokens, so the result screen can line the
-        # answer up with match_pairs the way it always has.
-        answer_data = decode_match_answer([p.id for p in item.question.match_pairs], scope, answer_data)
-        score = grade_question(item.question, answer_data)
-        item.answer_data = answer_data
-        item.score_awarded = score
-        total_score += score
-        max_score += item.question.max_score
-
     now = datetime.now(timezone.utc)
-    simulation.status = EntSimulationStatus.submitted
-    simulation.submitted_at = now
-    simulation.time_expired = bool(simulation.is_timed and simulation.expires_at and now > simulation.expires_at)
-    simulation.total_score = total_score
-    simulation.max_score = max_score
-    simulation.xp_earned = await apply_simulation_xp(db, simulation)
+    # Past the cutoff the submitted answers are not looked at: the attempt
+    # closes exactly as if the client had sent nothing.
+    answers = {} if _past_cutoff(simulation, now) else {a.question_id: a for a in payload.answers}
+    await _finalize(db, simulation, answers, now)
 
     await db.commit()
     simulation = await _get_own_simulation(db, student, simulation_id)

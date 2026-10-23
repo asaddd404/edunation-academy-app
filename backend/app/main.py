@@ -1,7 +1,9 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError
 
 from app.api import api_router
 from app.config import settings
@@ -37,6 +39,27 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+
+# Text the database itself refuses: a value longer than its column, or a
+# character Postgres cannot store (NUL). Schemas are meant to stop both
+# first, and now do for every field found -- this is the net under any field
+# still missed, so the user gets a sentence and a 422 instead of a 500.
+_DB_TEXT_ERRORS = {
+    "StringDataRightTruncationError": "Слишком длинное значение в одном из полей.",
+    "CharacterNotInRepertoireError": "Текст содержит недопустимые символы.",
+    "UntranslatableCharacterError": "Текст содержит недопустимые символы.",
+}
+
+
+@app.exception_handler(DBAPIError)
+async def _db_text_error(request: Request, exc: DBAPIError):
+    cause = getattr(exc.orig, "__cause__", None) or exc.orig
+    message = _DB_TEXT_ERRORS.get(type(cause).__name__)
+    if message is None:
+        raise exc
+    logging.getLogger(__name__).warning("Refused text at %s: %s", request.url.path, type(cause).__name__)
+    return JSONResponse({"detail": message}, status_code=422)
 
 
 @app.get("/health")

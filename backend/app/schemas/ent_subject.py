@@ -2,12 +2,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from app.schemas.limits import OptionalShortText, ShortText
+from app.schemas.limits import CatalogName, OptionalCatalogName, OptionalSlug
 
 
 class EntSubjectIn(BaseModel):
-    name: ShortText
-    slug: OptionalShortText = None
+    name: CatalogName
+    slug: OptionalSlug = None
 
 
 class EntSubjectQuotasIn(BaseModel):
@@ -34,7 +34,7 @@ class EntSubjectQuotasIn(BaseModel):
 
 
 class EntSubjectUpdateIn(BaseModel):
-    name: OptionalShortText = None
+    name: OptionalCatalogName = None
     is_active: bool | None = None
     single_choice_count: int | None = None
     multiple_choice_count: int | None = None

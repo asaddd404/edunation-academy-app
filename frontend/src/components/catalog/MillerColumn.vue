@@ -16,8 +16,11 @@ defineProps<{
   selectedId?: number | string | null;
   loading?: boolean;
   emptyText?: string;
+  /** A failed load: shown with a retry instead of the empty text, which
+   * would otherwise claim there is nothing here. */
+  error?: string;
 }>();
-const emit = defineEmits<{ (e: "select", itemId: number | string): void }>();
+const emit = defineEmits<{ (e: "select", itemId: number | string): void; (e: "retry"): void }>();
 </script>
 
 <template>
@@ -26,6 +29,12 @@ const emit = defineEmits<{ (e: "select", itemId: number | string): void }>();
     <div class="miller-column-card">
       <div v-if="loading" class="space-y-2 p-3">
         <div v-for="n in 4" :key="n" class="h-11 animate-pulse rounded-lg bg-paper-2" />
+      </div>
+      <div v-else-if="error" class="space-y-2 p-4 text-sm" role="alert">
+        <p class="text-red-700 dark:text-red-400">{{ error }}</p>
+        <button type="button" class="font-medium text-moss underline underline-offset-2" @click="emit('retry')">
+          Повторить
+        </button>
       </div>
       <p v-else-if="!items.length" class="p-4 text-sm text-ink-3">{{ emptyText ?? "Пусто" }}</p>
       <div

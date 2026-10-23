@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ToastHost from "@/components/feedback/ToastHost.vue";
 import NavBar from "@/components/layout/NavBar.vue";
 </script>
 
@@ -8,5 +9,6 @@ import NavBar from "@/components/layout/NavBar.vue";
     <main class="w-full flex-1">
       <slot />
     </main>
+    <ToastHost />
   </div>
 </template>
