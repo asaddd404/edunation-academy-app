@@ -10,6 +10,14 @@
 #     or a `git pull` cannot wipe lesson videos and images;
 #   * the frontend is prebuilt static served by Caddy, which also handles TLS.
 
+# Resource ceilings (deploy.resources, honoured by `docker compose up`).
+# The VPS has 1 CPU and 2 GB of RAM. Without ceilings, whichever process grows
+# first -- an ffmpeg transcode, a leaking worker -- makes the kernel's OOM
+# killer choose a victim for the whole box, and its usual choice is Postgres.
+# With them, the over-budget container alone is killed and restarted
+# (restart: unless-stopped), and the database keeps its memory. The sum
+# (~1.8 GB) leaves the rest to the OS and page cache; swap absorbs spikes.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -27,6 +35,11 @@ services:
       retries: 10
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+          pids: 200
 
   redis:
     image: redis:7-alpine
@@ -75,6 +88,12 @@ services:
     user: "999:1000"
     cap_drop:
       - ALL
+    deploy:
+      resources:
+        limits:
+          # maxmemory 256mb plus the AOF rewrite fork's copy-on-write headroom.
+          memory: 320M
+          pids: 64
 
   backend:
     build: ./backend
@@ -98,6 +117,15 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    deploy:
+      resources:
+        limits:
+          # Two uvicorn workers (~110 MB each) plus one ffmpeg transcode at a
+          # time (VIDEO_TRANSCODE_GATE). 0.9 CPU so a transcode or a burst
+          # of requests can never starve Postgres and Caddy completely.
+          cpus: "0.90"
+          memory: 768M
+          pids: 256
 
   web:
     build:
@@ -123,6 +151,11 @@ services:
       - caddyconfig:/config
     security_opt:
       - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 160M
+          pids: 128
 
 volumes:
   pgdata:

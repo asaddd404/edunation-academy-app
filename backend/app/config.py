@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     trusted_proxy_cidrs: str = "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
     rate_limit_enabled: bool = True
+    # Every /api request, per client address. Generous on purpose: a whole
+    # classroom shares one NAT address, and thirty students clicking through
+    # lessons make a few requests per second between them. This stops a
+    # script or a runaway tab, not a busy class.
+    api_rate_limit_per_minute: int = 600
+    # In-flight requests one worker accepts before answering 503 at once. On
+    # a 1-CPU / 2 GB server a backlog does not get served faster by queueing
+    # -- it waits on the same five DB connections, holds memory, and times
+    # out anyway. Shedding early keeps the requests already admitted fast.
+    max_inflight_requests: int = 64
 
     # --- resource ceilings --------------------------------------------------
     # pool_size + max_overflow, times the uvicorn worker count, has to stay

@@ -786,6 +786,8 @@ function questionCardClass(q: EntQuestionTeacher): string {
                       />
                       <img
                         v-if="q.has_image"
+                        loading="lazy"
+                        decoding="async"
                         :src="questionImageUrl(q.id)"
                         alt=""
                         class="h-16 w-24 shrink-0 rounded-lg border border-line object-cover"

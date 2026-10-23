@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { isAxiosError } from "axios";
-import { computed, onMounted, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { submitHomework } from "@/api/homework";
 import { getLesson, startLessonTest } from "@/api/lessons";
 import { getStudentVideoTicket } from "@/api/video";
-import HlsPlayer from "@/components/media/HlsPlayer.vue";
 import YouTubeEmbed from "@/components/media/YouTubeEmbed.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
@@ -18,6 +17,10 @@ import FilePicker from "@/components/ui/FilePicker.vue";
 import type { LessonDetail } from "@/types";
 import { isRichDocEmpty, parseRichContent } from "@/utils/richContent";
 import { describeApiError } from "@/utils/apiError";
+
+// hls.js is ~500 kB -- most of this page's weight -- and only lessons with an
+// uploaded video need it; YouTube lessons and text-only ones never load it.
+const HlsPlayer = defineAsyncComponent(() => import("@/components/media/HlsPlayer.vue"));
 
 const route = useRoute();
 const lessonId = Number(route.params.id);

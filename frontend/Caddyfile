@@ -55,6 +55,26 @@
 		reverse_proxy backend:8000
 	}
 
+	# Homework: MAX_HOMEWORK_FILE_SIZE (10 MB) in app/core/storage.py, plus
+	# multipart overhead. Under the 1 MB default below, every homework file
+	# past 1 MB -- a phone photo of a written solution -- was refused here
+	# with a 413 the app never saw.
+	handle /api/v1/lessons/*/homework {
+		request_body {
+			max_size 11MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	# Image uploads: the largest app-side cap is 5 MB (storage.py).
+	@imageUploads path /api/v1/me/avatar /api/v1/teacher/categories/*/image /api/v1/teacher/lesson-content/image /api/v1/teacher/ent/questions/*/image
+	handle @imageUploads {
+		request_body {
+			max_size 6MB
+		}
+		reverse_proxy backend:8000
+	}
+
 	# Everything else the API serves. 1 MB is well above any JSON this app
 	# exchanges and well below anything worth reading into memory from an
 	# unauthenticated caller.
@@ -80,7 +100,11 @@
 		# serving it long after the file appeared.
 		@exists file {path}
 		header @exists Cache-Control "public, max-age=31536000, immutable"
-		file_server
+		# .br/.gz siblings are written at build time (scripts/precompress.mjs):
+		# maximum-level Brotli, compressed once instead of on every request.
+		file_server {
+			precompressed br gzip
+		}
 	}
 
 	# Everything else is the SPA. try_files sends unknown paths to index.html

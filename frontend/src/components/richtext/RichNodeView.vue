@@ -91,6 +91,7 @@ const calloutClass = computed(
     :src="imageSrc"
     :alt="String(node.attrs?.alt ?? '')"
     loading="lazy"
+    decoding="async"
     class="h-auto rounded-lg border border-line"
     :class="imageClass"
   />
