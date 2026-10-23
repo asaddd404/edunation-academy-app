@@ -15,8 +15,9 @@
 # first -- an ffmpeg transcode, a leaking worker -- makes the kernel's OOM
 # killer choose a victim for the whole box, and its usual choice is Postgres.
 # With them, the over-budget container alone is killed and restarted
-# (restart: unless-stopped), and the database keeps its memory. The sum
-# (~1.8 GB) leaves the rest to the OS and page cache; swap absorbs spikes.
+# (restart: unless-stopped), and the database keeps its memory. These are
+# ceilings, not reservations: a 200-student load test on a 1-CPU replica
+# peaked at ~600 MB for all four containers together, far below the sum.
 
 services:
   postgres:
@@ -154,7 +155,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 160M
+          # TLS for every connection plus buffered upload bodies: 200
+          # simulated students took Caddy to ~155 MB.
+          memory: 256M
           pids: 128
 
 volumes:

@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     # a 1-CPU / 2 GB server a backlog does not get served faster by queueing
     # -- it waits on the same five DB connections, holds memory, and times
     # out anyway. Shedding early keeps the requests already admitted fast.
-    max_inflight_requests: int = 64
+    # Sized by load-testing 200 students on a 1-CPU replica (loadtest/):
+    # 64 let the backlog wait out the 5 s pool timeout and end in errors; 32
+    # shed so eagerly that retries ran out (0.5% of actions failed); 48 kept
+    # failures at 0.2% with p95 under 2 s -- the excess gets an instant 503
+    # that the client retries.
+    max_inflight_requests: int = 48
 
     # --- resource ceilings --------------------------------------------------
     # pool_size + max_overflow, times the uvicorn worker count, has to stay

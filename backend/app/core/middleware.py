@@ -116,7 +116,9 @@ class LoadSheddingMiddleware:
         response = JSONResponse(
             {"detail": detail},
             status_code=status_code,
-            headers={**_BASE_HEADERS, "Retry-After": str(retry_after), "Cache-Control": "no-store"},
+            # X-Load-Shed: the handler never ran, so even a write is safe to
+            # repeat -- the client retries those (see api/http.ts).
+            headers={**_BASE_HEADERS, "Retry-After": str(retry_after), "Cache-Control": "no-store", "X-Load-Shed": "1"},
         )
         await response(scope, receive, send)
 
