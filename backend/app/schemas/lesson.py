@@ -1,10 +1,16 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
+from app.core.youtube import normalize_youtube_url
 from app.models.ent_question import EntQuestionType
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.limits import NonBlankShortText, OptionalNonBlankShortText, OptionalRichText, OptionalShortText, ShortText
+from app.schemas.limits import NonBlankShortText, OptionalNonBlankShortText, OptionalRichText, ShortText
+
+OptionalYouTubeUrl = Annotated[
+    str | None, Field(default=None, max_length=500), AfterValidator(normalize_youtube_url)
+]
 
 
 class LessonIn(BaseModel):
@@ -12,7 +18,7 @@ class LessonIn(BaseModel):
     # Rich text: a serialized TipTap document, so the ceiling covers the JSON
     # envelope as well as the prose the teacher wrote.
     description: OptionalRichText = None
-    video_url: OptionalShortText = None
+    video_url: OptionalYouTubeUrl = None
     homework_assignment: OptionalRichText = None
 
 
@@ -20,6 +26,8 @@ class LessonUpdateIn(BaseModel):
     title: OptionalNonBlankShortText = None
     description: OptionalRichText = None
     homework_assignment: OptionalRichText = None
+    # Omitted: unchanged. "": remove the video. Otherwise a YouTube link.
+    video_url: OptionalYouTubeUrl = None
 
 
 class LessonTeacherOut(BaseModel):
@@ -53,6 +61,7 @@ class LessonSummaryOut(BaseModel):
     # them nothing.
     question_count: int = 0
     has_homework: bool = False
+    video_url: str | None = None
 
 
 class VideoTicketOut(BaseModel):

@@ -51,13 +51,15 @@ const pageError = ref(false);
 const newSectionTitle = ref("");
 const newSectionDescription = ref("");
 
-const lessonForms = reactive<Record<number, { title: string; description: string; homework: string; open: boolean }>>({});
+const lessonForms = reactive<
+  Record<number, { title: string; description: string; homework: string; video: string; open: boolean }>
+>({});
 const videoUploadState = reactive<Record<number, { uploading: boolean; progress: number; error: string }>>({});
 const pollTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 
 const sectionEditForms = reactive<Record<number, { title: string; description: string; open: boolean }>>({});
 const lessonEditForms = reactive<
-  Record<number, { title: string; description: string; homework: string; open: boolean; loading: boolean }>
+  Record<number, { title: string; description: string; homework: string; video: string; open: boolean; loading: boolean }>
 >({});
 
 const videoStatusTone: Record<VideoStatus, "neutral" | "success" | "warning" | "danger"> = {
@@ -99,8 +101,13 @@ function lessonChips(lesson: LessonSummary) {
     {
       key: "video",
       icon: Video,
-      label: lesson.video_status === "ready" ? "Видео" : videoStatusLabel[lesson.video_status],
-      done: lesson.video_status === "ready",
+      label:
+        lesson.video_status === "ready"
+          ? "Видео"
+          : lesson.video_url && lesson.video_status === "none"
+            ? "YouTube"
+            : videoStatusLabel[lesson.video_status],
+      done: lesson.video_status === "ready" || (!!lesson.video_url && lesson.video_status === "none"),
       pending: lesson.video_status === "processing",
       failed: lesson.video_status === "failed",
     },
@@ -225,12 +232,13 @@ async function handleDeleteSection(sectionId: number) {
 }
 
 async function startEditLesson(lessonId: number) {
-  lessonEditForms[lessonId] = { title: "", description: "", homework: "", open: true, loading: true };
+  lessonEditForms[lessonId] = { title: "", description: "", homework: "", video: "", open: true, loading: true };
   const full = await getTeacherLesson(lessonId);
   lessonEditForms[lessonId] = {
     title: full.title,
     description: full.description ?? "",
     homework: full.homework_assignment ?? "",
+    video: full.video_url ?? "",
     open: true,
     loading: false,
   };
@@ -248,6 +256,8 @@ async function saveLesson(lessonId: number) {
       title: form.title,
       description: form.description || undefined,
       homework_assignment: form.homework || undefined,
+      // Always sent: "" is how the teacher removes a YouTube link.
+      video_url: form.video.trim(),
     }),
   );
   if (!ok) return;
@@ -324,7 +334,7 @@ async function handleCreateSection() {
 }
 
 function openLessonForm(sectionId: number) {
-  lessonForms[sectionId] = { title: "", description: "", homework: "", open: true };
+  lessonForms[sectionId] = { title: "", description: "", homework: "", video: "", open: true };
 }
 
 async function handleCreateLesson(sectionId: number) {
@@ -335,10 +345,11 @@ async function handleCreateLesson(sectionId: number) {
       title: form.title,
       description: form.description || undefined,
       homework_assignment: form.homework || undefined,
+      video_url: form.video.trim() || undefined,
     }),
   );
   if (!ok) return;
-  lessonForms[sectionId] = { title: "", description: "", homework: "", open: false };
+  lessonForms[sectionId] = { title: "", description: "", homework: "", video: "", open: false };
   await load();
 }
 
@@ -543,6 +554,12 @@ async function handleCreateLesson(sectionId: number) {
                 <p v-if="lessonEditForms[lesson.id].loading" class="text-sm text-ink-2">Загрузка…</p>
                 <template v-else>
                   <BaseInput v-model="lessonEditForms[lesson.id].title" label="Название урока" :maxlength="200" />
+                  <BaseInput
+                    v-model="lessonEditForms[lesson.id].video"
+                    label="Видео с YouTube (необязательно)"
+                    placeholder="https://www.youtube.com/watch?v=…"
+                    :maxlength="500"
+                  />
                   <RichTextEditor v-model="lessonEditForms[lesson.id].description" label="Описание и теория (видит ученик под видео)" />
                   <RichTextEditor
                     v-model="lessonEditForms[lesson.id].homework"
@@ -583,7 +600,10 @@ async function handleCreateLesson(sectionId: number) {
                       Видеоурок
                     </p>
                     <div class="flex flex-wrap items-center gap-2">
-                      <BaseBadge :tone="videoStatusTone[lesson.video_status]">
+                      <BaseBadge v-if="lesson.video_url && lesson.video_status === 'none'" tone="success">
+                        YouTube
+                      </BaseBadge>
+                      <BaseBadge v-else :tone="videoStatusTone[lesson.video_status]">
                         {{ videoStatusLabel[lesson.video_status] }}
                       </BaseBadge>
                       <label
@@ -650,6 +670,12 @@ async function handleCreateLesson(sectionId: number) {
           <div v-if="lessonForms[section.id]?.open" class="mt-3 space-y-3 rounded-xl border border-line bg-paper-2 p-4">
             <p class="text-sm font-medium text-ink">Новый урок</p>
             <BaseInput v-model="lessonForms[section.id].title" label="Название урока" :maxlength="200" />
+            <BaseInput
+              v-model="lessonForms[section.id].video"
+              label="Видео с YouTube (необязательно)"
+              placeholder="https://www.youtube.com/watch?v=…"
+              :maxlength="500"
+            />
             <RichTextEditor v-model="lessonForms[section.id].description" label="Описание и теория (видит ученик под видео)" />
             <RichTextEditor
               v-model="lessonForms[section.id].homework"

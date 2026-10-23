@@ -7,6 +7,7 @@ import { submitHomework } from "@/api/homework";
 import { getLesson, startLessonTest } from "@/api/lessons";
 import { getStudentVideoTicket } from "@/api/video";
 import HlsPlayer from "@/components/media/HlsPlayer.vue";
+import YouTubeEmbed from "@/components/media/YouTubeEmbed.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
 import RichContent from "@/components/richtext/RichContent.vue";
@@ -115,6 +116,11 @@ async function handleSubmitHomework() {
 
       <div class="space-y-8">
         <HlsPlayer v-if="videoSrc" :src="videoSrc" />
+        <YouTubeEmbed
+          v-else-if="lesson.video_url && lesson.video_status !== 'processing'"
+          :url="lesson.video_url"
+          :title="lesson.title"
+        />
         <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-line p-4 text-sm text-ink-2">
           Видео обрабатывается, зайдите чуть позже.
         </p>

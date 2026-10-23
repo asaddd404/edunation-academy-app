@@ -75,6 +75,8 @@ export interface LessonSummary {
   video_status: VideoStatus;
   /** Populated only in the teacher course-builder listing; 0/false elsewhere. */
   question_count: number;
+  /** A YouTube link, when the lesson's video is hosted there. */
+  video_url?: string | null;
   has_homework: boolean;
 }
 
