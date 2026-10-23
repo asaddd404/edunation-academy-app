@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.api import api_router
 from app.config import settings
@@ -65,6 +66,20 @@ async def _db_text_error(request: Request, exc: DBAPIError):
         raise exc
     logging.getLogger(__name__).warning("Refused text at %s: %s", request.url.path, type(cause).__name__)
     return JSONResponse({"detail": message}, status_code=422)
+
+
+# No database connection free within db_pool_timeout_seconds: the server is
+# saturated, nothing was written, and the request can simply be repeated --
+# a 503 with Retry-After (which the client retries) rather than a 500 with a
+# traceback for every request in the backlog.
+@app.exception_handler(PoolTimeoutError)
+async def _db_pool_exhausted(request: Request, exc: PoolTimeoutError):
+    logging.getLogger(__name__).warning("DB pool exhausted at %s", request.url.path)
+    return JSONResponse(
+        {"detail": "Сервер перегружен. Повторите через пару секунд."},
+        status_code=503,
+        headers={"Retry-After": "2"},
+    )
 
 
 @app.get("/health")

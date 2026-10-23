@@ -203,11 +203,22 @@ async def reset_database(db: AsyncSession) -> None:
 
 
 def clear_uploads() -> None:
-    """Files belonged to rows that no longer exist."""
+    """Files belonged to rows that no longer exist.
+
+    Empties each directory but keeps the directory itself: in production the
+    uploads volume's root belongs to whoever created the volume, and the
+    unprivileged app user may not be able to create a removed subdirectory
+    again -- which turned every later upload into a 500.
+    """
     for sub in ("homework", "avatars", "categories", "ent-questions", "lesson-content", "video_raw", "hls"):
         path = UPLOAD_ROOT / sub
-        if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
+        if not path.is_dir():
+            continue
+        for entry in path.iterdir():
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
 
 
 # --- builders -------------------------------------------------------------------
