@@ -9,6 +9,7 @@ rather than per request.
 """
 
 import asyncio
+import sys
 import time
 
 import pytest
@@ -158,7 +159,7 @@ async def test_corrupted_cache_entry_is_recomputed(fake_redis):
     assert await cached_json("unit:cache:corrupt", 60, factory) == {"ok": True}
 
 
-async def test_oversized_pdf_is_refused_without_being_parsed():
+async def test_oversized_pdf_is_refused_without_being_parsed(monkeypatch):
     """The page cap has to be paid out of the page tree, not out of parsing.
 
     If the count were only known after the pages had been walked, an
@@ -185,11 +186,27 @@ async def test_oversized_pdf_is_refused_without_being_parsed():
         c.showPage()
     c.save()
 
+    # The property itself, independent of hardware: no page's text is ever
+    # extracted before the refusal.
+    import pdfplumber.page
+
+    def _parsed(*args, **kwargs):
+        raise AssertionError("a page was parsed before the page cap refused the file")
+
+    monkeypatch.setattr(pdfplumber.page.Page, "extract_text", _parsed)
+    monkeypatch.setattr(pdfplumber.page.Page, "extract_text_lines", _parsed)
+
     started = time.perf_counter()
     with pytest.raises(PdfTooLargeError):
         extract_pdf_text(buffer.getvalue())
     elapsed = time.perf_counter() - started
 
+    # The wall-clock bound only means something without a tracer attached:
+    # under `pytest --cov` the same call runs several times slower and this
+    # failed while the behaviour above was fine.
+    coverage = sys.modules.get("coverage")
+    if coverage is not None and coverage.Coverage.current() is not None:
+        return
     assert elapsed < 2.0, (
         f"rejecting an over-sized PDF took {elapsed:.2f}s -- that is parsing cost, "
         "which means the cap fires too late to bound the work"

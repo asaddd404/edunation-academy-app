@@ -3,22 +3,26 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.ent_question import EntLanguage, EntQuestionType
-from app.schemas.limits import MAX_BULK_QUESTIONS, MediumText, QuestionText
+from app.schemas.limits import MAX_BULK_QUESTIONS
+# The ЕНТ tables have the same column widths as the course-question ones
+# (ent_questions.text 1000, choices 500, pairs and variants 300), so the same
+# bounds apply; the generic limits were wider and let text through to a 500.
+from app.schemas.question import ChoiceText, CourseQuestionText, PairText, VariantText
 
 
 class EntChoiceIn(BaseModel):
-    text: MediumText
+    text: ChoiceText
     is_correct: bool = False
 
 
 class EntMatchPairIn(BaseModel):
-    prompt_text: MediumText
-    answer_text: MediumText
+    prompt_text: PairText
+    answer_text: PairText
 
 
 class EntQuestionIn(BaseModel):
     qtype: EntQuestionType
-    text: QuestionText
+    text: CourseQuestionText
     # Typed as the enum so anything else is rejected here, at the API
     # boundary, rather than at the DB one. Defaulted rather than required:
     # every client that predates the ru/kk split keeps working, and Russian
@@ -27,7 +31,7 @@ class EntQuestionIn(BaseModel):
     max_score: int = 1
     choices: list[EntChoiceIn] = []
     match_pairs: list[EntMatchPairIn] = []
-    answer_variants: list[MediumText] = []
+    answer_variants: list[VariantText] = []
 
     @model_validator(mode="after")
     def _validate(self) -> "EntQuestionIn":

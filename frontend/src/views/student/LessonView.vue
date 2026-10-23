@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAxiosError } from "axios";
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
@@ -15,6 +16,7 @@ import BaseButton from "@/components/ui/BaseButton.vue";
 import FilePicker from "@/components/ui/FilePicker.vue";
 import type { LessonDetail } from "@/types";
 import { isRichDocEmpty, parseRichContent } from "@/utils/richContent";
+import { describeApiError } from "@/utils/apiError";
 
 const route = useRoute();
 const lessonId = Number(route.params.id);
@@ -54,8 +56,15 @@ async function load() {
         videoError.value = "Не удалось загрузить видео.";
       }
     }
-  } catch {
-    loadError.value = "Урок недоступен — возможно, он ещё заблокирован.";
+  } catch (e) {
+    // Only a 403 means "locked"; a 500 used to be explained the same way.
+    const status = isAxiosError(e) ? e.response?.status : undefined;
+    loadError.value =
+      status === 403
+        ? "Урок пока закрыт — сначала пройдите мини-тест предыдущего урока."
+        : status === 404
+          ? "Такого урока нет — возможно, его удалили."
+          : describeApiError(e, "Не удалось загрузить урок.");
   } finally {
     loading.value = false;
   }

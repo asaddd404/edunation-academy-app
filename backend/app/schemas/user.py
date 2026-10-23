@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.core.phone import validate_phone
-from app.schemas.limits import OptionalShortText
+from app.schemas.limits import OptionalPersonName, OptionalShortText
 from app.models.user import RoleEnum
 
 
@@ -38,8 +38,8 @@ class PasswordResetOut(BaseModel):
 
 
 class ProfileUpdateIn(BaseModel):
-    first_name: OptionalShortText = None
-    last_name: OptionalShortText = None
+    first_name: OptionalPersonName = None
+    last_name: OptionalPersonName = None
     phone: OptionalShortText = None
 
     @field_validator("phone")
@@ -49,9 +49,3 @@ class ProfileUpdateIn(BaseModel):
             return v
         return validate_phone(v)
 
-    @field_validator("first_name", "last_name")
-    @classmethod
-    def _not_blank(cls, v: str | None) -> str | None:
-        if v is not None and not v.strip():
-            raise ValueError("Поле не может быть пустым")
-        return v

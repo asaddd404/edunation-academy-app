@@ -61,12 +61,17 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     the handful of genuinely large routes are exempted by path prefix.
     """
 
-    # Streamed to disk in bounded chunks by their own handlers, which enforce
-    # their own (much larger) caps -- see app/core/video.py.
-    EXEMPT_PREFIXES = ("/api/v1/teacher/lessons/",)
+    # Lesson video uploads only: streamed to disk in bounded chunks by their
+    # own handler, which enforces its own (much larger) cap -- see
+    # app/core/video.py. This used to exempt the whole /teacher/lessons/
+    # prefix, so lesson edits and question saves -- plain JSON, parsed in
+    # memory -- accepted bodies up to the 2 GB edge limit.
+    @staticmethod
+    def _is_exempt(path: str) -> bool:
+        return path.startswith("/api/v1/teacher/lessons/") and path.endswith("/video")
 
     async def dispatch(self, request: Request, call_next):
-        if not any(request.url.path.startswith(p) for p in self.EXEMPT_PREFIXES):
+        if not self._is_exempt(request.url.path):
             declared = request.headers.get("content-length")
             if declared is not None:
                 try:

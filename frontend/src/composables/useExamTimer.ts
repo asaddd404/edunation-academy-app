@@ -10,12 +10,35 @@ import { computed, onBeforeUnmount, ref } from "vue";
 export function useExamTimer(onExpire: () => void) {
   const remainingSeconds = ref<number | null>(null);
   let handle: number | undefined;
+  // The countdown is measured against a deadline on the wall clock, not by
+  // counting ticks. Browsers throttle timers in background tabs -- Chrome to
+  // once a minute after five minutes hidden -- so a decrement-per-tick timer
+  // fell behind: a student who switched tabs came back to minutes that no
+  // longer existed, and the server, timing it properly, marked the attempt
+  // over time and withheld the bonus.
+  let deadline = 0;
+
+  function tick() {
+    if (remainingSeconds.value === null) return;
+    remainingSeconds.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    if (remainingSeconds.value <= 0) {
+      stop();
+      onExpire();
+    }
+  }
+
+  // Catch up the moment the tab is visible again, rather than on the next
+  // (possibly minute-late) interval.
+  function onVisibility() {
+    if (document.visibilityState === "visible" && handle !== undefined) tick();
+  }
 
   function stop() {
     if (handle !== undefined) {
       clearInterval(handle);
       handle = undefined;
     }
+    document.removeEventListener("visibilitychange", onVisibility);
   }
 
   function start(initialSeconds: number | null) {
@@ -27,15 +50,9 @@ export function useExamTimer(onExpire: () => void) {
       onExpire();
       return;
     }
-    handle = window.setInterval(() => {
-      if (remainingSeconds.value === null) return;
-      remainingSeconds.value -= 1;
-      if (remainingSeconds.value <= 0) {
-        remainingSeconds.value = 0;
-        stop();
-        onExpire();
-      }
-    }, 1000);
+    deadline = Date.now() + initialSeconds * 1000;
+    handle = window.setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", onVisibility);
   }
 
   // Always ЧЧ:ММ:СС -- an ЕНТ attempt can run up to 4 hours, so the hour

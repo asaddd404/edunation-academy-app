@@ -13,6 +13,7 @@ import BaseButton from "@/components/ui/BaseButton.vue";
 import { useApplicationsStore } from "@/stores/applications";
 import { useCategoriesStore } from "@/stores/categories";
 import type { Section } from "@/types";
+import { describeApiError } from "@/utils/apiError";
 import { capitalize } from "@/utils/subjectTheme";
 
 const route = useRoute();
@@ -34,6 +35,7 @@ const applyingId = ref<number | null>(null);
 
 const sections = ref<Section[]>([]);
 const sectionsLoading = ref(false);
+const sectionsError = ref("");
 const sectionsCategoryId = ref<number | null>(null);
 
 const selectedCategoryId = computed(() => {
@@ -58,9 +60,13 @@ categories.fetchAll();
 
 async function loadSections(categoryId: number) {
   sectionsLoading.value = true;
+  sectionsError.value = "";
   sectionsCategoryId.value = categoryId;
   try {
     sections.value = await listSections(categoryId);
+  } catch (e) {
+    sections.value = [];
+    sectionsError.value = describeApiError(e, "Не удалось загрузить разделы.");
   } finally {
     sectionsLoading.value = false;
   }
@@ -165,12 +171,13 @@ const isDesktop = useMediaQuery("(min-width: 768px)");
 /** Levels the phone view drills through. Built from the same computed item
  * lists the desktop columns use, so the two never show different content. */
 const mobileLevels = computed(() => {
-  const levels: { title: string; items: MillerItem[]; loading?: boolean; emptyText?: string }[] = [
+  const levels: { title: string; items: MillerItem[]; loading?: boolean; emptyText?: string; error?: string }[] = [
     {
       title: "Предметы",
       items: categoryItems.value,
       loading: categories.loading,
       emptyText: "Ничего не найдено",
+      error: categories.error,
     },
   ];
   // A category the student has no approved application for has nothing to
@@ -181,6 +188,7 @@ const mobileLevels = computed(() => {
       items: sectionItems.value,
       loading: sectionsLoading.value,
       emptyText: "Разделы пока не добавлены",
+      error: sectionsError.value,
     });
   }
   if (selectedSection.value) {
@@ -218,6 +226,16 @@ watch([selectedCategoryId, selectedSectionId], () => {
   if (!isDesktop.value) search.value = "";
 });
 
+function retrySections() {
+  if (selectedCategoryId.value !== null) loadSections(selectedCategoryId.value);
+}
+
+/** The phone view retries whichever level failed. */
+function retryMobile() {
+  if (categories.error) categories.fetchAll();
+  else retrySections();
+}
+
 async function handleApply(categoryId: number) {
   applyingId.value = categoryId;
   try {
@@ -242,6 +260,7 @@ async function handleApply(categoryId: number) {
         @select="handleMobileSelect"
         @back="goBack"
         @update:search="search = $event"
+        @retry="retryMobile"
       />
 
       <div
@@ -284,7 +303,9 @@ async function handleApply(categoryId: number) {
         :selected-id="selectedCategoryId"
         :loading="categories.loading"
         empty-text="Ничего не найдено"
+        :error="categories.error"
         @select="selectCategory"
+        @retry="categories.fetchAll()"
       />
 
       <div v-if="selectedCategory && selectedCategory.my_application_status !== 'approved'" class="miller-column">
@@ -316,7 +337,9 @@ async function handleApply(categoryId: number) {
         :selected-id="selectedSectionId"
         :loading="sectionsLoading"
         empty-text="Разделы пока не добавлены"
+        :error="sectionsError"
         @select="selectSection"
+        @retry="retrySections"
       />
 
         <MillerColumn
