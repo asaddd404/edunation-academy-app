@@ -47,10 +47,10 @@ const headerOffset = ref(0);
 
 let submitting = false;
 
-// handleSubmit is a hoisted function declaration, so this reference is safe
+// handleTimeUp is a hoisted function declaration, so this reference is safe
 // even though it's defined further down the file.
 const { label: timerLabel, isCritical: timeIsCritical, start: startTimer, stop: stopTimer } =
-  useExamTimer(handleSubmit);
+  useExamTimer(handleTimeUp);
 
 function measureHeader() {
   headerOffset.value = document.querySelector("header")?.getBoundingClientRect().height ?? 0;
@@ -210,18 +210,48 @@ function wasChosen(answer: EntSimulationResultAnswer, choiceId: number): boolean
 
 async function handleSubmit() {
   if (submitting || !exam.value) return;
-  submitting = true;
   stopTimer();
+  if (!(await sendAnswers())) {
+    errorMessage.value = "Не удалось отправить ответы. Попробуйте ещё раз.";
+    phase.value = "error";
+  }
+}
+
+/** One submit; true once the result is on screen. */
+async function sendAnswers(): Promise<boolean> {
+  if (submitting) return false;
+  submitting = true;
   try {
     result.value = await submitEntSimulation(simulationId, Object.values(answers));
     phase.value = "result";
     window.scrollTo({ top: 0 });
+    return true;
   } catch {
-    errorMessage.value = "Не удалось отправить ответы. Попробуйте ещё раз.";
-    phase.value = "error";
+    return false;
   } finally {
     submitting = false;
   }
+}
+
+// ── Hard cutoff ─────────────────────────────────────────────────────────
+// At 00:00 the answers lock and go to the server by themselves. The server
+// accepts them only for a short grace after the deadline (SUBMIT_GRACE), so
+// a failed send is retried at once rather than left for the student to
+// notice -- and if every retry fails, the screen says so plainly.
+const timeUp = ref(false);
+const timeUpSendFailed = ref(false);
+const TIME_UP_RETRY_DELAYS_MS = [0, 2000, 5000];
+
+async function handleTimeUp() {
+  timeUp.value = true;
+  confirmingSubmit.value = false;
+  timeUpSendFailed.value = false;
+  for (const delay of TIME_UP_RETRY_DELAYS_MS) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    if (phase.value === "result") return;
+    if (await sendAnswers()) return;
+  }
+  timeUpSendFailed.value = true;
 }
 
 const resultPercent = computed(() =>
@@ -396,7 +426,7 @@ function timingLabel(r: EntSimulationResult): string {
             class="max-h-96 w-full rounded-xl border border-line object-contain"
           />
 
-          <QuestionRenderer v-model="answers[currentQuestion.id]" :question="currentQuestion" />
+          <QuestionRenderer v-model="answers[currentQuestion.id]" :question="currentQuestion" :disabled="timeUp" />
         </section>
 
         <!-- ── Navigation ────────────────────────────────────────────── -->
@@ -413,7 +443,25 @@ function timingLabel(r: EntSimulationResult): string {
           </BaseButton>
         </div>
 
-        <div class="card p-5">
+        <div
+          v-if="timeUp"
+          class="card border-amber-500/50 bg-amber-500/10 p-5 text-sm"
+          role="alert"
+        >
+          <p class="font-semibold text-ink">Время вышло</p>
+          <template v-if="!timeUpSendFailed">
+            <p class="mt-1 text-ink-2">Ответы больше не принимаются — отправляем то, что вы успели отметить…</p>
+          </template>
+          <template v-else>
+            <p class="mt-1 text-red-700 dark:text-red-400">
+              Не удалось отправить ответы. Проверьте интернет и отправьте снова — после окончания времени сервер
+              ждёт их совсем недолго.
+            </p>
+            <BaseButton variant="cta" class="mt-3" :disabled="submitting" @click="handleTimeUp">Отправить снова</BaseButton>
+          </template>
+        </div>
+
+        <div v-else class="card p-5">
           <p v-if="unansweredCount > 0" class="mb-3 text-sm text-ink-2">
             Без ответа осталось: <span class="font-medium text-ink">{{ unansweredCount }}</span>. Непройденные вопросы
             отмечены в списке сверху.

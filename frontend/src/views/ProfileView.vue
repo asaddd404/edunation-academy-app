@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Target, Trophy, Zap } from "@lucide/vue";
+import { Lock, Target, Trophy, Zap } from "@lucide/vue";
 import { isAxiosError } from "axios";
 import { computed, onMounted, reactive, ref } from "vue";
 
@@ -23,6 +23,18 @@ const form = reactive({
   last_name: auth.user?.last_name ?? "",
   phone: auth.user?.phone ?? "",
 });
+
+// Asked for only when the phone actually changes: the phone is the login,
+// and the server refuses to change it on the strength of an open session.
+const phoneChangePassword = ref("");
+
+/** Same number however it is typed: "8 707 …", "+7 (707) …". */
+function phoneDigits(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  return digits.length === 11 && digits.startsWith("8") ? `7${digits.slice(1)}` : digits;
+}
+
+const phoneChanged = computed(() => phoneDigits(form.phone) !== phoneDigits(auth.user?.phone ?? ""));
 
 const saving = ref(false);
 const saveError = ref("");
@@ -81,6 +93,10 @@ function stat(value: number | undefined): string {
 
 async function handleSave() {
   if (!form.first_name.trim() || !form.last_name.trim() || !form.phone.trim()) return;
+  if (phoneChanged.value && !phoneChangePassword.value) {
+    saveError.value = "Чтобы сменить номер, введите текущий пароль.";
+    return;
+  }
   saving.value = true;
   saveError.value = "";
   saveSuccess.value = false;
@@ -89,9 +105,11 @@ async function handleSave() {
       first_name: form.first_name,
       last_name: form.last_name,
       phone: form.phone,
+      current_password: phoneChanged.value ? phoneChangePassword.value : undefined,
     });
     auth.setUser(updated);
     form.phone = updated.phone;
+    phoneChangePassword.value = "";
     saveSuccess.value = true;
   } catch (e) {
     if (isAxiosError(e) && e.response?.status === 409) {
@@ -289,7 +307,21 @@ async function handleDeleteAvatar() {
         </template>
       </BaseInput>
 
-      <p v-if="saveError" class="text-sm text-clay">{{ saveError }}</p>
+      <div v-if="phoneChanged" class="space-y-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+        <BaseInput
+          v-model="phoneChangePassword"
+          label="Пароль для смены номера"
+          type="password"
+          placeholder="Подтвердите смену номера"
+        >
+          <template #icon><Lock :size="15" :stroke-width="1.8" /></template>
+        </BaseInput>
+        <p class="text-xs text-ink-2">
+          Номер телефона — это ваш логин. Чтобы никто не сменил его из открытой сессии, подтвердите паролем.
+        </p>
+      </div>
+
+      <p v-if="saveError" class="text-sm text-red-700 dark:text-red-400" role="alert">{{ saveError }}</p>
       <p v-if="saveSuccess" class="text-sm text-moss">Изменения сохранены.</p>
 
       <BaseButton type="submit" variant="cta" class="w-full" :disabled="saving">Сохранить</BaseButton>

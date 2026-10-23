@@ -45,7 +45,14 @@ export function fetchMe() {
   return http.get<User>("/auth/me").then((r) => r.data);
 }
 
-export function updateProfile(payload: { first_name?: string; last_name?: string; phone?: string }) {
+/** `current_password` is required by the server whenever `phone` changes:
+ * the phone is the login, so an open session alone cannot change it. */
+export function updateProfile(payload: {
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  current_password?: string;
+}) {
   return http.patch<User>("/me", payload).then((r) => r.data);
 }
 
