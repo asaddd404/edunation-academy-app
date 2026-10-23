@@ -22,7 +22,14 @@
 			# slow uploader is legitimate on a school connection, so this is
 			# generous rather than tight, and bounded rather than absent.
 			read_body 15m
-			write 30s
+			# Not the 30s it was: Go's write timeout runs from the end of
+			# the request headers to the end of the response, so it also
+			# covers the time spent *receiving* the body. Every upload that
+			# took longer than 30s was cut off mid-stream -- on a 1 MB/s
+			# school connection, any lesson video over ~30 MB. It has to
+			# outlast read_body, or read_body's 15 minutes can never happen.
+			# Slow-client protection still comes from read_header and idle.
+			write 16m
 			idle 2m
 		}
 		max_header_size 16KB
