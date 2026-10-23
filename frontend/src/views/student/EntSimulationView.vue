@@ -595,6 +595,8 @@ function timingLabel(r: EntSimulationResult): string {
 
           <img
             v-if="answer.has_image"
+            loading="lazy"
+            decoding="async"
             :src="getEntQuestionImageUrl(answer.question_id)"
             alt="Изображение к вопросу"
             class="max-h-72 w-full rounded-xl border border-line object-contain"

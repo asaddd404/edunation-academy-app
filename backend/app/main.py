@@ -7,7 +7,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.api import api_router
 from app.config import settings
-from app.core.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import BodySizeLimitMiddleware, LoadSheddingMiddleware, SecurityHeadersMiddleware
 
 # Without this, the root logger defaults to WARNING and every app-side
 # logger.info() call (e.g. the ЕНТ PDF import debug dump) is silently
@@ -26,9 +26,14 @@ app = FastAPI(
 
 # Registration order is inside-out: the last one added wraps the others, so
 # CORS below stays outermost (its headers must survive on error responses
-# too), then the body-size gate, then the header stamper closest to the app.
+# too), then load shedding, the body-size gate, and the header stamper
+# closest to the app.
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
+# Outside the body-size gate so a flood is turned away before anything else
+# runs; inside CORS so a 429/503 still carries the headers the browser needs
+# to show it.
+app.add_middleware(LoadSheddingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

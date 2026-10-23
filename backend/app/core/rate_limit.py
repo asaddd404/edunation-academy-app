@@ -112,5 +112,10 @@ TEST_START_BY_USER = RateLimit("test_start_user", limit=120, window_seconds=60 *
 TEST_SUBMIT_BY_USER = RateLimit("test_submit_user", limit=40, window_seconds=60 * 60)
 
 
+# Every /api request (see LoadSheddingMiddleware); the per-route limits above
+# are the precise ones, this is the blanket.
+API_BY_IP = RateLimit("api_ip", limit=settings.api_rate_limit_per_minute, window_seconds=60)
+
+
 def request_ip(request: Request) -> str:
     return client_ip(request)

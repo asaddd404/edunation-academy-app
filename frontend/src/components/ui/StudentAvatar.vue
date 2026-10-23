@@ -37,6 +37,8 @@ const showImage = computed(() => props.hasAvatar && !failed.value);
   >
     <img
       v-if="showImage"
+      loading="lazy"
+      decoding="async"
       :src="getAvatarUrl(studentId)"
       :alt="`${lastName} ${firstName}`"
       class="h-full w-full object-cover"

@@ -204,4 +204,39 @@ router.onError((error, to) => {
 
 router.afterEach(() => sessionStorage.removeItem(RELOAD_FLAG));
 
+/**
+ * Download the signed-in role's pages in the background once the browser is
+ * idle, so a click on the navbar renders from cache instead of waiting for
+ * the chunk. Pages for other roles are never fetched. Skipped on metered
+ * ("Save-Data") connections.
+ */
+let prefetchedFor: Role | null = null;
+
+function prefetchRoleRoutes(role: Role) {
+  if (prefetchedFor === role) return;
+  prefetchedFor = role;
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  if (connection?.saveData) return;
+
+  const loaders = router
+    .getRoutes()
+    .filter((r) => r.meta.roles?.includes(role))
+    .map((r) => r.components?.default)
+    .filter((c): c is () => Promise<unknown> => typeof c === "function");
+
+  const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500));
+  // One chunk per idle slot: never competes with the page the user is on.
+  const next = () => {
+    const load = loaders.shift();
+    if (!load) return;
+    load().catch(() => {}).finally(() => idle(next));
+  };
+  idle(next);
+}
+
+router.afterEach(() => {
+  const role = useAuthStore().role as Role | null;
+  if (role) prefetchRoleRoutes(role);
+});
+
 export default router;

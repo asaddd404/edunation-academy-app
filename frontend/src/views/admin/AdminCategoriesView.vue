@@ -117,6 +117,8 @@ async function handleUnassignTeacher(categoryId: number, teacherId: number) {
           <div class="mb-3 flex items-center gap-3">
             <img
               v-if="category.has_image"
+              loading="lazy"
+              decoding="async"
               :src="categoriesApi.getCategoryImageUrl(category.id)"
               alt=""
               class="h-12 w-12 shrink-0 rounded-lg object-cover"

@@ -23,7 +23,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 # development-time gate (and runs on every change locally); doing it again
 # here only risks an out-of-memory kill on a 2 GB server, where vue-tsc is by
 # far the heaviest step. Build the bundle only.
-RUN npx vite build
+RUN npx vite build && node scripts/precompress.mjs
 
 
 FROM caddy:2-alpine

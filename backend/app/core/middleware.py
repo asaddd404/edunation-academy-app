@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.config import settings
+from app.core.rate_limit import API_BY_IP, request_ip
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +89,54 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                         headers=dict(_BASE_HEADERS),
                     )
         return await call_next(request)
+
+
+class LoadSheddingMiddleware:
+    """Per-address rate limit and a per-worker in-flight ceiling for /api.
+
+    Plain ASGI rather than BaseHTTPMiddleware: it runs on every request, and
+    a rejection here should cost a dictionary lookup, not a task and a
+    response wrapper.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+        self.inflight = 0
+
+    @staticmethod
+    def _exempt(path: str) -> bool:
+        # Health checks must answer while the API is shedding, or the
+        # orchestrator restarts a worker that is merely busy. Video uploads
+        # are long single requests with their own concurrency gate.
+        return not path.startswith("/api/") or (
+            path.startswith("/api/v1/teacher/lessons/") and path.endswith("/video")
+        )
+
+    async def _reject(self, scope, receive, send, status_code: int, detail: str, retry_after: int) -> None:
+        response = JSONResponse(
+            {"detail": detail},
+            status_code=status_code,
+            headers={**_BASE_HEADERS, "Retry-After": str(retry_after), "Cache-Control": "no-store"},
+        )
+        await response(scope, receive, send)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or self._exempt(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+
+        if self.inflight >= settings.max_inflight_requests:
+            logger.warning("Shedding %s: %d requests in flight", scope["path"], self.inflight)
+            await self._reject(scope, receive, send, 503, "Сервер перегружен. Повторите через пару секунд.", 2)
+            return
+
+        allowed, retry_after = await API_BY_IP.hit(request_ip(Request(scope)))
+        if not allowed:
+            await self._reject(scope, receive, send, 429, "Слишком много запросов. Попробуйте позже.", retry_after)
+            return
+
+        self.inflight += 1
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self.inflight -= 1

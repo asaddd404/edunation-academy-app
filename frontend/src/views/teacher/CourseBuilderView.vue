@@ -11,7 +11,7 @@ import {
   Video,
 } from "@lucide/vue";
 import { isAxiosError } from "axios";
-import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import {
@@ -27,12 +27,15 @@ import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/vi
 import QuestionBank from "@/components/course/QuestionBank.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
-import RichTextEditor from "@/components/richtext/RichTextEditor.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import type { Category, LessonSummary, Section, VideoStatus } from "@/types";
 import { pluralRu } from "@/utils/subjectTheme";
+
+// TipTap is most of this page's bundle and only a lesson form uses it, so the
+// section list renders before the editor has downloaded.
+const RichTextEditor = defineAsyncComponent(() => import("@/components/richtext/RichTextEditor.vue"));
 
 const route = useRoute();
 const categoryId = Number(route.params.id);
