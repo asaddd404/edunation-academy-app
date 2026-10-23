@@ -387,22 +387,34 @@ async def _run_video_processing(lesson_id: int, raw_path: Path) -> None:
 
 
 async def _transcode_and_record(lesson_id: int, raw_path: Path) -> None:
+    # No session is held while ffmpeg runs. Reading the lesson opens a
+    # transaction, and a transcode takes minutes, while Postgres ends any
+    # connection idle in a transaction after db_idle_tx_timeout_ms (30 s).
+    # Holding it across the transcode meant the closing commit always hit a
+    # dead connection: every real video stayed "processing" forever.
+    async with async_session_factory() as db:
+        exists = await db.get(Lesson, lesson_id) is not None
+    if not exists:
+        raw_path.unlink(missing_ok=True)
+        return
+
+    status, duration, error = VideoStatusEnum.ready, None, None
+    try:
+        duration = await transcode_to_hls(lesson_id, raw_path)
+    except VideoProcessingError as exc:
+        logger.warning("Video transcode failed for lesson %s: %s", lesson_id, exc)
+        status, error = VideoStatusEnum.failed, str(exc)[:2000]
+    finally:
+        raw_path.unlink(missing_ok=True)
+
     async with async_session_factory() as db:
         lesson = await db.get(Lesson, lesson_id)
-        if lesson is None:
+        if lesson is None:  # deleted while transcoding
+            delete_video_assets(lesson_id)
             return
-        try:
-            duration = await transcode_to_hls(lesson_id, raw_path)
-        except VideoProcessingError as exc:
-            logger.warning("Video transcode failed for lesson %s: %s", lesson_id, exc)
-            lesson.video_status = VideoStatusEnum.failed
-            lesson.video_error = str(exc)[:2000]
-        else:
-            lesson.video_status = VideoStatusEnum.ready
-            lesson.video_duration_seconds = duration
-            lesson.video_error = None
-        finally:
-            raw_path.unlink(missing_ok=True)
+        lesson.video_status = status
+        lesson.video_duration_seconds = duration
+        lesson.video_error = error
         await db.commit()
 
 
@@ -443,9 +455,14 @@ async def upload_lesson_video(
     lesson.video_duration_seconds = None
     await db.commit()
     await db.refresh(lesson)
+    out = LessonTeacherOut.model_validate(lesson)
+    # The refresh began a new transaction, and the request's session would
+    # otherwise stay open -- idle in it -- until the background transcode
+    # below finishes, and be killed by the idle-transaction timeout.
+    await db.close()
 
     background_tasks.add_task(_run_video_processing, lesson_id, raw_path)
-    return LessonTeacherOut.model_validate(lesson)
+    return out
 
 
 @router.delete("/teacher/lessons/{lesson_id}/video", response_model=LessonTeacherOut)
