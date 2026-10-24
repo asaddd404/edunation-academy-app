@@ -14,6 +14,7 @@ import {
   Timer,
 } from "@lucide/vue";
 
+import BrandLogo from "@/components/brand/BrandLogo.vue";
 import GlossaryTooltip from "@/components/shared/GlossaryTooltip.vue";
 
 // Public marketing entry point. Deliberately free of API calls: `GET /categories`
@@ -23,6 +24,8 @@ import GlossaryTooltip from "@/components/shared/GlossaryTooltip.vue";
 // Every number below is a fact about how the product works (subject count,
 // question types, the real ЕНТ time limit), not usage statistics -- there is
 // no honest way to source "10 000 учеников" from an app with no public API.
+
+const year = new Date().getFullYear();
 
 const bento = [
   {
@@ -257,5 +260,13 @@ const steps = [
         </div>
       </div>
     </section>
+
+    <!-- ── Footer ───────────────────────────────────────────────────── -->
+    <footer class="border-t border-line px-4 py-10">
+      <div class="mx-auto flex max-w-[80rem] flex-col items-center justify-between gap-4 sm:flex-row">
+        <BrandLogo :height="44" />
+        <p class="text-sm text-ink-3">© {{ year }} Edunation Academy · Онлайн-подготовка к ЕНТ</p>
+      </div>
+    </footer>
   </div>
 </template>
