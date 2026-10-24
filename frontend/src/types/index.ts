@@ -201,6 +201,12 @@ export interface HomeworkSubmission {
   updated_at: string;
   /** How the attachment can be shown: previewed in the page, or download-only. */
   file_kind: "image" | "pdf" | "document" | null;
+  /** Removed by the retention policy some days after review. */
+  file_deleted: boolean;
+  file_deleted_at: string | null;
+  /** When a reviewed homework's file will be deleted (null otherwise). */
+  file_expires_at: string | null;
+  file_retention_days: number;
   student_name: string | null;
   student_phone?: string | null;
   lesson_title: string | null;

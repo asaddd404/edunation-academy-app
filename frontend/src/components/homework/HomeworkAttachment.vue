@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Eye, FileText, ImageOff } from "@lucide/vue";
+import { Clock, Download, Eye, FileText, FileX, ImageOff } from "@lucide/vue";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 
 import { downloadHomeworkFile, fetchHomeworkFileUrl } from "@/api/homework";
@@ -19,6 +19,15 @@ const loadFailed = ref(false);
 const loading = ref(false);
 
 const kind = props.submission.file_kind;
+const deleted = props.submission.file_deleted;
+
+const DATE = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+/** "через 2 дн." / "через 5 ч" until the retention sweep removes the file. */
+function untilLabel(iso: string): string {
+  const hours = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 3_600_000));
+  return hours >= 24 ? `через ${Math.round(hours / 24)} дн.` : hours > 0 ? `через ${hours} ч` : "в ближайшее время";
+}
 const name = props.submission.file_original_name ?? "файл";
 const canPreview = kind === "image" || kind === "pdf";
 
@@ -47,7 +56,7 @@ function download() {
 // Photos get a thumbnail straight away -- the teacher sees the work without
 // a click. PDFs load only when opened.
 onMounted(() => {
-  if (kind === "image") void ensureUrl();
+  if (kind === "image" && !deleted) void ensureUrl();
 });
 onBeforeUnmount(() => {
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
@@ -55,6 +64,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- Removed by the retention policy: say so instead of offering a dead link. -->
+  <div v-if="deleted" class="flex items-center gap-3 rounded-xl border border-dashed border-line px-3 py-3 text-sm text-ink-2">
+    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-paper-2 text-ink-3"><FileX :size="20" /></span>
+    <div class="min-w-0">
+      <p class="truncate text-ink">{{ name }}</p>
+      <p class="text-xs text-ink-3">
+        Файл удалён по истечении срока хранения{{
+          submission.file_deleted_at ? ` — ${DATE.format(new Date(submission.file_deleted_at))}` : ""
+        }}. Текст ответа, оценка и статус сохранены.
+      </p>
+    </div>
+  </div>
+
+  <div v-else class="space-y-2">
   <div class="flex flex-col gap-3 rounded-xl border border-line bg-paper-2/50 p-3 sm:flex-row sm:items-center">
     <button
       v-if="kind === 'image'"
@@ -104,5 +127,11 @@ onBeforeUnmount(() => {
       @close="previewOpen = false"
       @download="download"
     />
+  </div>
+  <p v-if="submission.file_expires_at" class="flex items-center gap-1.5 text-xs text-amber-800 dark:text-amber-300">
+    <Clock :size="13" />
+    Файл будет удалён {{ DATE.format(new Date(submission.file_expires_at)) }} ({{ untilLabel(submission.file_expires_at) }})
+    — при необходимости скачайте его.
+  </p>
   </div>
 </template>

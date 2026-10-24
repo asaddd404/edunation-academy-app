@@ -509,16 +509,32 @@ async def create_homework(db, plans, students, courses, passed_lessons, rng):
             else:
                 status = HomeworkStatusEnum.revision_requested if rng.random() < 0.2 else HomeworkStatusEnum.accepted
                 feedback = rng.choice(REVISION if status == HomeworkStatusEnum.revision_requested else ACCEPTED)
-                reviewed_at = min(created + timedelta(hours=rng.randint(3, 36)), NOW - timedelta(hours=1))
+                if index == len(submitted) - 2:
+                    # Reviewed in the last days: its file is still kept, so
+                    # the demo shows the "deleted in N days" countdown.
+                    reviewed_at = NOW - timedelta(hours=rng.randint(6, 60))
+                    created = reviewed_at - timedelta(hours=rng.randint(2, 20))
+                else:
+                    reviewed_at = min(created + timedelta(hours=rng.randint(3, 36)), NOW - timedelta(hours=1))
                 grade = rng.randint(78, 100) if status == HomeworkStatusEnum.accepted else rng.randint(35, 65)
             created = min(created, NOW - timedelta(hours=2))
             # Most work in the queue comes with a photo or PDF, so the
             # teacher's review screen has something to open in the demo.
-            attachment = attach_sample(course.key) if rng.random() < (0.85 if status == HomeworkStatusEnum.submitted else 0.5) else None
+            has_file = rng.random() < (0.85 if status == HomeworkStatusEnum.submitted or index == len(submitted) - 2 else 0.5)
+            # Files of work reviewed longer ago than the retention period are
+            # already gone, exactly as app.core.retention would have left them.
+            expired_at = (
+                reviewed_at + timedelta(days=settings.homework_file_retention_days)
+                if has_file and reviewed_at and reviewed_at + timedelta(days=settings.homework_file_retention_days) < NOW
+                else None
+            )
+            attachment = attach_sample(course.key) if has_file and not expired_at else None
+            original_name = HOMEWORK_FILES.get(course.key, (None, None))[1] if has_file else None
             db.add(HomeworkSubmission(lesson_id=lesson.id, student_id=student.id,
-                                      text_answer=rng.choice(HOMEWORK_FILE_NOTES if attachment else HOMEWORK_TEXT_ANSWERS),
+                                      text_answer=rng.choice(HOMEWORK_FILE_NOTES if original_name else HOMEWORK_TEXT_ANSWERS),
                                       file_path=attachment[0] if attachment else None,
-                                      file_original_name=attachment[1] if attachment else None,
+                                      file_original_name=original_name,
+                                      file_deleted_at=expired_at if original_name else None,
                                       status=status, teacher_feedback=feedback, grade=grade,
                                       reviewed_by=course.teacher.id if reviewed_at else None, reviewed_at=reviewed_at,
                                       created_at=created, submitted_at=created))

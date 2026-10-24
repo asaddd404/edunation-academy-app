@@ -10,6 +10,7 @@ import PageHeader from "@/components/layout/PageHeader.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import type { HomeworkListFilter, HomeworkStatus, HomeworkSubmission } from "@/types";
 import { describeApiError } from "@/utils/apiError";
+import { pluralRu } from "@/utils/subjectTheme";
 
 const route = useRoute();
 const router = useRouter();
@@ -243,6 +244,15 @@ function gradeTone(grade: number): string {
 
         <!-- Review -->
         <div v-if="submission.status === 'submitted'" class="space-y-3 border-t border-line pt-4">
+          <p
+            v-if="submission.file_original_name"
+            class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200 dark:bg-amber-400/10 dark:text-amber-200 dark:ring-amber-400/20"
+          >
+            <Clock :size="14" class="mt-px shrink-0" />
+            Файл работы будет автоматически удалён через {{ submission.file_retention_days }}
+            {{ pluralRu(submission.file_retention_days, ["день", "дня", "дней"]) }} после проверки. Текст ответа, оценка
+            и комментарий сохранятся.
+          </p>
           <textarea
             v-model="feedback[submission.id]"
             rows="2"

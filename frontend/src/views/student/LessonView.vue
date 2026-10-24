@@ -189,7 +189,8 @@ async function handleSubmitHomework() {
               />
               <p class="text-xs text-ink-3">
                 <template v-if="lesson.my_homework?.file_original_name && !homeworkFile">
-                  Уже прикреплён: {{ lesson.my_homework.file_original_name }} ·
+                  {{ lesson.my_homework.file_deleted ? "Был прикреплён (удалён по истечении срока хранения)" : "Уже прикреплён" }}:
+                  {{ lesson.my_homework.file_original_name }} ·
                 </template>
                 jpg, png, pdf, txt, doc
               </p>
