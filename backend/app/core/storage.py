@@ -203,3 +203,27 @@ def attachment_response(path: Path, filename: str) -> FileResponse:
         filename=filename,
         headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
     )
+
+
+_INLINE_DOCUMENT_MEDIA_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".pdf": "application/pdf"}
+
+
+def inline_document_response(path: Path, filename: str) -> FileResponse:
+    """Serves a homework image or PDF for preview in the page.
+
+    Only for the types in _INLINE_DOCUMENT_MEDIA_TYPES, whose bytes were
+    checked against the extension at upload; the media type comes from the
+    stored name. Same `nosniff` and locked-down CSP as a download, so the
+    file can be shown but never run as a page on the app's origin.
+    """
+    media_type = _INLINE_DOCUMENT_MEDIA_TYPES.get(path.suffix.lower())
+    if media_type is None:
+        return attachment_response(path, filename)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'"},
+    )
+

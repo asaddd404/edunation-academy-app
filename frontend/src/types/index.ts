@@ -192,12 +192,23 @@ export interface HomeworkSubmission {
   file_original_name: string | null;
   status: HomeworkStatus;
   teacher_feedback: string | null;
+  /** Teacher's mark, 0-100; null if none was given. */
+  grade: number | null;
   reviewed_at: string | null;
   created_at: string;
+  /** When the student last sent it (a reworked homework is resent). */
+  submitted_at: string;
   updated_at: string;
+  /** How the attachment can be shown: previewed in the page, or download-only. */
+  file_kind: "image" | "pdf" | "document" | null;
   student_name: string | null;
+  student_phone?: string | null;
   lesson_title: string | null;
+  category_id?: number | null;
+  category_name?: string | null;
 }
+
+export type HomeworkListFilter = "submitted" | "accepted" | "revision_requested" | "reviewed" | "all";
 
 export interface LessonDetail {
   id: number;

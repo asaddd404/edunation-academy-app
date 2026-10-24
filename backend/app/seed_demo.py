@@ -29,8 +29,10 @@ import random
 import secrets
 import shutil
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.question_scoring import grade_question
 from app.core.rating import compute_test_xp
-from app.core.storage import UPLOAD_ROOT
+from app.core.storage import HOMEWORK_DIR, UPLOAD_ROOT
 from app.database import Base, async_session_factory
 from app.demo.courses import COURSES
 from app.demo.ent_bank import SUBJECTS
@@ -454,14 +456,41 @@ async def create_progress(db, plans, students, courses, ledger: XpLedger, rng):
     return passed_lessons
 
 
-HOMEWORK_ANSWERS = [
+# Text-only answers (no attachment).
+HOMEWORK_TEXT_ANSWERS = [
     "Решила все задания, проверку сделала подстановкой. В последнем примере сомневаюсь в знаке.",
-    "Выполнил задание, решение в прикреплённом файле. Ответы: см. конспект.",
     "Сделал все пункты. Второй пример решал двумя способами — ответ совпал.",
     "Готово. Самым сложным оказался третий пункт, расписал ход рассуждений подробно.",
 ]
+# Sample work a student "photographed" (app/demo/homework_files), by course;
+# the reading course has none -- its homework is written answers.
+HOMEWORK_FILES = {
+    "math": ("math-quadratic.jpg", "Фото тетради — квадратные уравнения.jpg"),
+    "mathlit": ("mathlit-percent.png", "Проценты — решение.png"),
+    "physics": ("physics-circuit.jpg", "Задача про соединение — фото.jpg"),
+    "history": ("history-essay.pdf", "Эссе — Казахское ханство.pdf"),
+}
+HOMEWORK_FILE_NOTES = [
+    "Решение во вложении — сфотографировал(а) тетрадь.",
+    "Прикрепляю фото решения, всё расписал(а) по шагам.",
+    "Работа во вложении. Проверьте, пожалуйста, последнее задание.",
+]
+HOMEWORK_FILES_DIR = Path(__file__).resolve().parent / "demo" / "homework_files"
 ACCEPTED = ["Отличная работа, всё верно!", "Хорошо, решение аккуратное и полное.", "Молодец! Ход решения понятен, ответы верные."]
 REVISION = ["Проверьте третий пункт — ошибка в вычислениях.", "Распишите решение второго задания подробнее и отправьте снова."]
+
+
+def attach_sample(course_key: str) -> tuple[str, str] | None:
+    """Copies the course's sample work into the uploads, as a student's
+    upload would be stored. Returns (file_path, original name)."""
+    sample = HOMEWORK_FILES.get(course_key)
+    if sample is None:
+        return None
+    source, original_name = sample
+    HOMEWORK_DIR.mkdir(parents=True, exist_ok=True)
+    stored = f"{uuid.uuid4().hex}{Path(source).suffix}"
+    shutil.copyfile(HOMEWORK_FILES_DIR / source, HOMEWORK_DIR / stored)
+    return f"homework/{stored}", original_name
 
 
 async def create_homework(db, plans, students, courses, passed_lessons, rng):
@@ -473,24 +502,32 @@ async def create_homework(db, plans, students, courses, passed_lessons, rng):
         for index, (lesson, at) in enumerate(submitted):
             course = lesson_course[lesson.id]
             created = at + timedelta(hours=rng.randint(1, 20))
+            grade = None
             if index == len(submitted) - 1:  # the newest one waits in the teacher's queue
                 status, feedback, reviewed_at = HomeworkStatusEnum.submitted, None, None
-                created = NOW - timedelta(hours=rng.randint(2, 72))
+                created = NOW - timedelta(hours=rng.randint(2, 72), minutes=rng.randint(0, 59))
             else:
                 status = HomeworkStatusEnum.revision_requested if rng.random() < 0.2 else HomeworkStatusEnum.accepted
                 feedback = rng.choice(REVISION if status == HomeworkStatusEnum.revision_requested else ACCEPTED)
                 reviewed_at = min(created + timedelta(hours=rng.randint(3, 36)), NOW - timedelta(hours=1))
+                grade = rng.randint(78, 100) if status == HomeworkStatusEnum.accepted else rng.randint(35, 65)
             created = min(created, NOW - timedelta(hours=2))
-            db.add(HomeworkSubmission(lesson_id=lesson.id, student_id=student.id, text_answer=rng.choice(HOMEWORK_ANSWERS),
-                                      status=status, teacher_feedback=feedback,
+            # Most work in the queue comes with a photo or PDF, so the
+            # teacher's review screen has something to open in the demo.
+            attachment = attach_sample(course.key) if rng.random() < (0.85 if status == HomeworkStatusEnum.submitted else 0.5) else None
+            db.add(HomeworkSubmission(lesson_id=lesson.id, student_id=student.id,
+                                      text_answer=rng.choice(HOMEWORK_FILE_NOTES if attachment else HOMEWORK_TEXT_ANSWERS),
+                                      file_path=attachment[0] if attachment else None,
+                                      file_original_name=attachment[1] if attachment else None,
+                                      status=status, teacher_feedback=feedback, grade=grade,
                                       reviewed_by=course.teacher.id if reviewed_at else None, reviewed_at=reviewed_at,
-                                      created_at=created))
+                                      created_at=created, submitted_at=created))
             if status == HomeworkStatusEnum.submitted:
                 notify(db, course.teacher, "new_homework", f"{name} сдал(а) домашнее задание по уроку «{lesson.title}»",
                        "/teacher/homework", created, read=False)
             else:
                 label = "принята" if status == HomeworkStatusEnum.accepted else "отправлена на доработку"
-                notify(db, student, "homework_reviewed", f"Домашняя работа по уроку «{lesson.title}» {label}",
+                notify(db, student, "homework_reviewed", f"Домашняя работа по уроку «{lesson.title}» {label}, оценка: {grade}/100",
                        f"/lessons/{lesson.id}", reviewed_at, read=reviewed_at < NOW - timedelta(days=3))
 
 
