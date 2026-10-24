@@ -3,6 +3,7 @@ import { isAxiosError } from "axios";
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import BrandMark from "@/components/brand/BrandMark.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import { HOME_BY_ROLE } from "@/router";
@@ -53,6 +54,7 @@ async function handleSubmit() {
 <template>
   <div class="flex min-h-[60vh] items-center justify-center px-4 py-10">
     <div class="card w-full max-w-sm p-6 sm:p-8">
+      <BrandMark :size="44" class="mb-4" />
       <h1 class="font-display text-display-sm text-ink">Вход</h1>
       <form class="mt-6 space-y-4" @submit.prevent="handleSubmit">
         <BaseInput v-model="localPhoneInput" label="Телефон" placeholder="7XXXXXXXXX" inputmode="tel">

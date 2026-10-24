@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { Bell, GraduationCap, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
+import { Bell, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
+import wordmarkWhiteUrl from "@/assets/brand/wordmark-white.png";
+import BrandMark from "@/components/brand/BrandMark.vue";
 import { useActivityTracker } from "@/composables/useActivityTracker";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
@@ -162,12 +164,11 @@ function handleLogout() {
       <div class="flex h-16 w-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <router-link
           to="/"
-          class="flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-tight transition-opacity hover:opacity-80"
+          class="flex shrink-0 items-center gap-2.5 transition-opacity hover:opacity-80"
+          aria-label="Edunation Academy — на главную"
         >
-          <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-header-fg/15">
-            <GraduationCap :size="18" :stroke-width="2" />
-          </span>
-          <span class="hidden sm:inline">Edunation Academy</span>
+          <BrandMark :size="36" />
+          <img :src="wordmarkWhiteUrl" alt="" class="hidden h-[26px] w-auto sm:block" />
         </router-link>
 
         <div v-if="auth.isAuthenticated" class="hidden max-w-md flex-1 md:block">
