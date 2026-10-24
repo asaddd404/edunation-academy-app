@@ -40,6 +40,11 @@ export function submitEntSimulation(id: number, answers: EntSimulationAnswerPayl
   return http.post<EntSimulationResult>(`/ent/simulations/${id}/submit`, { answers }).then((r) => r.data);
 }
 
+/** Autosave: records answers on an open attempt without grading it. */
+export function saveEntAnswers(id: number, answers: EntSimulationAnswerPayload[]) {
+  return http.put<{ saved: number }>(`/ent/simulations/${id}/answers`, { answers }).then((r) => r.data);
+}
+
 export function getEntSimulationResult(id: number) {
   return http.get<EntSimulationResult>(`/ent/simulations/${id}/result`).then((r) => r.data);
 }

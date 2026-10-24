@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.authorization import assert_student_has_any_course_access
-from app.core.rate_limit import ENT_SIMULATION_START_BY_USER
+from app.core.rate_limit import ENT_ANSWER_SAVE_BY_USER, ENT_SIMULATION_START_BY_USER
 from app.core.ent_language import (
     QuestionShortage,
     UnknownLanguageError,
@@ -29,6 +29,7 @@ from app.models.user import RoleEnum, User
 from app.schemas.ent_question import EntAnswerVariantOut, EntChoiceTeacherOut, EntMatchPairTeacherOut
 from app.schemas.ent_simulation import (
     EntAnswerIn,
+    EntAnswersSavedOut,
     EntChoiceOut,
     EntMatchAnswerOut,
     EntMatchItemOut,
@@ -163,6 +164,21 @@ def _past_cutoff(simulation: EntSimulation, now: datetime) -> bool:
     return bool(simulation.is_timed and simulation.expires_at and now > simulation.expires_at + SUBMIT_GRACE)
 
 
+def _saved_answers(simulation: EntSimulation) -> dict[int, EntAnswerIn]:
+    """What the student has saved so far (PUT .../answers), keyed by question.
+
+    While an attempt is open, `answer_data` holds the answer exactly as the
+    client sent it -- matching pairs still as tokens -- so it can be handed
+    back to the exam screen on reload, and graded by `_finalize` like any
+    submitted answer.
+    """
+    return {
+        item.question_id: EntAnswerIn(question_id=item.question_id, **item.answer_data)
+        for item in simulation.items
+        if item.answer_data
+    }
+
+
 async def _finalize(
     db: AsyncSession, simulation: EntSimulation, answers: dict[int, EntAnswerIn], now: datetime
 ) -> None:
@@ -225,7 +241,10 @@ async def _close_expired_attempts(db: AsyncSession, student: User) -> None:
     for simulation_id in expired_ids:
         simulation = await _lock_own_simulation(db, student, simulation_id)
         if simulation.status == EntSimulationStatus.in_progress:
-            await _finalize(db, simulation, {}, now)
+            # Graded on what was saved before time ran out: a closed tab or a
+            # dropped connection at 00:00 must not turn an hour of answers
+            # into a zero.
+            await _finalize(db, simulation, _saved_answers(simulation), now)
     if expired_ids:
         await db.commit()
 
@@ -418,7 +437,7 @@ async def get_simulation(
         # client is sent to the result like any finished attempt.
         simulation = await _lock_own_simulation(db, student, simulation_id)
         if simulation.status == EntSimulationStatus.in_progress:
-            await _finalize(db, simulation, {}, datetime.now(timezone.utc))
+            await _finalize(db, simulation, _saved_answers(simulation), datetime.now(timezone.utc))
             await db.commit()
     if simulation.status != EntSimulationStatus.in_progress:
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана, смотрите /ent/simulations/{id}/result")
@@ -433,7 +452,41 @@ async def get_simulation(
         expires_at=simulation.expires_at,
         remaining_seconds=_remaining_seconds(simulation),
         questions=[_build_student_question(item.question, simulation.id) for item in simulation.items],
+        saved_answers=list(_saved_answers(simulation).values()),
     )
+
+
+@router.put("/simulations/{simulation_id}/answers", response_model=EntAnswersSavedOut)
+async def save_answers(
+    simulation_id: int,
+    payload: EntSimulationSubmitIn,
+    db: AsyncSession = Depends(get_db),
+    student: User = Depends(require_student_with_course_access),
+) -> EntAnswersSavedOut:
+    """Autosave: records answers while the attempt is open, without grading.
+
+    Takes any subset of the attempt's questions (the client sends what
+    changed, or everything it could not send while offline). An answer with
+    no fields clears that question. Accepted until the same cutoff as a
+    submit -- past it the attempt is closed on what was saved before.
+    """
+    await ENT_ANSWER_SAVE_BY_USER.enforce(str(student.id))
+    # The same row lock as submit, so a save racing the final submit either
+    # lands before the grading or is refused after it -- never half-applied.
+    simulation = await _lock_own_simulation(db, student, simulation_id)
+    if simulation.status != EntSimulationStatus.in_progress:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана")
+    if _past_cutoff(simulation, datetime.now(timezone.utc)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Время вышло — ответы больше не принимаются")
+
+    items = {item.question_id: item for item in simulation.items}
+    if any(answer.question_id not in items for answer in payload.answers):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Вопрос не относится к этой симуляции")
+    for answer in payload.answers:
+        items[answer.question_id].answer_data = answer.model_dump(exclude_none=True, exclude={"question_id"}) or None
+
+    await db.commit()
+    return EntAnswersSavedOut(saved=len(payload.answers))
 
 
 def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
@@ -485,9 +538,12 @@ async def submit_simulation(
         raise HTTPException(status.HTTP_409_CONFLICT, "Симуляция уже сдана")
 
     now = datetime.now(timezone.utc)
-    # Past the cutoff the submitted answers are not looked at: the attempt
-    # closes exactly as if the client had sent nothing.
-    answers = {} if _past_cutoff(simulation, now) else {a.question_id: a for a in payload.answers}
+    # Saved answers are the base; the submit's own answers (the client's
+    # latest state) override them. Past the cutoff the submitted answers are
+    # not looked at: the attempt closes on what was saved in time.
+    answers = _saved_answers(simulation)
+    if not _past_cutoff(simulation, now):
+        answers.update({a.question_id: a for a in payload.answers})
     await _finalize(db, simulation, answers, now)
 
     await db.commit()
