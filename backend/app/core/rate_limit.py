@@ -108,6 +108,11 @@ LEADERBOARD_BY_USER = RateLimit("leaderboard_user", limit=120, window_seconds=60
 # score -- so an unthrottled submit is an oracle for guessing the key one
 # option at a time. Starting resumes an open attempt, so it is cheap; the
 # ceiling only stops a script, not a student working through a course.
+# Exam answers are autosaved while the student works. The client batches
+# changes (one request per second of activity at most), so this is far above
+# a real sitting -- 120 questions, each changed a few times -- and only
+# stops a script hammering the write.
+ENT_ANSWER_SAVE_BY_USER = RateLimit("ent_answer_save_user", limit=1200, window_seconds=60 * 60)
 TEST_START_BY_USER = RateLimit("test_start_user", limit=120, window_seconds=60 * 60)
 TEST_SUBMIT_BY_USER = RateLimit("test_submit_user", limit=40, window_seconds=60 * 60)
 

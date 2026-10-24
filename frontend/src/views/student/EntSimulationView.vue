@@ -14,6 +14,7 @@ import SmartText from "@/components/shared/SmartText.vue";
 import QuestionRenderer from "@/components/test/QuestionRenderer.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
+import { useAnswerAutosave } from "@/composables/useAnswerAutosave";
 import { useExamTimer } from "@/composables/useExamTimer";
 import type {
   EntQuestionStudent,
@@ -35,6 +36,21 @@ const errorMessage = ref("");
 const exam = ref<EntSimulation | null>(null);
 const result = ref<EntSimulationResult | null>(null);
 const answers = reactive<Record<number, EntSimulationAnswerPayload>>({});
+// Every change goes to localStorage at once and to the server in the
+// background, so a reload, a crash or a dropped connection loses nothing.
+const autosave = useAnswerAutosave(simulationId, answers);
+
+function setAnswer(questionId: number, answer: EntSimulationAnswerPayload) {
+  answers[questionId] = answer;
+  autosave.record(questionId);
+}
+
+const AUTOSAVE_LABEL: Record<string, string> = {
+  saving: "Сохраняем…",
+  saved: "Ответы сохранены",
+  offline: "Нет сети — ответы сохранены на устройстве",
+  error: "Не удалось сохранить, пробуем ещё раз…",
+};
 
 // One question on screen at a time -- the exam is navigated through the
 // number palette / arrows rather than by scrolling one long page.
@@ -151,6 +167,7 @@ async function load() {
   phase.value = "loading";
   try {
     exam.value = await getEntSimulation(simulationId);
+    autosave.restore(exam.value.saved_answers ?? [], exam.value.questions.map((q) => q.id));
     currentIndex.value = 0;
     phase.value = "exam";
     startTimer(exam.value.is_timed ? exam.value.remaining_seconds : null);
@@ -158,6 +175,7 @@ async function load() {
     if (isAxiosError(e) && e.response?.status === 409) {
       try {
         result.value = await getEntSimulationResult(simulationId);
+        autosave.clear();
         phase.value = "result";
         return;
       } catch {
@@ -174,12 +192,14 @@ onMounted(() => {
   measureHeader();
   window.addEventListener("keydown", handleKeydown);
   window.addEventListener("resize", measureHeader);
+  window.addEventListener("online", onOnline);
 });
 
 onBeforeUnmount(() => {
   stopTimer();
   window.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("resize", measureHeader);
+  window.removeEventListener("online", onOnline);
 });
 
 // Finishing by hand with questions left blank asks first: one stray click
@@ -223,10 +243,24 @@ async function sendAnswers(): Promise<boolean> {
   submitting = true;
   try {
     result.value = await submitEntSimulation(simulationId, Object.values(answers));
+    autosave.clear();
     phase.value = "result";
     window.scrollTo({ top: 0 });
     return true;
-  } catch {
+  } catch (e) {
+    // 409: already closed -- by the server at the cutoff (graded on the
+    // autosaved answers) or from another tab. The result exists; show it.
+    if (isAxiosError(e) && e.response?.status === 409) {
+      try {
+        result.value = await getEntSimulationResult(simulationId);
+        autosave.clear();
+        phase.value = "result";
+        window.scrollTo({ top: 0 });
+        return true;
+      } catch {
+        return false;
+      }
+    }
     return false;
   } finally {
     submitting = false;
@@ -252,6 +286,12 @@ async function handleTimeUp() {
     if (await sendAnswers()) return;
   }
   timeUpSendFailed.value = true;
+}
+
+// No network at 00:00: the send resumes by itself once it is back, rather
+// than waiting for the student to find "Отправить снова".
+function onOnline() {
+  if (timeUp.value && timeUpSendFailed.value && phase.value === "exam") void handleTimeUp();
 }
 
 const resultPercent = computed(() =>
@@ -323,6 +363,15 @@ function timingLabel(r: EntSimulationResult): string {
               Вопрос {{ currentPosition.number }} <span class="text-ink-3">/ {{ currentPosition.total }}</span>
             </p>
             <p class="truncate text-xs text-ink-3">{{ capitalize(currentQuestion.subject_name) }}</p>
+            <p
+              v-if="AUTOSAVE_LABEL[autosave.state.value]"
+              class="mt-0.5 truncate text-[11px]"
+              :class="autosave.state.value === 'offline' || autosave.state.value === 'error' ? 'text-amber-700 dark:text-amber-400' : 'text-ink-3'"
+              role="status"
+              aria-live="polite"
+            >
+              {{ AUTOSAVE_LABEL[autosave.state.value] }}
+            </p>
           </div>
 
           <div class="flex shrink-0 items-center gap-2.5">
@@ -426,7 +475,12 @@ function timingLabel(r: EntSimulationResult): string {
             class="max-h-96 w-full rounded-xl border border-line object-contain"
           />
 
-          <QuestionRenderer v-model="answers[currentQuestion.id]" :question="currentQuestion" :disabled="timeUp" />
+          <QuestionRenderer
+            :model-value="answers[currentQuestion.id]"
+            :question="currentQuestion"
+            :disabled="timeUp"
+            @update:model-value="(answer) => setAnswer(currentQuestion!.id, answer)"
+          />
         </section>
 
         <!-- ── Navigation ────────────────────────────────────────────── -->

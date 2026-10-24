@@ -85,6 +85,9 @@ class EntSimulationOut(BaseModel):
     expires_at: datetime | None
     remaining_seconds: int | None = None
     questions: list[EntQuestionStudentOut] = []
+    # Answers saved so far (PUT .../answers), so a reload or a second device
+    # resumes where the student was instead of from a blank sheet.
+    saved_answers: list["EntAnswerIn"] = []
 
 
 class EntAnswerIn(BaseModel):
@@ -100,6 +103,10 @@ class EntAnswerIn(BaseModel):
 
 class EntSimulationSubmitIn(BaseModel):
     answers: Annotated[list[EntAnswerIn], Field(max_length=MAX_ANSWERS_PER_ATTEMPT)]
+
+
+class EntAnswersSavedOut(BaseModel):
+    saved: int
 
 
 class EntSimulationResultAnswerOut(BaseModel):
@@ -147,3 +154,7 @@ class EntSimulationSummaryOut(BaseModel):
     total_score: int | None
     max_score: int | None
     xp_earned: int | None
+
+
+# EntSimulationOut.saved_answers refers to EntAnswerIn, declared after it.
+EntSimulationOut.model_rebuild()

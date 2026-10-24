@@ -464,9 +464,14 @@ export interface EntSimulation {
   expires_at: string | null;
   remaining_seconds: number | null;
   questions: EntQuestionStudent[];
+  /** Answers autosaved so far (unset fields come back as null). */
+  saved_answers?: NullableAnswer[];
 }
 
 export type EntSimulationAnswerPayload = AnswerPayload;
+
+/** An AnswerPayload as the server echoes it back: absent fields are null. */
+export type NullableAnswer = { [K in keyof AnswerPayload]: AnswerPayload[K] | null } & { question_id: number };
 
 /** An answer as stored after grading: matching pairs are row ids again. */
 export interface EntGivenAnswer {

@@ -6,6 +6,12 @@ import { computed, onBeforeUnmount, ref } from "vue";
  * own) -- this only re-derives a local per-second display from whatever
  * remaining-seconds value the caller starts it with, and fires `onExpire`
  * once when it reaches zero.
+ *
+ * Anchored on the server's *remaining* seconds rather than its `expires_at`
+ * timestamp: subtracting a server timestamp from the device clock would put
+ * any clock skew straight into the countdown (a phone five minutes fast
+ * would see five minutes fewer), while "N seconds from now" is immune to it.
+ * A reload asks the server again, so nothing restarts from the full time.
  */
 export function useExamTimer(onExpire: () => void) {
   const remainingSeconds = ref<number | null>(null);
@@ -28,7 +34,8 @@ export function useExamTimer(onExpire: () => void) {
   }
 
   // Catch up the moment the tab is visible again, rather than on the next
-  // (possibly minute-late) interval.
+  // (possibly minute-late) interval -- also after a back/forward-cache
+  // restore and when the network returns after the device slept.
   function onVisibility() {
     if (document.visibilityState === "visible" && handle !== undefined) tick();
   }
@@ -39,6 +46,8 @@ export function useExamTimer(onExpire: () => void) {
       handle = undefined;
     }
     document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("pageshow", onVisibility);
+    window.removeEventListener("online", onVisibility);
   }
 
   function start(initialSeconds: number | null) {
@@ -53,6 +62,8 @@ export function useExamTimer(onExpire: () => void) {
     deadline = Date.now() + initialSeconds * 1000;
     handle = window.setInterval(tick, 1000);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onVisibility);
+    window.addEventListener("online", onVisibility);
   }
 
   // Always ЧЧ:ММ:СС -- an ЕНТ attempt can run up to 4 hours, so the hour
