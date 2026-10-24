@@ -159,15 +159,15 @@ async function remove(questionId: number) {
               :class="c.is_correct ? 'bg-moss/10 text-ink' : 'text-ink-2'"
             >
               <span class="w-4 shrink-0 text-xs font-semibold text-ink-3">{{ optionLetter(i) }}</span>
-              <span class="min-w-0 flex-1 truncate">{{ c.text }}</span>
+              <span class="min-w-0 flex-1 truncate"><SmartText :text="c.text" /></span>
               <Check v-if="c.is_correct" :size="14" :stroke-width="3" class="shrink-0 text-moss" />
             </li>
           </ul>
           <ul v-else-if="q.match_pairs.length" class="mt-2 space-y-1 pl-9 text-sm text-ink-2">
             <li v-for="p in q.match_pairs" :key="p.id" class="flex items-center gap-2">
-              <span class="min-w-0 truncate">{{ p.prompt_text }}</span>
+              <span class="min-w-0 truncate"><SmartText :text="p.prompt_text" /></span>
               <ArrowRight :size="14" class="shrink-0 text-ink-3" />
-              <span class="min-w-0 truncate font-medium text-ink">{{ p.answer_text }}</span>
+              <span class="min-w-0 truncate font-medium text-ink"><SmartText :text="p.answer_text" /></span>
             </li>
           </ul>
           <p v-else-if="q.answer_variants.length" class="mt-2 pl-9 text-sm text-ink-2">

@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import SmartText from "@/components/shared/SmartText.vue";
 import type { AnswerPayload, RenderableQuestion } from "@/types";
 import { optionLetter } from "@/utils/examOptions";
+import { inlineMathToPlain } from "@/utils/inlineMath";
 
 /**
  * The answer controls for all four question types -- single, multiple,
@@ -73,7 +75,7 @@ const pairFor = (promptId: number) => props.modelValue?.pairs?.[String(promptId)
         >
           {{ optionLetter(i) }}
         </span>
-        <span class="flex-1">{{ choice.text }}</span>
+        <span class="flex-1"><SmartText :text="choice.text" /></span>
       </label>
     </template>
 
@@ -104,7 +106,7 @@ const pairFor = (promptId: number) => props.modelValue?.pairs?.[String(promptId)
         >
           {{ optionLetter(i) }}
         </span>
-        <span class="flex-1">{{ choice.text }}</span>
+        <span class="flex-1"><SmartText :text="choice.text" /></span>
       </label>
     </template>
 
@@ -122,7 +124,7 @@ const pairFor = (promptId: number) => props.modelValue?.pairs?.[String(promptId)
           >
             {{ optionLetter(i) }}
           </span>
-          <span class="text-ink">{{ prompt.text }}</span>
+          <span class="text-ink"><SmartText :text="prompt.text" /></span>
         </span>
         <select
           class="input sm:w-1/2"
@@ -131,7 +133,7 @@ const pairFor = (promptId: number) => props.modelValue?.pairs?.[String(promptId)
           @change="setPair(prompt.id, ($event.target as HTMLSelectElement).value)"
         >
           <option value="" disabled>Выберите пару</option>
-          <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ opt.text }}</option>
+          <option v-for="opt in question.match_answers" :key="opt.id" :value="opt.id">{{ inlineMathToPlain(opt.text) }}</option>
         </select>
       </div>
     </template>
