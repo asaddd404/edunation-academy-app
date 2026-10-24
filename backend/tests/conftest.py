@@ -108,6 +108,10 @@ async def test_engine():
     await _ensure_test_database()
     engine = create_async_engine(_TEST_DATABASE_URL)
     async with engine.begin() as conn:
+        # Rebuilt every session: the test database outlives a run, and
+        # create_all only adds missing *tables* -- a column added by a
+        # migration since would otherwise never reach it.
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield engine
     await engine.dispose()

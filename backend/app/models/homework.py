@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, SmallInteger, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -28,9 +28,14 @@ class HomeworkSubmission(Base):
         nullable=False,
     )
     teacher_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The teacher's mark, 0-100 points; optional.
+    grade: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # When the student last sent it: a reworked homework is resubmitted into
+    # the same row, so created_at is only the first submission.
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -39,4 +44,7 @@ class HomeworkSubmission(Base):
     student: Mapped["User"] = relationship(foreign_keys=[student_id])
     reviewer: Mapped["User | None"] = relationship(foreign_keys=[reviewed_by])
 
-    __table_args__ = (Index("uq_homework_submission_student_lesson", "student_id", "lesson_id", unique=True),)
+    __table_args__ = (
+        Index("uq_homework_submission_student_lesson", "student_id", "lesson_id", unique=True),
+        CheckConstraint("grade IS NULL OR grade BETWEEN 0 AND 100", name="ck_homework_submissions_grade_range"),
+    )

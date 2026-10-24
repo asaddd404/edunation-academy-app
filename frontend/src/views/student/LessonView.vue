@@ -170,6 +170,9 @@ async function handleSubmitHomework() {
                   }}
                 </BaseBadge>
               </p>
+              <p v-if="lesson.my_homework.grade !== null && lesson.my_homework.grade !== undefined" class="mt-2">
+                Оценка: <strong class="font-semibold">{{ lesson.my_homework.grade }} / 100</strong>
+              </p>
               <p v-if="lesson.my_homework.teacher_feedback" class="mt-2">
                 Комментарий учителя: {{ lesson.my_homework.teacher_feedback }}
               </p>
