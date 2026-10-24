@@ -623,7 +623,7 @@ function timingLabel(r: EntSimulationResult): string {
               >
                 {{ optionLetter(i) }}
               </span>
-              <span class="flex-1" :class="choice.is_correct ? 'font-medium text-ink' : 'text-ink-2'">{{ choice.text }}</span>
+              <span class="flex-1" :class="choice.is_correct ? 'font-medium text-ink' : 'text-ink-2'"><SmartText :text="choice.text" /></span>
               <!-- The review used to mark only the right answer, so a wrong
                    pick was indistinguishable from an untouched option. -->
               <span
@@ -638,7 +638,7 @@ function timingLabel(r: EntSimulationResult): string {
 
           <ul v-else-if="answer.match_pairs.length" class="space-y-1 text-sm">
             <li v-for="pair in answer.match_pairs" :key="pair.id" class="text-ink-2">
-              {{ pair.prompt_text }} → {{ pair.answer_text }}
+              <SmartText :text="pair.prompt_text" /> → <SmartText :text="pair.answer_text" />
             </li>
           </ul>
 
