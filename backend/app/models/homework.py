@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, SmallInteger, String, Text, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, SmallInteger, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -22,6 +22,9 @@ class HomeworkSubmission(Base):
     text_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_original_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Set when the retention policy removed the file from disk (file_path is
+    # then None; the original name stays, so the screens can say what was there).
+    file_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[HomeworkStatusEnum] = mapped_column(
         Enum(HomeworkStatusEnum, name="homework_status_enum", native_enum=True),
         default=HomeworkStatusEnum.submitted,
@@ -47,4 +50,9 @@ class HomeworkSubmission(Base):
     __table_args__ = (
         Index("uq_homework_submission_student_lesson", "student_id", "lesson_id", unique=True),
         CheckConstraint("grade IS NULL OR grade BETWEEN 0 AND 100", name="ck_homework_submissions_grade_range"),
+        Index(
+            "ix_homework_submissions_retention",
+            "reviewed_at",
+            postgresql_where=text("file_path IS NOT NULL AND status <> 'submitted'"),
+        ),
     )

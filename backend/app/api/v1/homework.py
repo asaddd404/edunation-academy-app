@@ -16,7 +16,13 @@ from app.core.authorization import (
 )
 from app.core.notifications import notify
 from app.core.progress import get_lesson_progress
-from app.core.storage import attachment_response, inline_document_response, resolve_upload_path, save_homework_file
+from app.core.storage import (
+    attachment_response,
+    delete_upload,
+    inline_document_response,
+    resolve_upload_path,
+    save_homework_file,
+)
 from app.database import get_db
 from app.deps import get_current_user, require_role
 from app.models.category import teacher_categories
@@ -76,8 +82,12 @@ async def submit_homework(
         submission.text_answer = text_answer
     if file is not None:
         relative_path, original_name = await save_homework_file(file)
+        # The replaced attachment would otherwise stay on disk with nothing
+        # pointing at it.
+        delete_upload(submission.file_path)
         submission.file_path = relative_path
         submission.file_original_name = original_name
+        submission.file_deleted_at = None
 
     submission.status = HomeworkStatusEnum.submitted
     submission.teacher_feedback = None
@@ -228,7 +238,7 @@ async def download_homework_file(
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     submission = await db.get(HomeworkSubmission, submission_id)
-    if submission is None or not submission.file_path:
+    if submission is None or (not submission.file_path and submission.file_deleted_at is None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
 
     if user.role == RoleEnum.student:
@@ -239,6 +249,9 @@ async def download_homework_file(
         await assert_teacher_owns_category(db, teacher=user, category_id=category_id)
     elif user.role != RoleEnum.admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к этому файлу")
+
+    if submission.file_deleted_at is not None:
+        raise HTTPException(status.HTTP_410_GONE, "Файл удалён по истечении срока хранения")
 
     path = resolve_upload_path(submission.file_path)
     if not path.is_file():

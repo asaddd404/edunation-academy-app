@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
+from app.config import settings
 from app.models.homework import HomeworkStatusEnum
 from app.schemas.limits import OptionalMediumText
 
@@ -45,6 +46,9 @@ class HomeworkSubmissionOut(BaseModel):
     student_id: int
     text_answer: str | None
     file_original_name: str | None
+    # Read from the row to derive the fields below; never sent to clients.
+    file_path: str | None = Field(default=None, exclude=True)
+    file_deleted_at: datetime | None = None
     status: HomeworkStatusEnum
     teacher_feedback: str | None
     grade: int | None = None
@@ -61,4 +65,25 @@ class HomeworkSubmissionOut(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def file_kind(self) -> Literal["image", "pdf", "document"] | None:
-        return file_kind(self.file_original_name)
+        return None if self.file_deleted else file_kind(self.file_original_name)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def file_deleted(self) -> bool:
+        """Removed by the retention policy (app/core/retention.py)."""
+        return self.file_deleted_at is not None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def file_retention_days(self) -> int:
+        """How long after review attachments are kept -- for the warning on
+        the review screen, so it cannot drift from the server's setting."""
+        return settings.homework_file_retention_days
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def file_expires_at(self) -> datetime | None:
+        """When the attachment of reviewed work will be deleted."""
+        if self.file_path is None or self.status == HomeworkStatusEnum.submitted or self.reviewed_at is None:
+            return None
+        return self.reviewed_at + timedelta(days=settings.homework_file_retention_days)

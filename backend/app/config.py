@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     trusted_proxy_cidrs: str = "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
     rate_limit_enabled: bool = True
+
+    # Homework attachments are deleted from disk this many days after the
+    # work is reviewed (accepted or sent back); text, grade and status stay.
+    # The sweep runs every homework_retention_interval_hours in the API
+    # process (app/core/retention.py); 0 disables it there, for running it
+    # from cron instead (`python -m app.core.retention`).
+    homework_file_retention_days: int = 3
+    homework_retention_interval_hours: float = 24
     # Every /api request, per client address. Generous on purpose: a whole
     # classroom shares one NAT address, and thirty students clicking through
     # lessons make a few requests per second between them. This stops a
