@@ -265,7 +265,7 @@ const steps = [
     <footer class="border-t border-line px-4 py-10">
       <div class="mx-auto flex max-w-[80rem] flex-col items-center justify-between gap-4 sm:flex-row">
         <BrandLogo :height="44" />
-        <p class="text-sm text-ink-3">© {{ year }} Edunation Academy · Онлайн-подготовка к ЕНТ</p>
+        <p class="text-center text-sm text-ink-3 sm:text-right">© {{ year }} Edunation Academy · Онлайн-подготовка к ЕНТ</p>
       </div>
     </footer>
   </div>
