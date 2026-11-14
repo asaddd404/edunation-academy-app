@@ -125,15 +125,18 @@
 
 	# Everything else is the SPA. try_files sends unknown paths to index.html
 	# so client-side routes (/catalog, /lessons/70) survive a hard refresh.
+	#
+	# index.html must not be cached, or a deploy leaves clients on old bundles.
+	# Set here rather than on the paths "/" and "/index.html" only: a deep link
+	# (/lessons/32) is answered with the same index.html, and without the
+	# header a browser cached it heuristically from Last-Modified -- for days,
+	# showing a page from before the deploy until a hard refresh.
 	handle {
 		root * /srv
 		try_files {path} /index.html
+		header Cache-Control "no-cache"
 		file_server
 	}
-
-	# index.html must not be cached, or a deploy leaves clients on old bundles.
-	@html path /index.html /
-	header @html Cache-Control "no-cache"
 
 	header {
 		X-Content-Type-Options nosniff
