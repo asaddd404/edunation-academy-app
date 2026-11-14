@@ -1,3 +1,5 @@
+import { isAxiosError } from "axios";
+
 import http from "@/api/http";
 import type { HomeworkListFilter, HomeworkSubmission } from "@/types";
 
@@ -45,11 +47,24 @@ export function reviewHomework(
  * PDF with its real type); the caller revokes the URL when done.
  */
 export async function fetchHomeworkFileUrl(submissionId: number, inline = false): Promise<string> {
-  const response = await http.get(`/homework/${submissionId}/file`, {
-    responseType: "blob",
-    params: inline ? { inline: 1 } : undefined,
-  });
-  return URL.createObjectURL(response.data as Blob);
+  try {
+    const response = await http.get(`/homework/${submissionId}/file`, {
+      responseType: "blob",
+      params: inline ? { inline: 1 } : undefined,
+    });
+    return URL.createObjectURL(response.data as Blob);
+  } catch (e) {
+    // With responseType "blob" the error body ({"detail": "Файл удалён…"})
+    // arrives as a Blob too; parse it so describeApiError can show it.
+    if (isAxiosError(e) && e.response?.data instanceof Blob) {
+      try {
+        e.response.data = JSON.parse(await e.response.data.text());
+      } catch {
+        // Not JSON -- leave it; the caller falls back to a generic message.
+      }
+    }
+    throw e;
+  }
 }
 
 export async function downloadHomeworkFile(submissionId: number, suggestedName: string) {
@@ -58,5 +73,7 @@ export async function downloadHomeworkFile(submissionId: number, suggestedName: 
   link.href = blobUrl;
   link.download = suggestedName;
   link.click();
-  URL.revokeObjectURL(blobUrl);
+  // Revoked later, not synchronously: Firefox and Safari can cancel a
+  // download whose blob URL is revoked right after the click.
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }

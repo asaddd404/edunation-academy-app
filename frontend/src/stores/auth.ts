@@ -25,7 +25,9 @@ export const useAuthStore = defineStore("auth", () => {
   // it expires in fifteen minutes and never touches localStorage, so a
   // closed tab takes it with it.
   const accessToken = ref<string | null>(null);
-  const initialized = ref(false);
+  // Shared by every caller: a second navigation that starts while the first
+  // is still restoring the session waits for it instead of seeing no user.
+  let initializing: Promise<void> | null = null;
 
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value);
   const role = computed<Role | null>(() => user.value?.role ?? null);
@@ -103,16 +105,24 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
-  async function initialize() {
-    if (initialized.value) return;
-    initialized.value = true;
+  function initialize(): Promise<void> {
+    initializing ??= restoreSession();
+    return initializing;
+  }
 
+  async function restoreSession() {
     // Unlike before, there is nothing to check first: the cookie is invisible
     // to this code, so the only way to find out whether a session exists is
     // to ask. An anonymous visitor pays one 401 on first load.
     const token = (await migrateLegacySession()) ?? (await refresh());
-    if (token) {
+    if (!token) return;
+    try {
       user.value = await authApi.fetchMe();
+    } catch {
+      // A failed /me (network blip, 5xx) must not reject the router guard --
+      // that left a blank page. Treat it as signed out; the cookie survives,
+      // so a reload restores the session.
+      clearSession();
     }
   }
 

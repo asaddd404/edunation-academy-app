@@ -126,3 +126,19 @@ async def test_another_teachers_homework_is_not_listed(client, db_session, make_
     login_as(await make_user(RoleEnum.teacher))
 
     assert (await client.get("/api/v1/teacher/homework?status=all")).json() == []
+
+
+async def test_accepted_work_cannot_be_resubmitted(client, db_session, make_user, login_as):
+    teacher, student, lesson, _ = await _course(db_session, make_user, "hw-final")
+    login_as(student)
+    first = (await _submit(client, lesson.id, "photo.png", PNG)).json()
+    login_as(teacher)
+    await client.post(f"/api/v1/teacher/homework/{first['id']}/review", json={"status": "accepted", "grade": 90, "feedback": "Молодец"})
+
+    login_as(student)
+    response = await _submit(client, lesson.id, "other.png", PNG, text="ещё раз")
+
+    assert response.status_code == 409
+    kept = (await client.get(f"/api/v1/lessons/{lesson.id}/homework")).json()
+    assert kept["status"] == "accepted" and kept["grade"] == 90 and kept["teacher_feedback"] == "Молодец"
+    assert kept["file_original_name"] == "photo.png"

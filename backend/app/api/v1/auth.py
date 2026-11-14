@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.csrf import assert_same_origin
@@ -73,7 +74,13 @@ async def register(
         role=RoleEnum.student,
     )
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as e:
+        # Two registrations of one number at once: the check above passed for
+        # both, the unique index stops the second -- a 409, not a 500.
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Пользователь с таким номером уже зарегистрирован") from e
     await db.refresh(user)
 
     access_token = await _issue_session(response, user)
