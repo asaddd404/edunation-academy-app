@@ -72,7 +72,7 @@ async def test_teacher_uploads_and_student_views_through_office(client, db_sessi
     served = await client.get(file_path)
     assert served.status_code == 200
     assert served.content == PPTX
-    assert served.headers["content-type"] == storage.PRESENTATION_MEDIA_TYPE
+    assert served.headers["content-type"] == storage.PRESENTATION_MEDIA_TYPES[".pptx"]
     assert served.headers["content-disposition"].startswith("attachment")
     assert served.headers["x-content-type-options"] == "nosniff"
 
@@ -178,3 +178,51 @@ async def test_teacher_can_preview(client, db_session, make_user, login_as):
     preview = await client.post(f"/api/v1/teacher/lessons/{lesson.id}/presentation/link")
     assert preview.status_code == 200
     assert (await client.get(_file_path_from(preview.json()["embed_url"]))).status_code == 200
+
+
+PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+
+
+async def test_ppsx_goes_through_the_office_viewer(client, db_session, make_user, login_as):
+    teacher, student, lesson, _ = await _course(db_session, make_user, "pres-ppsx")
+    login_as(teacher)
+    assert (await _upload(client, lesson.id, "Показ.ppsx", PPTX)).status_code == 200
+
+    login_as(student)
+    link = (await _student_link(client, lesson.id)).json()
+    assert link["kind"] == "office"
+    file_path = _file_path_from(link["embed_url"])
+    assert file_path.endswith(f"/lesson-{lesson.id}.ppsx")
+    served = await client.get(file_path)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == storage.PRESENTATION_MEDIA_TYPES[".ppsx"]
+
+
+async def test_pdf_is_served_directly_not_through_microsoft(client, db_session, make_user, login_as):
+    teacher, student, lesson, _ = await _course(db_session, make_user, "pres-pdf")
+    login_as(teacher)
+    uploaded = await _upload(client, lesson.id, "Слайды.pdf", PDF)
+    assert uploaded.status_code == 200
+    assert uploaded.json()["presentation_name"] == "Слайды.pdf"
+
+    login_as(student)
+    link = (await _student_link(client, lesson.id)).json()
+    assert link["kind"] == "pdf"
+    assert link["embed_url"] is None
+    assert link["file_path"].endswith(f"/lesson-{lesson.id}.pdf")
+    served = await client.get(f"/api/v1{link['file_path']}")
+    assert served.status_code == 200
+    assert served.content == PDF
+    assert served.headers["content-type"] == "application/pdf"
+    assert served.headers["content-disposition"].startswith("attachment")
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize(
+    ("name", "body"),
+    [("fake.pdf", b"<html><script>alert(1)</script>"), ("deck.pdf", PPTX), ("slides.ppsx", PDF), ("deck.pptm", PPTX)],
+)
+async def test_contents_must_match_the_extension(client, db_session, make_user, login_as, name, body):
+    teacher, _, lesson, _ = await _course(db_session, make_user, f"pres-mismatch-{name}")
+    login_as(teacher)
+    assert (await _upload(client, lesson.id, name, body)).status_code == 400
