@@ -15,7 +15,8 @@ GradeableQuestion = EntQuestion | Question
 #
 # Scoring rule (2/1/0), confirmed for multiple/matching: full credit
 # (max_score) if every part is correct, 1 point if partially correct,
-# 0 otherwise. single/short_answer are all-or-nothing — schema validation
+# 0 otherwise. Partial for multiple: some right answers and no wrong pick,
+# or (ЕНТ only) all right answers plus one extra pick. single/short_answer are all-or-nothing — schema validation
 # keeps their max_score at 1 (or 2 for a profile subject), never awarding
 # a partial 1 for those types. Any reference to a choice/pair id that
 # doesn't belong to the question is treated as an invalid answer (0),
@@ -53,7 +54,12 @@ def grade_multiple(question: GradeableQuestion, answer_data: dict | None) -> int
     correct_ids = {c.id for c in question.choices if c.is_correct}
     if selected == correct_ids:
         return question.max_score
+    # Partial (1): some of the right answers and nothing wrong.
     if selected.issubset(correct_ids):
+        return 1
+    # ЕНТ only, "минимальная погрешность": every right answer found plus a
+    # single extra pick is still 1. Course tests keep their stricter rule.
+    if isinstance(question, EntQuestion) and correct_ids <= selected and len(selected - correct_ids) == 1:
         return 1
     return 0
 
