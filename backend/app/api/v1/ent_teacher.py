@@ -17,7 +17,7 @@ from app.core.rate_limit import (
     UPLOAD_BY_USER,
 )
 from app.core.ent_language import UnknownLanguageError, parse_language
-from app.core.ent_structure import profile_format_problem
+from app.core.ent_structure import PROFILE_STRUCTURE, profile_format_problem, profile_pool_filters
 from app.core.concurrency import PDF_IMPORT_POOL
 from app.core.file_type import assert_matches_extension
 from app.core.ent_pdf_import import (
@@ -32,7 +32,7 @@ from app.core.slug import slugify
 from app.core.storage import delete_upload, save_ent_question_image
 from app.database import get_db
 from app.deps import require_role
-from app.models.ent_question import EntAnswerVariant, EntChoice, EntLanguage, EntMatchPair, EntQuestion
+from app.models.ent_question import EntAnswerVariant, EntChoice, EntLanguage, EntMatchPair, EntQuestion, EntQuestionType
 from app.models.ent_subject import EntSubject
 from app.models.user import RoleEnum, User
 from app.schemas.ent_import import (
@@ -55,7 +55,7 @@ from app.schemas.ent_question import (
     EntQuestionIn,
     EntQuestionTeacherOut,
 )
-from app.schemas.ent_subject import EntSubjectIn, EntSubjectOut, EntSubjectUpdateIn
+from app.schemas.ent_subject import EntStructureBlockOut, EntSubjectIn, EntSubjectOut, EntSubjectStructureOut, EntSubjectUpdateIn
 from app.schemas.pagination import Page
 
 MAX_ENT_PDF_SIZE = 15 * 1024 * 1024  # 15 MB
@@ -190,10 +190,78 @@ async def update_subject(
     return out
 
 
+@router.get("/subjects/{subject_id}/structure", response_model=EntSubjectStructureOut)
+async def get_subject_structure(
+    subject_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> EntSubjectStructureOut:
+    """What a simulation of the subject draws, block by block, against what
+    the bank holds in each language -- the teacher's "what is missing" view.
+
+    For a profile subject, `have` counts only questions in the profile
+    format (the ones a simulation can draw); the rest of that type is
+    `off_format`. For any other subject the blocks are its quotas.
+    """
+    subject = await assert_owns_ent_subject(db, user, subject_id)
+
+    async def counts(qtype: EntQuestionType, extra: list) -> dict[str, int]:
+        rows = await db.execute(
+            select(EntQuestion.language, func.count(EntQuestion.id))
+            .where(EntQuestion.subject_id == subject_id, EntQuestion.qtype == qtype, *extra)
+            .group_by(EntQuestion.language)
+        )
+        found = {language.value: n for language, n in rows.all()}
+        return {language.value: found.get(language.value, 0) for language in EntLanguage}
+
+    if subject.is_profile:
+        plan = [(qtype, count, profile_pool_filters(qtype)) for qtype, count in PROFILE_STRUCTURE]
+    else:
+        quotas = {
+            EntQuestionType.single: subject.single_choice_count,
+            EntQuestionType.multiple: subject.multiple_choice_count,
+            EntQuestionType.matching: subject.matching_count,
+            EntQuestionType.short_answer: subject.short_answer_count,
+        }
+        plan = [(qtype, count, []) for qtype, count in quotas.items()]
+
+    blocks = []
+    first = 1
+    for qtype, needed, extra in plan:
+        have = await counts(qtype, extra)
+        total = await counts(qtype, []) if extra else have
+        blocks.append(
+            EntStructureBlockOut(
+                qtype=qtype,
+                first_number=first if subject.is_profile else None,
+                last_number=first + needed - 1 if subject.is_profile else None,
+                needed=needed,
+                have=have,
+                off_format={language: total[language] - have[language] for language in have},
+            )
+        )
+        first += needed
+    # Questions of a type the structure never draws (short answer in a
+    # profile subject; context in any other).
+    unused = await counts_unused(db, subject_id, [qtype for qtype, _, _ in plan])
+    return EntSubjectStructureOut(is_profile=subject.is_profile, blocks=blocks, unused=unused)
+
+
+async def counts_unused(db: AsyncSession, subject_id: int, used: list[EntQuestionType]) -> dict[str, int]:
+    rows = await db.execute(
+        select(EntQuestion.language, func.count(EntQuestion.id))
+        .where(EntQuestion.subject_id == subject_id, EntQuestion.qtype.not_in(used))
+        .group_by(EntQuestion.language)
+    )
+    found = {language.value: n for language, n in rows.all()}
+    return {language.value: found.get(language.value, 0) for language in EntLanguage}
+
+
 @router.get("/subjects/{subject_id}/questions", response_model=Page[EntQuestionTeacherOut])
 async def list_subject_questions(
     subject_id: int,
     language: str | None = None,
+    qtype: EntQuestionType | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
     params: PageParams = Depends(page_params),
@@ -208,6 +276,8 @@ async def list_subject_questions(
     await assert_owns_ent_subject(db, user, subject_id)
 
     filters = [EntQuestion.subject_id == subject_id]
+    if qtype is not None:
+        filters.append(EntQuestion.qtype == qtype)
     if language is not None:
         try:
             filters.append(EntQuestion.language == parse_language(language))

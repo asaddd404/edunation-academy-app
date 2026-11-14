@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from app.models.ent_question import EntQuestionType
+
 from app.schemas.limits import CatalogName, OptionalCatalogName, OptionalSlug
 
 
@@ -71,3 +73,25 @@ class EntSubjectOut(BaseModel):
     short_answer_count: int = 0
     ru_count: int = 0
     kk_count: int = 0
+
+
+class EntStructureBlockOut(BaseModel):
+    """One block of a simulation: `needed` questions of `qtype`. `have` and
+    `off_format` are per language ("ru", "kk")."""
+
+    qtype: EntQuestionType
+    # Question numbers in the attempt (profile subjects only: 1-25, 26-30, ...).
+    first_number: int | None = None
+    last_number: int | None = None
+    needed: int
+    # Questions a simulation can draw for this block.
+    have: dict[str, int]
+    # Same type, but not in the profile format -- never drawn.
+    off_format: dict[str, int]
+
+
+class EntSubjectStructureOut(BaseModel):
+    is_profile: bool
+    blocks: list[EntStructureBlockOut]
+    # Questions of a type the structure does not use at all.
+    unused: dict[str, int]

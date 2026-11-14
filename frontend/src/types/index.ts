@@ -317,6 +317,27 @@ export interface EntSubject {
   kk_count: number;
 }
 
+/** One block of a subject's simulation against what the bank holds; the
+ * maps are keyed by language ("ru", "kk"). */
+export interface EntStructureBlock {
+  qtype: EntQuestionType;
+  /** Question numbers in the attempt -- profile subjects only (1-25, 26-30, …). */
+  first_number: number | null;
+  last_number: number | null;
+  needed: number;
+  /** Questions a simulation can draw for this block. */
+  have: Record<ExamLanguage, number>;
+  /** Same type but not in the profile format: never drawn. */
+  off_format: Record<ExamLanguage, number>;
+}
+
+export interface EntSubjectStructure {
+  is_profile: boolean;
+  blocks: EntStructureBlock[];
+  /** Questions of a type the structure does not use at all. */
+  unused: Record<ExamLanguage, number>;
+}
+
 export interface EntChoiceTeacher {
   id: number;
   text: string;

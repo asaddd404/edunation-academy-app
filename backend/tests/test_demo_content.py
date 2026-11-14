@@ -4,7 +4,7 @@ import pytest
 
 from app.core.youtube import youtube_video_id
 from app.demo.courses import COURSES
-from app.demo.ent_bank import SUBJECTS
+from app.demo.ent_subjects import SUBJECTS
 from app.seed_demo import validate_content
 
 
@@ -22,10 +22,30 @@ def test_every_lesson_has_a_youtube_video_notes_homework_and_a_test():
 
 
 @pytest.mark.parametrize("key", ["questions", "questions_kk"])
+def test_profile_subjects_are_exactly_the_ent_structure(key):
+    """Mathematics, Physics, Chemistry, Biology: 25 single, 5 context,
+    5 matching, 5 multiple, in that order -- 50 points -- in each language."""
+    from app.core.ent_structure import PROFILE_STRUCTURE
+
+    profile = [s for s in SUBJECTS if s["profile"]]
+    assert {s["name"] for s in profile} == {"Математика", "Физика", "Химия", "Биология"}
+    expected = [qtype for qtype, count in PROFILE_STRUCTURE for _ in range(count)]
+    for subject in profile:
+        assert [q["qtype"] for q in subject[key]] == expected, subject["name"]
+        assert sum(q["max_score"] for q in subject[key]) == 50
+        # Every matching question offers more answers than it has prompts.
+        for q in subject[key]:
+            if q["qtype"].value == "matching":
+                assert any(prompt is None for prompt, _ in q["pairs"]), q["text"]
+
+
+@pytest.mark.parametrize("key", ["questions", "questions_kk"])
 def test_ent_bank_covers_quotas_with_every_question_type(key):
     """Both languages: a simulation in Kazakh draws only Kazakh questions, so
     each language needs the full quota of every type on its own."""
     for subject in SUBJECTS:
+        if subject["profile"]:
+            continue
         by_type = {}
         for q in subject[key]:
             by_type[q["qtype"].value] = by_type.get(q["qtype"].value, 0) + 1

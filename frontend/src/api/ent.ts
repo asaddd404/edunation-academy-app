@@ -10,6 +10,7 @@ import type {
   EntSimulationResult,
   EntSimulationSummary,
   EntSubject,
+  EntSubjectStructure,
   ExamLanguage,
   Page,
 } from "@/types";
@@ -83,12 +84,18 @@ export function listSubjectQuestions(
   language?: ExamLanguage,
   page = 1,
   perPage = 50,
+  qtype?: EntQuestionType,
 ) {
   return http
     .get<Page<EntQuestionTeacher>>(`/teacher/ent/subjects/${subjectId}/questions`, {
-      params: { language, page, per_page: perPage },
+      params: { language, page, per_page: perPage, qtype },
     })
     .then((r) => r.data);
+}
+
+/** Each block of the subject's simulation against what the bank holds. */
+export function getSubjectStructure(subjectId: number) {
+  return http.get<EntSubjectStructure>(`/teacher/ent/subjects/${subjectId}/structure`).then((r) => r.data);
 }
 
 export interface EntQuestionCreatePayload {

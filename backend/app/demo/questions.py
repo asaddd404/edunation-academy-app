@@ -10,14 +10,21 @@ def S(text: str, options: list, correct: int, score: int = 1) -> dict:
 
 
 def M(text: str, options: list, correct: list[int]) -> dict:
-    """Multiple choice: two or more correct options, 2 points with partial credit."""
+    """Multiple choice: 1-3 correct options (6 in a profile subject), 2 points with partial credit."""
     return {"qtype": EntQuestionType.multiple, "text": text, "max_score": 2,
             "choices": [(str(o), i in correct) for i, o in enumerate(options)]}
 
 
-def P(text: str, pairs: list[tuple[str, str]]) -> dict:
-    """Matching: each (prompt, answer) row is its own correct pairing."""
-    return {"qtype": EntQuestionType.matching, "text": text, "max_score": 2, "pairs": pairs}
+def P(text: str, pairs: list[tuple[str, str]], extra: list[str] | None = None) -> dict:
+    """Matching: each (prompt, answer) row is its own correct pairing; `extra`
+    are distractor answers that pair with no prompt."""
+    return {"qtype": EntQuestionType.matching, "text": text, "max_score": 2,
+            "pairs": pairs + [(None, str(e)) for e in (extra or [])]}
+
+
+def C(context: str, text: str, options: list, correct: int) -> dict:
+    """Context (ЕНТ profile 26-30): single choice about a passage of text."""
+    return {**S(text, options, correct), "qtype": EntQuestionType.context, "context": context}
 
 
 def T(text: str, variants: list[str]) -> dict:
