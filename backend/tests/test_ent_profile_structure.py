@@ -237,3 +237,37 @@ async def test_matching_with_distractors_all_right_is_full_marks(client, db_sess
     result = (await client.post(f"/api/v1/ent/simulations/{exam['id']}/submit", json={"answers": [answer]})).json()
 
     assert result["total_score"] == 2
+
+
+# ── Structure view for the teacher ───────────────────────────────────────
+
+
+async def test_structure_counts_each_block_per_language(client, db_session, make_user, login_as):
+    teacher = await make_user(RoleEnum.teacher)
+    subject = await _profile_bank(db_session, "profile-structure-view", singles=24)
+    subject.created_by_id = teacher.id
+    await db_session.commit()
+    login_as(teacher)
+
+    body = (await client.get(f"/api/v1/teacher/ent/subjects/{subject.id}/structure")).json()
+
+    assert body["is_profile"] is True
+    blocks = {b["qtype"]: b for b in body["blocks"]}
+    assert [b["qtype"] for b in body["blocks"]] == ["single", "context", "matching", "multiple"]
+    assert (blocks["single"]["first_number"], blocks["single"]["last_number"]) == (1, 25)
+    assert (blocks["multiple"]["first_number"], blocks["multiple"]["last_number"]) == (36, 40)
+    assert blocks["single"]["have"] == {"ru": 24, "kk": 0} and blocks["single"]["needed"] == 25
+    # The five-option singles and four-option multiples are not drawn.
+    assert blocks["single"]["off_format"]["ru"] == 5 and blocks["multiple"]["off_format"]["ru"] == 5
+    assert body["unused"]["ru"] == 5  # short answers
+
+
+async def test_question_list_filters_by_type(client, make_user, login_as):
+    login_as(await make_user(RoleEnum.teacher))
+    subject_id = await _profile_subject(client, "profile-list-filter")
+    await _create(client, subject_id, SINGLE)
+    await _create(client, subject_id, MATCHING)
+
+    page = (await client.get(f"/api/v1/teacher/ent/subjects/{subject_id}/questions?qtype=matching")).json()
+
+    assert [q["qtype"] for q in page["items"]] == ["matching"]

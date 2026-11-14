@@ -38,12 +38,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.ent_structure import PROFILE_STRUCTURE, profile_format_problem
 from app.core.question_scoring import grade_question
 from app.core.rating import compute_test_xp
 from app.core.storage import HOMEWORK_DIR, UPLOAD_ROOT
 from app.database import Base, async_session_factory
 from app.demo.courses import COURSES
-from app.demo.ent_bank import SUBJECTS
+from app.demo.ent_subjects import SUBJECTS
 from app.models import (
     AnswerVariant,
     Application,
@@ -93,7 +94,7 @@ STAFF = [
     ("admin", "+77001000001", "Асель", "Нурланова", RoleEnum.admin, "Администратор: пользователи, курсы, все заявки"),
     ("erlan", "+77001000002", "Ерлан", "Жумабаев", RoleEnum.teacher, "Учитель: Математика, Математическая грамотность"),
     ("gulnara", "+77001000003", "Гульнара", "Ахметова", RoleEnum.teacher, "Учитель: История Казахстана, Грамотность чтения"),
-    ("nurlan", "+77001000004", "Нурлан", "Сапаров", RoleEnum.teacher, "Учитель: Физика"),
+    ("nurlan", "+77001000004", "Нурлан", "Сапаров", RoleEnum.teacher, "Учитель: Физика, Химия, Биология"),
 ]
 
 
@@ -163,6 +164,7 @@ def _as_api_payload(spec: dict) -> dict:
     return {
         "qtype": qtype.value,
         "text": spec["text"],
+        "context_text": spec.get("context"),
         "max_score": spec["max_score"],
         "choices": [{"text": t, "is_correct": c} for t, c in spec.get("choices", [])],
         "match_pairs": [{"prompt_text": a, "answer_text": b} for a, b in spec.get("pairs", [])],
@@ -191,9 +193,19 @@ def validate_content() -> None:
             type_split[language] = sorted(spec["qtype"].value for spec in specs)
             for spec in specs:
                 try:
-                    EntQuestionIn.model_validate({**_as_api_payload(spec), "language": language})
+                    q_in = EntQuestionIn.model_validate({**_as_api_payload(spec), "language": language})
                 except Exception as e:  # noqa: BLE001
                     problems.append(f"ЕНТ {subject['name']} ({language}) / {spec['text'][:60]}: {e}")
+                    continue
+                if subject["profile"]:
+                    problem = profile_format_problem(q_in.qtype, len(q_in.choices), q_in.max_score)
+                    if problem:
+                        problems.append(f"ЕНТ {subject['name']} ({language}) / {spec['text'][:60]}: {problem}")
+            if subject["profile"]:
+                # Exactly the profile structure, block by block, in order.
+                expected = [qtype for qtype, count in PROFILE_STRUCTURE for _ in range(count)]
+                if [spec["qtype"] for spec in specs] != expected:
+                    problems.append(f"{subject['name']} ({language}): вопросы не в структуре профильного предмета 25+5+5+5")
         if type_split["ru"] != type_split["kk"]:
             problems.append(f"{subject['name']}: в казахском банке другое распределение типов вопросов")
     if problems:
@@ -234,6 +246,8 @@ def clear_uploads() -> None:
 
 def build_question(spec: dict, model, choice_cls, pair_cls, variant_cls, order_index: int, **owner):
     q = model(qtype=spec["qtype"], text=spec["text"], max_score=spec["max_score"], order_index=order_index, **owner)
+    if spec.get("context"):
+        q.context_text = spec["context"]
     # The specs list the right option first (easy to write and review); the
     # app shows options in stored order, so they are shuffled here -- or the
     # answer to every demo question would be "A". Seeded by the question text,
@@ -319,7 +333,8 @@ async def create_ent_bank(
     bank = {}
     for spec in SUBJECTS:
         q = spec["quotas"]
-        subject = EntSubject(name=spec["name"], slug=spec["slug"], is_active=True, created_by_id=staff[spec["teacher"]].id,
+        subject = EntSubject(name=spec["name"], slug=spec["slug"], is_active=True, is_profile=spec["profile"],
+                             created_by_id=staff[spec["teacher"]].id,
                              single_choice_count=q["single"], multiple_choice_count=q["multiple"],
                              matching_count=q["matching"], short_answer_count=q["short"])
         db.add(subject)
@@ -548,7 +563,7 @@ async def create_homework(db, plans, students, courses, passed_lessons, rng):
 
 
 def ent_answer(question: EntQuestion, right: bool, rng: random.Random) -> dict:
-    if question.qtype == EntQuestionType.single:
+    if question.qtype in (EntQuestionType.single, EntQuestionType.context):
         good = next(c for c in question.choices if c.is_correct)
         bad = [c for c in question.choices if not c.is_correct]
         return {"choice_id": (good if right else rng.choice(bad)).id}
@@ -556,7 +571,8 @@ def ent_answer(question: EntQuestion, right: bool, rng: random.Random) -> dict:
         good = [c.id for c in question.choices if c.is_correct]
         return {"choice_ids": good if right else good[:1]}
     if question.qtype == EntQuestionType.matching:
-        ids = [p.id for p in question.match_pairs]
+        # Distractor rows (no prompt) are never asked about.
+        ids = [p.id for p in question.match_pairs if p.prompt_text]
         if right:
             return {"pairs": {str(i): i for i in ids}}
         shuffled = ids[1:] + ids[:1]
@@ -593,10 +609,15 @@ async def create_simulations(db, plans, students, bank, ledger: XpLedger, rng):
                 subject, by_language = bank[sid]
                 questions = by_language[language]
                 drawn = []
-                for qtype, count in ((EntQuestionType.single, subject.single_choice_count), (EntQuestionType.multiple, subject.multiple_choice_count),
-                                     (EntQuestionType.matching, subject.matching_count), (EntQuestionType.short_answer, subject.short_answer_count)):
-                    drawn += rng.sample([q for q in questions if q.qtype == qtype], count)
-                rng.shuffle(drawn)
+                if subject.is_profile:
+                    # The ЕНТ order: blocks one after another, shuffled within.
+                    for qtype, count in PROFILE_STRUCTURE:
+                        drawn += rng.sample([q for q in questions if q.qtype == qtype], count)
+                else:
+                    for qtype, count in ((EntQuestionType.single, subject.single_choice_count), (EntQuestionType.multiple, subject.multiple_choice_count),
+                                         (EntQuestionType.matching, subject.matching_count), (EntQuestionType.short_answer, subject.short_answer_count)):
+                        drawn += rng.sample([q for q in questions if q.qtype == qtype], count)
+                    rng.shuffle(drawn)
                 for q in drawn:
                     answer = ent_answer(q, rng.random() < skill, rng)
                     score = grade_question(q, answer)

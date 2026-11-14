@@ -1,16 +1,11 @@
-"""ЕНТ question bank for the demo: five subjects, 40 questions each, every
-subject with all four question types (26 single, 6 multiple, 4 matching,
-4 short answer).
+"""ЕНТ question bank for the demo's compulsory subjects (and the source of
+the profile subjects' single-choice blocks): 40 questions each, with all four
+question types (26 single, 6 multiple, 4 matching, 4 short answer).
 
-Each subject carries the same 40 questions in Kazakh as well
-(app.demo.ent_bank_kk), since the exam is sat in one language or the other.
-
-`quotas` is how many of each type one simulation draws per subject:
-mathematical and reading literacy are short sections on the real exam (10),
-history and the profile subjects longer (20).
+The Kazakh versions are in app.demo.ent_bank_kk. Which subjects the demo
+actually has, and in which structure, is app.demo.ent_subjects.
 """
 
-from app.demo.ent_bank_kk import QUESTIONS_KK
 from app.demo.questions import M, P, S, T
 
 MATH_ENT = [
@@ -243,19 +238,3 @@ PHYSICS_ENT = [
     T("Масса тела 2 кг, объём 0,001 м³. Найдите плотность (кг/м³).", ["2000", "2 000"]),
     T("Сколько джоулей нужно, чтобы нагреть 1 кг воды на 10 °C? Удельная теплоёмкость воды 4200 Дж/(кг·°C).", ["42000", "42 000"]),
 ]
-
-SUBJECTS = [
-    {"name": "Математика", "slug": "matematika", "teacher": "erlan", "questions": MATH_ENT,
-     "quotas": {"single": 13, "multiple": 3, "matching": 2, "short": 2}},
-    {"name": "История Казахстана", "slug": "istoriya-kazakhstana", "teacher": "gulnara", "questions": HISTORY_ENT,
-     "quotas": {"single": 13, "multiple": 3, "matching": 2, "short": 2}},
-    {"name": "Математическая грамотность", "slug": "matematicheskaya-gramotnost", "teacher": "erlan", "questions": MATH_LIT_ENT,
-     "quotas": {"single": 6, "multiple": 2, "matching": 1, "short": 1}},
-    {"name": "Грамотность чтения", "slug": "gramotnost-chteniya", "teacher": "gulnara", "questions": READING_ENT,
-     "quotas": {"single": 6, "multiple": 2, "matching": 1, "short": 1}},
-    {"name": "Физика", "slug": "fizika", "teacher": "nurlan", "questions": PHYSICS_ENT,
-     "quotas": {"single": 13, "multiple": 3, "matching": 2, "short": 2}},
-]
-
-for _subject in SUBJECTS:
-    _subject["questions_kk"] = QUESTIONS_KK[_subject["slug"]]

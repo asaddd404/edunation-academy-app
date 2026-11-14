@@ -10,6 +10,7 @@ import {
   deleteEntQuestion,
   deleteEntQuestionImage,
   getEntQuestionImageUrl,
+  getSubjectStructure,
   listSubjectQuestions,
   listTeacherEntSubjects,
   updateEntSubject,
@@ -18,6 +19,7 @@ import {
 } from "@/api/ent";
 import EntPdfImportModal from "@/components/ent/EntPdfImportModal.vue";
 import EntQuestionForm from "@/components/ent/EntQuestionForm.vue";
+import EntStructurePanel from "@/components/ent/EntStructurePanel.vue";
 import SmartText from "@/components/shared/SmartText.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
@@ -25,7 +27,7 @@ import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useModalFocusTrap } from "@/composables/useModalFocusTrap";
-import type { EntQuestionTeacher, EntQuestionType, EntSubject, ExamLanguage } from "@/types";
+import type { EntQuestionTeacher, EntQuestionType, EntSubject, EntSubjectStructure, ExamLanguage } from "@/types";
 import {
   adaptToQtype,
   blankQuestionForm,
@@ -99,6 +101,9 @@ const showPdfImportModal = ref(false);
 // filtering is done by the API, so a subject with 400 Russian questions does
 // not ship them all to draw a Kazakh list.
 const bankLanguage = ref<ExamLanguage | "all">("all");
+// Narrows the list to one question type -- set from a row of the structure panel.
+const qtypeFilter = ref<EntQuestionType | null>(null);
+const structureBySubject = reactive<Record<number, EntSubjectStructure>>({});
 
 // Client-side filter over whatever page is currently loaded -- there is no
 // search endpoint, so this narrows what's on screen rather than querying
@@ -113,14 +118,45 @@ const filteredQuestions = computed<EntQuestionTeacher[]>(() => {
 });
 
 async function loadQuestions(subjectId: number, page = 1) {
-  const res = await listSubjectQuestions(
-    subjectId,
-    bankLanguage.value === "all" ? undefined : bankLanguage.value,
-    page,
-    QUESTIONS_PER_PAGE,
-  );
+  const [res] = await Promise.all([
+    listSubjectQuestions(
+      subjectId,
+      bankLanguage.value === "all" ? undefined : bankLanguage.value,
+      page,
+      QUESTIONS_PER_PAGE,
+      qtypeFilter.value ?? undefined,
+    ),
+    // Every change to the list can change the counts.
+    refreshStructure(subjectId),
+  ]);
   questionsBySubject[subjectId] = res.items;
   questionsPageBySubject[subjectId] = { page: res.page, total: res.total, pages: res.pages };
+}
+
+async function refreshStructure(subjectId: number) {
+  try {
+    structureBySubject[subjectId] = await getSubjectStructure(subjectId);
+  } catch {
+    // The panel is a summary; the list below still works without it.
+  }
+}
+
+function clearQuestionCache() {
+  for (const key of Object.keys(questionsBySubject)) delete questionsBySubject[Number(key)];
+  for (const key of Object.keys(questionsPageBySubject)) delete questionsPageBySubject[Number(key)];
+}
+
+async function setQtypeFilter(value: EntQuestionType | null) {
+  if (qtypeFilter.value === value) return;
+  qtypeFilter.value = value;
+  clearSelection(true);
+  searchQuery.value = "";
+  clearQuestionCache();
+  if (openSubjectId.value !== null) {
+    questionsLoading.value = true;
+    await loadQuestions(openSubjectId.value);
+    questionsLoading.value = false;
+  }
 }
 
 async function changeQuestionsPage(subjectId: number, page: number) {
@@ -250,8 +286,7 @@ async function setBankLanguage(value: ExamLanguage | "all") {
   clearSelection(true);
   searchQuery.value = "";
   // Everything cached was fetched under the previous filter.
-  for (const key of Object.keys(questionsBySubject)) delete questionsBySubject[Number(key)];
-  for (const key of Object.keys(questionsPageBySubject)) delete questionsPageBySubject[Number(key)];
+  clearQuestionCache();
   if (openSubjectId.value !== null) {
     questionsLoading.value = true;
     await loadQuestions(openSubjectId.value);
@@ -307,6 +342,7 @@ async function saveQuotas() {
       if (quotaForm.is_profile && form.qtype === "short_answer") form.qtype = "single";
       adaptToQtype(form, quotaForm.is_profile);
     }
+    await refreshStructure(subjectId);
     closeQuotaModal();
   } finally {
     savingQuotas.value = false;
@@ -384,6 +420,11 @@ async function selectSubject(subjectId: number) {
   searchQuery.value = "";
   if (openSubjectId.value === subjectId) return;
   openSubjectId.value = subjectId;
+  // The type filter belongs to the subject it was picked on.
+  if (qtypeFilter.value !== null) {
+    qtypeFilter.value = null;
+    clearQuestionCache();
+  }
   cancelEditQuestion();
   if (!questionForms[subjectId]) questionForms[subjectId] = newQuestionForm(subjectId);
   if (!questionsBySubject[subjectId]) {
@@ -486,6 +527,7 @@ function adjustQuestionTotals(subjectId: number, byLanguage: Partial<Record<Exam
     page.total = Math.max(0, page.total - removedCount);
     page.pages = Math.max(1, Math.ceil(page.total / QUESTIONS_PER_PAGE));
   }
+  void refreshStructure(subjectId);
 }
 
 async function handleDeleteQuestion(subjectId: number, questionId: number) {
@@ -699,6 +741,19 @@ function questionCardClass(q: EntQuestionTeacher): string {
               </button>
             </div>
           </div>
+
+          <EntStructurePanel
+            v-if="structureBySubject[selectedSubject.id]"
+            :structure="structureBySubject[selectedSubject.id]"
+            :active-qtype="qtypeFilter"
+            @select="setQtypeFilter"
+          />
+          <p v-if="qtypeFilter" class="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+            Показаны только вопросы типа «{{ QTYPE_BADGE[qtypeFilter] }}».
+            <button type="button" class="font-medium text-moss hover:underline" @click="setQtypeFilter(null)">
+              Показать все
+            </button>
+          </p>
 
           <!-- Only the very first open of a subject shows the plain loading
                text (nothing to keep on screen yet). A page change keeps the
