@@ -66,6 +66,7 @@ export function createEntSubject(payload: { name: string; slug?: string }) {
 export interface EntSubjectUpdatePayload {
   name?: string;
   is_active?: boolean;
+  is_profile?: boolean;
   single_choice_count?: number;
   multiple_choice_count?: number;
   matching_count?: number;
@@ -93,10 +94,12 @@ export function listSubjectQuestions(
 export interface EntQuestionCreatePayload {
   qtype: EntQuestionType;
   text: string;
+  context_text?: string;
   language: ExamLanguage;
   max_score: number;
   choices?: { text: string; is_correct: boolean }[];
-  match_pairs?: { prompt_text: string; answer_text: string }[];
+  /** prompt_text null: a distractor answer. */
+  match_pairs?: { prompt_text: string | null; answer_text: string }[];
   answer_variants?: string[];
 }
 

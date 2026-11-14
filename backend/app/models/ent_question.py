@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -12,6 +12,10 @@ class EntQuestionType(str, enum.Enum):
     multiple = "multiple"
     matching = "matching"
     short_answer = "short_answer"
+    # A single-choice question asked about a passage of text (ЕНТ profile
+    # questions 26-30). Graded exactly like `single`; the passage lives in
+    # EntQuestion.context_text. ЕНТ bank only -- course questions refuse it.
+    context = "context"
 
 
 class EntLanguage(str, enum.Enum):
@@ -37,6 +41,8 @@ class EntQuestion(Base):
         Enum(EntQuestionType, name="ent_question_type", native_enum=True), nullable=False
     )
     text: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # The passage a `context` question is asked about; None for other types.
+    context_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Russian unless the import (or the teacher) says otherwise: the whole bank
     # predates this column, and 0013 backfills it to the same value.
     language: Mapped[EntLanguage] = mapped_column(
@@ -81,7 +87,7 @@ class EntQuestion(Base):
 
 
 class EntChoice(Base):
-    """Options for qtype in (single, multiple)."""
+    """Options for qtype in (single, context, multiple)."""
 
     __tablename__ = "ent_choices"
 
@@ -98,13 +104,17 @@ class EntMatchPair(Base):
     """Correct prompt/answer pairs for qtype == matching. Each row already
     encodes its own correct pairing; the frontend shuffles answer_text
     across a question's pairs when rendering, and the student's submission
-    references pair ids, not text, so grading never touches free text."""
+    references pair ids, not text, so grading never touches free text.
+
+    A row with no prompt is a distractor: an extra answer on the right that
+    is the correct pair of nothing, so a question can offer more answers
+    than it has prompts (2 prompts, 4 answers)."""
 
     __tablename__ = "ent_match_pairs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("ent_questions.id", ondelete="CASCADE"), nullable=False)
-    prompt_text: Mapped[str] = mapped_column(String(300), nullable=False)
+    prompt_text: Mapped[str | None] = mapped_column(String(300), nullable=True)
     answer_text: Mapped[str] = mapped_column(String(300), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

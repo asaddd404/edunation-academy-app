@@ -17,6 +17,7 @@ from app.core.rate_limit import (
     UPLOAD_BY_USER,
 )
 from app.core.ent_language import UnknownLanguageError, parse_language
+from app.core.ent_structure import profile_format_problem
 from app.core.concurrency import PDF_IMPORT_POOL
 from app.core.file_type import assert_matches_extension
 from app.core.ent_pdf_import import (
@@ -74,6 +75,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/teacher/ent", tags=["ent-teacher"], dependencies=[Depends(require_role(RoleEnum.teacher, RoleEnum.admin))]
 )
+
+
+def _fill_question(question: EntQuestion, q_in: EntQuestionIn) -> None:
+    """Writes a validated question onto a row (new, or replaced in full on
+    edit) -- the one place create, edit and bulk-create build a question."""
+    question.qtype = q_in.qtype
+    question.text = q_in.text
+    question.context_text = q_in.context_text
+    question.language = q_in.language
+    question.max_score = q_in.max_score
+    question.choices = [
+        EntChoice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(q_in.choices)
+    ]
+    question.match_pairs = [
+        EntMatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=i)
+        for i, p in enumerate(q_in.match_pairs)
+    ]
+    question.answer_variants = [EntAnswerVariant(text=v.strip()) for v in q_in.answer_variants if v.strip()]
+
+
+def _profile_problem(subject: EntSubject, q_in: EntQuestionIn) -> str | None:
+    """Why the question does not fit the subject's fixed ЕНТ format (only a
+    profile subject has one), or None."""
+    if not subject.is_profile:
+        return None
+    return profile_format_problem(q_in.qtype, len(q_in.choices), q_in.max_score)
+
+
+def _assert_fits_subject(subject: EntSubject, q_in: EntQuestionIn) -> None:
+    problem = _profile_problem(subject, q_in)
+    if problem:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
 
 
 @router.get("/subjects", response_model=list[EntSubjectOut])
@@ -137,6 +170,8 @@ async def update_subject(
         subject.name = payload.name
     if payload.is_active is not None:
         subject.is_active = payload.is_active
+    if payload.is_profile is not None:
+        subject.is_profile = payload.is_profile
     if payload.single_choice_count is not None:
         subject.single_choice_count = payload.single_choice_count
     if payload.multiple_choice_count is not None:
@@ -200,30 +235,14 @@ async def create_subject_question(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> EntQuestionTeacherOut:
-    await assert_owns_ent_subject(db, user, subject_id)
+    subject = await assert_owns_ent_subject(db, user, subject_id)
+    _assert_fits_subject(subject, payload)
 
     next_order = await db.scalar(
         select(func.coalesce(func.max(EntQuestion.order_index), -1) + 1).where(EntQuestion.subject_id == subject_id)
     )
-    question = EntQuestion(
-        subject_id=subject_id,
-        qtype=payload.qtype,
-        text=payload.text,
-        language=payload.language,
-        max_score=payload.max_score,
-        order_index=next_order,
-        created_by_id=user.id,
-    )
-    question.choices = [
-        EntChoice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
-    ]
-    question.match_pairs = [
-        EntMatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=i)
-        for i, p in enumerate(payload.match_pairs)
-    ]
-    question.answer_variants = [
-        EntAnswerVariant(text=v.strip()) for v in payload.answer_variants if v.strip()
-    ]
+    question = EntQuestion(subject_id=subject_id, order_index=next_order, created_by_id=user.id)
+    _fill_question(question, payload)
     db.add(question)
     await db.commit()
 
@@ -249,7 +268,8 @@ async def update_question(
     # Full replace, not a partial patch: choices/match_pairs/answer_variants
     # are qtype-specific, so validating (and swapping) anything less than
     # the whole set risks leaving mismatched leftovers from the old qtype.
-    await assert_owns_ent_question(db, user, question_id)
+    subject_id = await assert_owns_ent_question(db, user, question_id)
+    _assert_fits_subject(await db.get(EntSubject, subject_id), payload)
 
     question = await db.scalar(
         select(EntQuestion)
@@ -260,18 +280,7 @@ async def update_question(
             selectinload(EntQuestion.answer_variants),
         )
     )
-    question.qtype = payload.qtype
-    question.text = payload.text
-    question.language = payload.language
-    question.max_score = payload.max_score
-    question.choices = [
-        EntChoice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(payload.choices)
-    ]
-    question.match_pairs = [
-        EntMatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=i)
-        for i, p in enumerate(payload.match_pairs)
-    ]
-    question.answer_variants = [EntAnswerVariant(text=v.strip()) for v in payload.answer_variants if v.strip()]
+    _fill_question(question, payload)
     await db.commit()
 
     question = await db.scalar(
@@ -635,7 +644,7 @@ async def bulk_create_questions(
     against the same rules as the manual question form; a malformed item is
     skipped with its error rather than failing the whole batch."""
     await BULK_CREATE_BY_USER.enforce(str(user.id))
-    await assert_owns_ent_subject(db, user, payload.subject_id)
+    subject = await assert_owns_ent_subject(db, user, payload.subject_id)
 
     next_order = await db.scalar(
         select(func.coalesce(func.max(EntQuestion.order_index), -1) + 1).where(
@@ -651,26 +660,15 @@ async def bulk_create_questions(
         except ValidationError as e:
             skipped.append(EntBulkCreateSkip(index=index, error="; ".join(err["msg"] for err in e.errors())))
             continue
+        problem = _profile_problem(subject, q_in)
+        if problem:
+            skipped.append(EntBulkCreateSkip(index=index, error=problem))
+            continue
 
-        question = EntQuestion(
-            subject_id=payload.subject_id,
-            qtype=q_in.qtype,
-            text=q_in.text,
-            # Whatever the teacher left the flag on in the preview -- the
-            # detector's guess only reached them as a default.
-            language=q_in.language,
-            max_score=q_in.max_score,
-            order_index=next_order,
-            created_by_id=user.id,
-        )
-        question.choices = [
-            EntChoice(text=c.text, is_correct=c.is_correct, order_index=i) for i, c in enumerate(q_in.choices)
-        ]
-        question.match_pairs = [
-            EntMatchPair(prompt_text=p.prompt_text, answer_text=p.answer_text, order_index=i)
-            for i, p in enumerate(q_in.match_pairs)
-        ]
-        question.answer_variants = [EntAnswerVariant(text=v.strip()) for v in q_in.answer_variants if v.strip()]
+        # The language is whatever the teacher left the flag on in the
+        # preview -- the detector's guess only reached them as a default.
+        question = EntQuestion(subject_id=payload.subject_id, order_index=next_order, created_by_id=user.id)
+        _fill_question(question, q_in)
         new_questions.append(question)
         next_order += 1
 

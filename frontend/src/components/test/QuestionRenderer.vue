@@ -50,7 +50,7 @@ const pairFor = (promptId: number) => props.modelValue?.pairs?.[String(promptId)
 
 <template>
   <div class="space-y-2" :class="disabled ? 'pointer-events-none opacity-70' : ''">
-    <template v-if="question.qtype === 'single'">
+    <template v-if="question.qtype === 'single' || question.qtype === 'context'">
       <label
         v-for="(choice, i) in question.choices"
         :key="choice.id"

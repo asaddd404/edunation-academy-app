@@ -36,6 +36,7 @@ class EntSubjectQuotasIn(BaseModel):
 class EntSubjectUpdateIn(BaseModel):
     name: OptionalCatalogName = None
     is_active: bool | None = None
+    is_profile: bool | None = None
     single_choice_count: int | None = None
     multiple_choice_count: int | None = None
     matching_count: int | None = None
@@ -61,6 +62,7 @@ class EntSubjectOut(BaseModel):
     name: str
     slug: str
     is_active: bool
+    is_profile: bool = False
     created_at: datetime
     question_count: int = 0
     single_choice_count: int = 0

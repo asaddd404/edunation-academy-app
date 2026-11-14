@@ -36,7 +36,9 @@ useModalFocusTrap(modalPanelRef, () => {
   emit("close");
 });
 
-const QTYPE_LABEL: Record<EntQuestionType, string> = {
+// No "context": a passage does not survive the PDF parse; such questions are
+// typed in by hand.
+const QTYPE_LABEL: Record<Exclude<EntQuestionType, "context">, string> = {
   single: "Один правильный ответ",
   multiple: "Несколько правильных ответов",
   matching: "Сопоставление",
@@ -52,6 +54,7 @@ const isDragging = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const selectedSubjectId = ref<number | null>(props.initialSubjectId ?? props.subjects[0]?.id ?? null);
+const targetIsProfile = computed(() => props.subjects.find((s) => s.id === selectedSubjectId.value)?.is_profile ?? false);
 const pickedFile = ref<File | null>(null);
 
 // reactive array of editable questions, each carrying its own `include`
@@ -100,7 +103,7 @@ function hasAnswer(q: EditableQuestion): boolean {
  * The second is what keeps "Сохранить готовые (N)" from being a promise of
  * N saves and a list of skips. */
 function isReadyToSave(q: EditableQuestion): boolean {
-  return isReady(q.flags) && savableProblem(q) === null;
+  return isReady(q.flags) && savableProblem(q, targetIsProfile.value) === null;
 }
 
 const answeredCount = computed(() => questions.filter(hasAnswer).length);
@@ -761,8 +764,8 @@ function choiceLabel(c: { label: string; raw_label: string }): string {
 
               <!-- Named at the moment it can be fixed, not after the save
                    has already skipped it. -->
-              <p v-if="savableProblem(q)" class="text-xs text-clay">
-                Не сохранится: {{ savableProblem(q) }}
+              <p v-if="savableProblem(q, targetIsProfile)" class="text-xs text-clay">
+                Не сохранится: {{ savableProblem(q, targetIsProfile) }}
               </p>
 
               <p v-if="q.parse_error" class="text-xs text-clay">

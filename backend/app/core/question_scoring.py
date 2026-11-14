@@ -8,7 +8,7 @@ from app.models.question import Question
 GradeableQuestion = EntQuestion | Question
 
 # Answer payload shapes submitted by the student, per qtype:
-#   single:       {"choice_id": <int>}
+#   single:       {"choice_id": <int>}       (context: the same)
 #   multiple:     {"choice_ids": [<int>, ...]}
 #   matching:     {"pairs": {"<pair_id>": <chosen_pair_id>, ...}}
 #   short_answer: {"text": "<str>"}
@@ -65,7 +65,10 @@ def grade_matching(question: GradeableQuestion, answer_data: dict | None) -> int
     if not isinstance(raw_pairs, dict) or not raw_pairs:
         return 0
 
-    valid_pair_ids = {p.id for p in question.match_pairs}
+    # Only rows with a prompt are asked about; a prompt-less row is a
+    # distractor -- an answer that is the right pair of nothing, so picking
+    # it for any prompt is simply wrong.
+    valid_pair_ids = {p.id for p in question.match_pairs if p.prompt_text}
     if not valid_pair_ids:
         return 0
 
@@ -105,6 +108,7 @@ def grade_short_answer(question: GradeableQuestion, answer_data: dict | None) ->
 
 _GRADERS = {
     EntQuestionType.single: grade_single,
+    EntQuestionType.context: grade_single,
     EntQuestionType.multiple: grade_multiple,
     EntQuestionType.matching: grade_matching,
     EntQuestionType.short_answer: grade_short_answer,

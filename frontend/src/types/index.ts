@@ -134,7 +134,8 @@ export interface AnswerPayload {
  * course questions and ЕНТ questions. */
 export interface RenderableQuestion {
   id: number;
-  qtype: QuestionType;
+  /** "context" (ЕНТ only) answers like "single". */
+  qtype: QuestionType | "context";
   choices: Choice[];
   match_prompts: Choice[];
   match_answers: MatchAnswer[];
@@ -291,7 +292,8 @@ export interface SectionTest {
   question_count: number;
 }
 
-export type EntQuestionType = "single" | "multiple" | "matching" | "short_answer";
+/** "context": one correct answer, about a passage of text (`context_text`). */
+export type EntQuestionType = "single" | "context" | "multiple" | "matching" | "short_answer";
 export type EntSimulationStatus = "in_progress" | "submitted";
 /** Language a question is written in, and the one a simulation is sat in.
  * Mirrors the `ent_language` enum on the backend -- the union lives here so
@@ -303,6 +305,8 @@ export interface EntSubject {
   name: string;
   slug: string;
   is_active: boolean;
+  /** Профильный предмет: every simulation is the fixed 40-question ЕНТ structure. */
+  is_profile: boolean;
   created_at: string;
   question_count: number;
   single_choice_count: number;
@@ -322,7 +326,8 @@ export interface EntChoiceTeacher {
 
 export interface EntMatchPairTeacher {
   id: number;
-  prompt_text: string;
+  /** null: a distractor -- an extra answer that pairs with no prompt. */
+  prompt_text: string | null;
   answer_text: string;
   order_index: number;
 }
@@ -337,6 +342,7 @@ export interface EntQuestionTeacher {
   subject_id: number;
   qtype: EntQuestionType;
   text: string;
+  context_text: string | null;
   language: ExamLanguage;
   has_image: boolean;
   max_score: number;
@@ -464,6 +470,7 @@ export interface EntQuestionStudent {
   subject_name: string;
   qtype: EntQuestionType;
   text: string;
+  context_text: string | null;
   has_image: boolean;
   max_score: number;
   choices: EntChoiceOption[];
@@ -504,6 +511,7 @@ export interface EntSimulationResultAnswer {
   subject_name: string;
   qtype: EntQuestionType;
   text: string;
+  context_text: string | null;
   has_image: boolean;
   max_score: number;
   score_awarded: number;

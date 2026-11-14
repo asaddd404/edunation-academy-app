@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.ent_question import EntLanguage, EntQuestionType
 from app.schemas.limits import MAX_BULK_QUESTIONS
@@ -15,14 +15,31 @@ class EntChoiceIn(BaseModel):
     is_correct: bool = False
 
 
+# The passage of a context question: a paragraph or two of source text.
+ContextText = Annotated[str, Field(max_length=5000)]
+
+# A matching question may offer this many answers in all (pairs plus
+# distractors): enough for "2 prompts, 4 answers" and the ЕНТ's own layouts.
+MAX_MATCH_ROWS = 10
+
+
 class EntMatchPairIn(BaseModel):
-    prompt_text: PairText
+    # None (or blank) makes the row a distractor: an answer with no prompt,
+    # offered on the right but the correct pair of nothing.
+    prompt_text: Annotated[str | None, Field(default=None, max_length=300)] = None
     answer_text: PairText
+
+    @field_validator("prompt_text")
+    @classmethod
+    def _blank_is_none(cls, v: str | None) -> str | None:
+        return v if v and v.strip() else None
 
 
 class EntQuestionIn(BaseModel):
     qtype: EntQuestionType
     text: CourseQuestionText
+    # Only for qtype == context: the passage the question is about.
+    context_text: ContextText | None = None
     # Typed as the enum so anything else is rejected here, at the API
     # boundary, rather than at the DB one. Defaulted rather than required:
     # every client that predates the ru/kk split keeps working, and Russian
@@ -38,23 +55,30 @@ class EntQuestionIn(BaseModel):
         if self.max_score not in (1, 2):
             raise ValueError("Баллы за вопрос — 1 или 2")
 
-        if self.qtype == EntQuestionType.single:
+        if self.qtype in (EntQuestionType.single, EntQuestionType.context):
             if not (2 <= len(self.choices) <= 6):
                 raise ValueError("Вопрос с одним ответом должен содержать от 2 до 6 вариантов")
             if sum(1 for c in self.choices if c.is_correct) != 1:
                 raise ValueError("Ровно один вариант должен быть правильным")
+            if self.qtype == EntQuestionType.context:
+                if not (self.context_text and self.context_text.strip()):
+                    raise ValueError("Добавьте текст, на основе которого задан вопрос")
+                self.context_text = self.context_text.strip()
             self._require_only(choices=True)
         elif self.qtype == EntQuestionType.multiple:
             if not (2 <= len(self.choices) <= 8):
                 raise ValueError("Вопрос с несколькими ответами должен содержать от 2 до 8 вариантов")
-            if sum(1 for c in self.choices if c.is_correct) < 2:
-                raise ValueError("Минимум два варианта должны быть правильными")
+            if not (1 <= sum(1 for c in self.choices if c.is_correct) <= 3):
+                raise ValueError("Правильных вариантов должно быть от 1 до 3")
             if self.max_score != 2:
                 raise ValueError("Вопрос с несколькими ответами должен давать 2 балла (частичная защита)")
             self._require_only(choices=True)
         elif self.qtype == EntQuestionType.matching:
-            if len(self.match_pairs) < 2:
+            prompts = sum(1 for p in self.match_pairs if p.prompt_text)
+            if prompts < 2:
                 raise ValueError("Сопоставление должно содержать минимум 2 пары")
+            if len(self.match_pairs) > MAX_MATCH_ROWS:
+                raise ValueError(f"В сопоставлении не больше {MAX_MATCH_ROWS} вариантов ответа")
             if self.max_score != 2:
                 raise ValueError("Вопрос на сопоставление должен давать 2 балла (частичная защита)")
             self._require_only(match_pairs=True)
@@ -71,6 +95,8 @@ class EntQuestionIn(BaseModel):
             raise ValueError("Поле match_pairs не используется для этого типа вопроса")
         if not answer_variants and self.answer_variants:
             raise ValueError("Поле answer_variants не используется для этого типа вопроса")
+        if self.qtype != EntQuestionType.context:
+            self.context_text = None
 
 
 class EntChoiceTeacherOut(BaseModel):
@@ -86,7 +112,8 @@ class EntMatchPairTeacherOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    prompt_text: str
+    # None for a distractor.
+    prompt_text: str | None
     answer_text: str
     order_index: int
 
@@ -105,6 +132,7 @@ class EntQuestionTeacherOut(BaseModel):
     subject_id: int
     qtype: EntQuestionType
     text: str
+    context_text: str | None = None
     language: EntLanguage
     has_image: bool = False
     max_score: int

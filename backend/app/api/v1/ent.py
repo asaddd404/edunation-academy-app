@@ -16,6 +16,7 @@ from app.core.ent_language import (
     question_pool_filters,
     shortage_message,
 )
+from app.core.ent_structure import PROFILE_STRUCTURE, profile_pool_filters
 from app.core.match_tokens import decode_match_answer, ent_scope, match_answer_token
 from app.core.question_scoring import grade_question
 from app.core.rating import apply_simulation_xp
@@ -87,7 +88,8 @@ def _build_student_question(question: EntQuestion, simulation_id: int) -> EntQue
     match_answers: list[EntMatchAnswerOut] = []
     if question.match_pairs:
         scope = ent_scope(simulation_id)
-        match_prompts = [EntMatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs]
+        # Distractors (no prompt) appear only among the answers.
+        match_prompts = [EntMatchItemOut(id=p.id, text=p.prompt_text) for p in question.match_pairs if p.prompt_text]
         shuffled = list(question.match_pairs)
         random.shuffle(shuffled)
         match_answers = [
@@ -100,12 +102,27 @@ def _build_student_question(question: EntQuestion, simulation_id: int) -> EntQue
         subject_name=question.subject.name,
         qtype=question.qtype,
         text=question.text,
+        context_text=question.context_text,
         has_image=question.has_image,
         max_score=question.max_score,
         choices=[EntChoiceOut(id=c.id, text=c.text) for c in question.choices],
         match_prompts=match_prompts,
         match_answers=match_answers,
     )
+
+
+def _subject_blocks(subject: EntSubject) -> list[tuple[EntQuestionType, int, list]]:
+    """The (qtype, count, extra pool filters) blocks a simulation draws from
+    the subject, in order. Empty means unconfigured -- see start_simulation's
+    legacy branch.
+
+    A profile subject is always the fixed ЕНТ structure (app.core.
+    ent_structure), whatever its quotas say, and draws only questions in the
+    profile format; otherwise the subject's own per-type quotas.
+    """
+    if subject.is_profile:
+        return [(qtype, count, profile_pool_filters(qtype)) for qtype, count in PROFILE_STRUCTURE]
+    return [(qtype, count, []) for qtype, count in _subject_quotas(subject).items() if count > 0]
 
 
 def _subject_quotas(subject: EntSubject) -> dict[EntQuestionType, int]:
@@ -290,9 +307,9 @@ async def start_simulation(
 
     subjects_by_id = {s.id: s for s in subjects}
 
-    async def available(subject_id: int, qtype: EntQuestionType | None = None) -> int:
+    async def available(subject_id: int, qtype: EntQuestionType | None = None, extra: list | None = None) -> int:
         return await db.scalar(
-            select(func.count(EntQuestion.id)).where(*question_pool_filters(subject_id, language, qtype))
+            select(func.count(EntQuestion.id)).where(*question_pool_filters(subject_id, language, qtype), *(extra or []))
         )
 
     # Checked for every subject *before* anything is written, so a bank that
@@ -302,12 +319,10 @@ async def start_simulation(
     shortages: list[QuestionShortage] = []
     for subject_id in payload.subject_ids:
         subject = subjects_by_id[subject_id]
-        quotas = _subject_quotas(subject)
-        if any(quotas.values()):
-            for qtype, count in quotas.items():
-                if count <= 0:
-                    continue
-                have = await available(subject_id, qtype)
+        blocks = _subject_blocks(subject)
+        if blocks:
+            for qtype, count, extra in blocks:
+                have = await available(subject_id, qtype, extra)
                 if have < count:
                     shortages.append(QuestionShortage(subject.name, count, have, qtype))
         else:
@@ -334,26 +349,27 @@ async def start_simulation(
     order_index = 0
     for subject_id in payload.subject_ids:
         subject = subjects_by_id[subject_id]
-        quotas = _subject_quotas(subject)
+        blocks = _subject_blocks(subject)
 
-        if any(quotas.values()):
-            # Quota-configured subject: draw `count` random questions per
-            # qtype. The counts above already proved the pool can cover them.
+        if blocks:
+            # Draw `count` random questions per block. The counts above
+            # already proved the pool can cover them.
             question_ids: list[int] = []
-            for qtype, count in quotas.items():
-                if count <= 0:
-                    continue
+            for qtype, count, extra in blocks:
                 ids = (
                     await db.scalars(
                         select(EntQuestion.id)
-                        .where(*question_pool_filters(subject_id, language, qtype))
+                        .where(*question_pool_filters(subject_id, language, qtype), *extra)
                         .order_by(func.random())
                         .limit(count)
                     )
                 ).all()
                 question_ids.extend(ids)
-            # Interleave qtypes instead of leaving them grouped block-by-block.
-            random.shuffle(question_ids)
+            # A profile subject keeps the ЕНТ order (1-25 single, 26-30
+            # context, 31-35 matching, 36-40 multiple); a quota subject
+            # interleaves its types instead of leaving them in blocks.
+            if not subject.is_profile:
+                random.shuffle(question_ids)
         else:
             # Legacy/unconfigured subject: flat random sample across all types.
             question_ids = (
@@ -500,6 +516,7 @@ def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
                 subject_name=question.subject.name,
                 qtype=question.qtype,
                 text=question.text,
+                context_text=question.context_text,
                 has_image=question.has_image,
                 max_score=question.max_score,
                 score_awarded=item.score_awarded or 0,

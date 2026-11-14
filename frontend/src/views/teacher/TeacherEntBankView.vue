@@ -26,7 +26,15 @@ import BaseButton from "@/components/ui/BaseButton.vue";
 import PaginationControls from "@/components/ui/PaginationControls.vue";
 import { useModalFocusTrap } from "@/composables/useModalFocusTrap";
 import type { EntQuestionTeacher, EntQuestionType, EntSubject, ExamLanguage } from "@/types";
-import { blankQuestionForm, buildEntQuestionPayload, isQuestionFormValid, type QuestionForm } from "@/utils/entQuestionForm";
+import {
+  adaptToQtype,
+  blankQuestionForm,
+  buildEntQuestionPayload,
+  isQuestionFormValid,
+  PROFILE_STRUCTURE,
+  questionFormFrom,
+  type QuestionForm,
+} from "@/utils/entQuestionForm";
 import { EXAM_LANGUAGES, LANGUAGE_LABEL } from "@/utils/examLanguage";
 
 // Dense card rows, not table rows -- bigger than the app's usual page size
@@ -38,6 +46,7 @@ const QUESTIONS_PER_PAGE = 50;
 // wording; the card is dense and only has room for a couple of words).
 const QTYPE_BADGE: Record<EntQuestionType, string> = {
   single: "Одиночный выбор",
+  context: "На основе текста",
   multiple: "Множественный выбор",
   matching: "Сопоставление",
   short_answer: "Краткий ответ",
@@ -262,6 +271,7 @@ async function handlePdfImportSaved() {
 const quotaModalSubject = ref<EntSubject | null>(null);
 const quotaModalRef = ref<HTMLElement | null>(null);
 const quotaForm = reactive({
+  is_profile: false,
   single_choice_count: 0,
   multiple_choice_count: 0,
   matching_count: 0,
@@ -271,6 +281,7 @@ const savingQuotas = ref(false);
 
 function openQuotaModal(subject: EntSubject) {
   quotaModalSubject.value = subject;
+  quotaForm.is_profile = subject.is_profile;
   quotaForm.single_choice_count = subject.single_choice_count;
   quotaForm.multiple_choice_count = subject.multiple_choice_count;
   quotaForm.matching_count = subject.matching_count;
@@ -287,8 +298,15 @@ async function saveQuotas() {
   if (!quotaModalSubject.value) return;
   savingQuotas.value = true;
   try {
-    await updateEntSubject(quotaModalSubject.value.id, { ...quotaForm });
+    const subjectId = quotaModalSubject.value.id;
+    await updateEntSubject(subjectId, { ...quotaForm });
     await load();
+    // The open "new question" form follows the subject's format at once.
+    const form = questionForms[subjectId];
+    if (form) {
+      if (quotaForm.is_profile && form.qtype === "short_answer") form.qtype = "single";
+      adaptToQtype(form, quotaForm.is_profile);
+    }
     closeQuotaModal();
   } finally {
     savingQuotas.value = false;
@@ -308,8 +326,12 @@ function questionImageUrl(questionId: number): string {
 // A new question defaults to whichever language the bank is filtered to, so
 // adding three Kazakh questions in a row doesn't mean setting the dropdown
 // three times.
-function newQuestionForm(): QuestionForm {
-  return blankQuestionForm(bankLanguage.value === "all" ? "ru" : bankLanguage.value);
+function newQuestionForm(subjectId: number): QuestionForm {
+  return blankQuestionForm(bankLanguage.value === "all" ? "ru" : bankLanguage.value, isProfile(subjectId));
+}
+
+function isProfile(subjectId: number): boolean {
+  return subjects.value.find((s) => s.id === subjectId)?.is_profile ?? false;
 }
 
 const questionForms = reactive<Record<number, QuestionForm>>({});
@@ -332,7 +354,7 @@ async function handleCreateSubject() {
   // name is what reveals it.
   openSubjectId.value = subject.id;
   cancelEditQuestion();
-  if (!questionForms[subject.id]) questionForms[subject.id] = newQuestionForm();
+  if (!questionForms[subject.id]) questionForms[subject.id] = newQuestionForm(subject.id);
   await loadQuestions(subject.id);
 }
 
@@ -363,7 +385,7 @@ async function selectSubject(subjectId: number) {
   if (openSubjectId.value === subjectId) return;
   openSubjectId.value = subjectId;
   cancelEditQuestion();
-  if (!questionForms[subjectId]) questionForms[subjectId] = newQuestionForm();
+  if (!questionForms[subjectId]) questionForms[subjectId] = newQuestionForm(subjectId);
   if (!questionsBySubject[subjectId]) {
     questionsLoading.value = true;
     await loadQuestions(subjectId);
@@ -378,22 +400,7 @@ async function selectSubject(subjectId: number) {
 // the teacher at the bottom of the page.
 function startEditQuestion(question: EntQuestionTeacher) {
   editingQuestionId.value = question.id;
-  const fallback = blankQuestionForm(question.language);
-  editForm.value = {
-    qtype: question.qtype,
-    text: question.text,
-    language: question.language,
-    maxScore: question.max_score,
-    imageFile: null,
-    hasImage: question.has_image,
-    choices: question.choices.length
-      ? question.choices.map((c) => ({ text: c.text, isCorrect: c.is_correct }))
-      : fallback.choices,
-    matchPairs: question.match_pairs.length
-      ? question.match_pairs.map((p) => ({ promptText: p.prompt_text, answerText: p.answer_text }))
-      : fallback.matchPairs,
-    answerVariants: question.answer_variants.length ? question.answer_variants.map((v) => v.text) : [""],
-  };
+  editForm.value = questionFormFrom(question);
 }
 
 function cancelEditQuestion() {
@@ -434,7 +441,7 @@ async function handleRemoveEditImage(subjectId: number) {
 
 async function handleCreateQuestion(subjectId: number) {
   const form = questionForms[subjectId];
-  if (!isQuestionFormValid(form)) return;
+  if (!isQuestionFormValid(form, isProfile(subjectId))) return;
 
   const saved = await createSubjectQuestion(subjectId, buildEntQuestionPayload(form));
   if (form.imageFile) {
@@ -442,7 +449,7 @@ async function handleCreateQuestion(subjectId: number) {
     imageVersion.value += 1;
   }
 
-  questionForms[subjectId] = newQuestionForm();
+  questionForms[subjectId] = newQuestionForm(subjectId);
   fileInputKey.value += 1;
   await loadQuestions(subjectId, questionsPageFor(subjectId).page);
   await load();
@@ -451,7 +458,7 @@ async function handleCreateQuestion(subjectId: number) {
 async function handleUpdateQuestion(subjectId: number) {
   if (editingQuestionId.value === null || !editForm.value) return;
   const form = editForm.value;
-  if (!isQuestionFormValid(form)) return;
+  if (!isQuestionFormValid(form, isProfile(subjectId))) return;
   const questionId = editingQuestionId.value;
 
   const saved = await updateSubjectQuestion(questionId, buildEntQuestionPayload(form));
@@ -508,8 +515,8 @@ async function handleDeleteQuestion(subjectId: number, questionId: number) {
 // it, most likely because a PDF import saved it with its answer key still
 // missing. This is the one legitimate `.marker-edge` case in this view.
 function questionNeedsReview(q: EntQuestionTeacher): boolean {
-  if (q.qtype === "single" || q.qtype === "multiple") return !q.choices.some((c) => c.is_correct);
-  if (q.qtype === "matching") return q.match_pairs.length < 2;
+  if (q.qtype === "single" || q.qtype === "context" || q.qtype === "multiple") return !q.choices.some((c) => c.is_correct);
+  if (q.qtype === "matching") return q.match_pairs.filter((p) => p.prompt_text !== null).length < 2;
   return q.answer_variants.length === 0;
 }
 
@@ -662,7 +669,8 @@ function questionCardClass(q: EntQuestionTeacher): string {
             <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
               <BaseBadge tone="neutral">RU {{ selectedSubject.ru_count }}</BaseBadge>
               <BaseBadge tone="neutral">KZ {{ selectedSubject.kk_count }}</BaseBadge>
-              <BaseBadge v-if="hasQuotas(selectedSubject)" tone="neutral">
+              <BaseBadge v-if="selectedSubject.is_profile" tone="success">профильный · 40 вопросов</BaseBadge>
+              <BaseBadge v-else-if="hasQuotas(selectedSubject)" tone="neutral">
                 квоты {{ selectedSubject.single_choice_count }}/{{ selectedSubject.multiple_choice_count }}/{{
                   selectedSubject.matching_count
                 }}/{{ selectedSubject.short_answer_count }}
@@ -768,6 +776,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
                     v-if="editingQuestionId === q.id && editForm"
                     :form="editForm"
                     mode="edit"
+                    :profile="selectedSubject.is_profile"
                     :image-url="q.has_image ? questionImageUrl(q.id) : null"
                     :file-input-key="editFileInputKey"
                     @save="handleUpdateQuestion(selectedSubject.id)"
@@ -799,6 +808,9 @@ function questionCardClass(q: EntQuestionTeacher): string {
                           <BaseBadge tone="neutral">{{ q.max_score }} балл{{ q.max_score > 1 ? "а" : "" }}</BaseBadge>
                           <BaseBadge v-if="questionNeedsReview(q)" tone="warning">Нет ответа</BaseBadge>
                         </div>
+                        <p v-if="q.context_text" class="mb-1 line-clamp-2 border-l-2 border-line pl-2 text-xs text-ink-3">
+                          {{ q.context_text }}
+                        </p>
                         <p class="text-sm text-ink-2"><SmartText :text="q.text" /></p>
                       </div>
                     </div>
@@ -857,6 +869,7 @@ function questionCardClass(q: EntQuestionTeacher): string {
             <EntQuestionForm
               :form="questionForms[selectedSubject.id]"
               mode="create"
+              :profile="selectedSubject.is_profile"
               :file-input-key="fileInputKey"
               @save="handleCreateQuestion(selectedSubject.id)"
               @image-picked="onNewImagePicked(selectedSubject.id, $event)"
@@ -875,12 +888,27 @@ function questionCardClass(q: EntQuestionTeacher): string {
     >
       <div ref="quotaModalRef" role="dialog" aria-modal="true" class="card max-h-[90dvh] w-full max-w-md overflow-y-auto p-5">
         <h2 class="mb-1 text-lg font-semibold text-ink">Структура предмета «{{ quotaModalSubject.name }}»</h2>
-        <p class="mb-4 text-sm text-ink-2">
+        <label class="mb-4 flex cursor-pointer items-start gap-3 rounded-xl border border-line p-3 text-sm">
+          <input v-model="quotaForm.is_profile" type="checkbox" class="mt-0.5 h-4 w-4 accent-moss" />
+          <span>
+            <span class="block font-medium text-ink">Профильный предмет</span>
+            <span class="text-ink-2">Тест всегда из 40 вопросов в формате ЕНТ:</span>
+            <ul class="mt-1 space-y-0.5 text-xs text-ink-3">
+              <li v-for="block in PROFILE_STRUCTURE" :key="block.qtype">{{ block.from }}–{{ block.to }}: {{ block.label }}</li>
+            </ul>
+          </span>
+        </label>
+
+        <p v-if="quotaForm.is_profile" class="text-sm text-ink-2">
+          Количество вопросов по типам задаёт формат ЕНТ, квоты ниже не используются. В тест попадают только вопросы
+          в этом формате: 4 варианта у вопросов с одним ответом, 6 — у вопросов с несколькими.
+        </p>
+        <p v-else class="mb-4 text-sm text-ink-2">
           Сколько вопросов каждого типа брать при генерации симуляции. Если всё оставить по 0, предмет останется в
           старом режиме — случайная выборка без учёта типа.
         </p>
 
-        <div class="space-y-3">
+        <div v-if="!quotaForm.is_profile" class="space-y-3">
           <label class="block text-sm">
             <span class="mb-1.5 block font-medium text-ink-2">Один правильный ответ (single choice)</span>
             <input v-model.number="quotaForm.single_choice_count" type="number" min="0" max="100" class="input min-h-11" />

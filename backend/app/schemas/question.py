@@ -61,6 +61,10 @@ class QuestionIn(BaseModel):
             if not self.answer_variants or not any(v.strip() for v in self.answer_variants):
                 raise ValueError("Нужен хотя бы один правильный ответ")
             self._require_only(answer_variants=True)
+        else:
+            # `context` shares the enum but is an ЕНТ-bank type: a course
+            # question has nowhere to keep the passage.
+            raise ValueError("Этот тип вопроса доступен только в банке ЕНТ")
         return self
 
     def _require_only(self, choices: bool = False, match_pairs: bool = False, answer_variants: bool = False) -> None:

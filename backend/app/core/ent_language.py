@@ -32,6 +32,7 @@ QTYPE_NAME = {
     EntQuestionType.multiple: "несколько правильных ответов",
     EntQuestionType.matching: "сопоставление",
     EntQuestionType.short_answer: "краткий ответ",
+    EntQuestionType.context: "задания на основе текста",
 }
 
 
