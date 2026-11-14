@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import { MonitorPlay, Presentation } from "@lucide/vue";
 import { isAxiosError } from "axios";
 import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { submitHomework } from "@/api/homework";
 import { getLesson, startLessonTest } from "@/api/lessons";
+import { getStudentPresentationLink } from "@/api/presentation";
 import { getStudentVideoTicket } from "@/api/video";
+import PresentationViewer from "@/components/media/PresentationViewer.vue";
 import YouTubeEmbed from "@/components/media/YouTubeEmbed.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
@@ -32,6 +35,30 @@ const loadError = ref("");
 const videoSrc = ref<string | null>(null);
 const videoError = ref("");
 
+// Video and presentation share one spot under the title. With both, a switch
+// picks which is shown; the presentation viewer is mounted only once it is
+// first opened, since every mount makes Microsoft download the file.
+type MediaTab = "video" | "presentation";
+const mediaTab = ref<MediaTab>("video");
+const presentationOpened = ref(false);
+const mediaBox = ref<HTMLElement | null>(null);
+
+const hasPresentation = computed(() => !!lesson.value?.presentation_name);
+const hasVideoBlock = computed(() => {
+  const l = lesson.value;
+  if (!l) return false;
+  return !!videoSrc.value || !!l.video_url || l.video_status !== "none" || !!videoError.value;
+});
+
+function showMedia(tab: MediaTab) {
+  if (tab === "presentation") {
+    presentationOpened.value = true;
+    // A hidden <video> would keep talking over the slides.
+    mediaBox.value?.querySelectorAll("video").forEach((video) => video.pause());
+  }
+  mediaTab.value = tab;
+}
+
 const homeworkText = ref("");
 const homeworkFile = ref<File | null>(null);
 const homeworkSubmitting = ref(false);
@@ -52,6 +79,7 @@ async function load() {
   try {
     lesson.value = await getLesson(lessonId);
     homeworkText.value = lesson.value.my_homework?.text_answer ?? "";
+    if (lesson.value.presentation_name && !hasVideoBlock.value) showMedia("presentation");
     if (lesson.value.video_status === "ready") {
       try {
         const ticket = await getStudentVideoTicket(lessonId);
@@ -119,19 +147,55 @@ async function handleSubmitHomework() {
       </PageHeader>
 
       <div class="space-y-8">
-        <HlsPlayer v-if="videoSrc" :src="videoSrc" />
-        <YouTubeEmbed
-          v-else-if="lesson.video_url && lesson.video_status !== 'processing'"
-          :url="lesson.video_url"
-          :title="lesson.title"
-        />
-        <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-line p-4 text-sm text-ink-2">
-          Видео обрабатывается, зайдите чуть позже.
-        </p>
-        <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-line p-4 text-sm text-clay">
-          Не удалось обработать видео. Сообщите учителю.
-        </p>
-        <p v-else-if="videoError" class="rounded-xl border border-line p-4 text-sm text-clay">{{ videoError }}</p>
+        <section v-if="hasVideoBlock || hasPresentation" ref="mediaBox" class="space-y-3">
+          <div
+            v-if="hasVideoBlock && hasPresentation"
+            role="tablist"
+            aria-label="Материалы урока"
+            class="inline-flex rounded-xl border border-line bg-paper-2 p-1"
+          >
+            <button
+              v-for="tab in ([
+                { key: 'video', label: 'Видеоурок', icon: MonitorPlay },
+                { key: 'presentation', label: 'Презентация', icon: Presentation },
+              ] as const)"
+              :key="tab.key"
+              type="button"
+              role="tab"
+              :aria-selected="mediaTab === tab.key"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-all duration-200"
+              :class="mediaTab === tab.key ? 'bg-paper text-ink shadow-sm' : 'text-ink-2 hover:text-ink'"
+              @click="showMedia(tab.key)"
+            >
+              <component :is="tab.icon" :size="15" :stroke-width="1.8" />
+              {{ tab.label }}
+            </button>
+          </div>
+
+          <div v-if="hasVideoBlock" v-show="mediaTab === 'video'">
+            <HlsPlayer v-if="videoSrc" :src="videoSrc" />
+            <YouTubeEmbed
+              v-else-if="lesson.video_url && lesson.video_status !== 'processing' && mediaTab === 'video'"
+              :url="lesson.video_url"
+              :title="lesson.title"
+            />
+            <p v-else-if="lesson.video_status === 'processing'" class="rounded-xl border border-line p-4 text-sm text-ink-2">
+              Видео обрабатывается, зайдите чуть позже.
+            </p>
+            <p v-else-if="lesson.video_status === 'failed'" class="rounded-xl border border-line p-4 text-sm text-clay">
+              Не удалось обработать видео. Сообщите учителю.
+            </p>
+            <p v-else-if="videoError" class="rounded-xl border border-line p-4 text-sm text-clay">{{ videoError }}</p>
+          </div>
+
+          <PresentationViewer
+            v-if="hasPresentation && presentationOpened"
+            v-show="mediaTab === 'presentation'"
+            :name="lesson.presentation_name ?? 'Презентация'"
+            :size="lesson.presentation_size"
+            :load-link="() => getStudentPresentationLink(lessonId)"
+          />
+        </section>
 
         <RichContent :content="lesson.description" />
 

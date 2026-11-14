@@ -1,4 +1,6 @@
+import io
 import uuid
+import zipfile
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
@@ -12,6 +14,7 @@ CATEGORY_IMAGE_DIR = UPLOAD_ROOT / "categories"
 AVATAR_DIR = UPLOAD_ROOT / "avatars"
 ENT_QUESTION_IMAGE_DIR = UPLOAD_ROOT / "ent-questions"
 LESSON_CONTENT_IMAGE_DIR = UPLOAD_ROOT / "lesson-content"
+PRESENTATION_DIR = UPLOAD_ROOT / "presentations"
 
 ALLOWED_HOMEWORK_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".txt", ".doc", ".docx"}
 MAX_HOMEWORK_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -21,6 +24,10 @@ MAX_CATEGORY_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_AVATAR_SIZE = 3 * 1024 * 1024  # 3 MB
 MAX_ENT_QUESTION_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_LESSON_CONTENT_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
+# Microsoft's Office viewer refuses PowerPoint files above 10 MB, so a bigger
+# upload would store fine and then never display.
+MAX_PRESENTATION_SIZE = 10 * 1024 * 1024  # 10 MB
+PRESENTATION_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
 async def save_homework_file(upload: UploadFile) -> tuple[str, str]:
@@ -143,6 +150,58 @@ async def save_lesson_content_image(upload: UploadFile) -> str:
     (LESSON_CONTENT_IMAGE_DIR / stored_name).write_bytes(contents)
 
     return f"lesson-content/{stored_name}"
+
+
+async def save_lesson_presentation(upload: UploadFile) -> tuple[str, str, int]:
+    """Validates and stores a lesson's PowerPoint file. Returns
+    (relative_path, original_filename, size). Only .pptx: the viewer also
+    reads the old binary .ppt, but that format carries macros and cannot be
+    checked as cheaply. A .pptx is a zip whose package must contain
+    ppt/presentation.xml -- a renamed .docx or any other zip is refused."""
+    original_name = (upload.filename or "presentation.pptx").strip()
+    if Path(original_name).suffix.lower() != ".pptx":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужен файл PowerPoint в формате .pptx")
+
+    contents = await upload.read(MAX_PRESENTATION_SIZE + 1)
+    if len(contents) > MAX_PRESENTATION_SIZE:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 10 МБ)")
+    if not contents:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
+    if not _is_pptx_package(contents):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл не является презентацией PowerPoint (.pptx)")
+
+    PRESENTATION_DIR.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex}.pptx"
+    (PRESENTATION_DIR / stored_name).write_bytes(contents)
+
+    return f"presentations/{stored_name}", original_name[:255], len(contents)
+
+
+def _is_pptx_package(contents: bytes) -> bool:
+    if not contents.startswith(b"PK\x03\x04"):
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(contents)) as package:
+            names = set(package.namelist())
+    except (zipfile.BadZipFile, ValueError):
+        return False
+    return "ppt/presentation.xml" in names and "[Content_Types].xml" in names
+
+
+def presentation_response(path: Path, filename: str) -> FileResponse:
+    """Serves a lesson's .pptx to the Office viewer. A download, never a page
+    (same reasoning as `attachment_response`), and not cached anywhere shared:
+    the link is what authorizes it."""
+    return FileResponse(
+        path,
+        media_type=PRESENTATION_MEDIA_TYPE,
+        filename=filename,
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 def resolve_upload_path(relative_path: str) -> Path:
