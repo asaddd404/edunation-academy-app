@@ -68,6 +68,7 @@ class EntQuestionStudentOut(BaseModel):
     subject_name: str
     qtype: EntQuestionType
     text: str
+    context_text: str | None = None
     has_image: bool = False
     max_score: int
     choices: list[EntChoiceOut] = []
@@ -115,6 +116,7 @@ class EntSimulationResultAnswerOut(BaseModel):
     subject_name: str
     qtype: EntQuestionType
     text: str
+    context_text: str | None = None
     has_image: bool = False
     max_score: int
     score_awarded: int

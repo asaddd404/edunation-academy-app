@@ -2,10 +2,11 @@ import type { AnswerPayload, QuestionType } from "@/types";
 
 /** Whether `answer` counts as an attempt at a question of type `qtype` --
  * the same rule for course tests and the ЕНТ simulator. */
-export function isAnswered(qtype: QuestionType, answer: AnswerPayload | undefined): boolean {
+export function isAnswered(qtype: QuestionType | "context", answer: AnswerPayload | undefined): boolean {
   if (!answer) return false;
   switch (qtype) {
     case "single":
+    case "context":
       return answer.choice_id != null;
     case "multiple":
       return (answer.choice_ids?.length ?? 0) > 0;

@@ -466,6 +466,15 @@ function timingLabel(r: EntSimulationResult): string {
             <span>{{ currentQuestion.max_score }} {{ pluralRu(currentQuestion.max_score, ["балл", "балла", "баллов"]) }}</span>
           </div>
 
+          <!-- Questions 26-30 of a profile subject: the passage comes first. -->
+          <div
+            v-if="currentQuestion.context_text"
+            class="max-h-80 overflow-y-auto whitespace-pre-line rounded-xl border border-line bg-paper-2/60 px-4 py-3 text-sm leading-relaxed text-ink"
+          >
+            <p class="mb-1 text-xs font-medium uppercase tracking-wide text-ink-3">Прочитайте текст</p>
+            {{ currentQuestion.context_text }}
+          </div>
+
           <p class="text-body-lg font-medium text-ink"><SmartText :text="currentQuestion.text" /></p>
 
           <img
@@ -645,6 +654,10 @@ function timingLabel(r: EntSimulationResult): string {
               {{ answer.score_awarded }} / {{ answer.max_score }}
             </BaseBadge>
           </div>
+          <details v-if="answer.context_text" class="rounded-xl border border-line bg-paper-2/60 px-4 py-2 text-sm text-ink-2">
+            <summary class="cursor-pointer text-xs font-medium text-ink-3">Текст задания</summary>
+            <p class="mt-2 whitespace-pre-line">{{ answer.context_text }}</p>
+          </details>
           <p class="text-body-lg font-medium text-ink"><SmartText :text="answer.text" /></p>
 
           <img
@@ -691,9 +704,12 @@ function timingLabel(r: EntSimulationResult): string {
           </ul>
 
           <ul v-else-if="answer.match_pairs.length" class="space-y-1 text-sm">
-            <li v-for="pair in answer.match_pairs" :key="pair.id" class="text-ink-2">
-              <SmartText :text="pair.prompt_text" /> → <SmartText :text="pair.answer_text" />
-            </li>
+            <template v-for="pair in answer.match_pairs" :key="pair.id">
+              <li v-if="pair.prompt_text !== null" class="text-ink-2">
+                <SmartText :text="pair.prompt_text" /> → <SmartText :text="pair.answer_text" />
+              </li>
+              <li v-else class="text-ink-3">Лишний вариант: <SmartText :text="pair.answer_text" /></li>
+            </template>
           </ul>
 
           <ul v-else-if="answer.answer_variants.length" class="space-y-1 text-sm text-ink-2">

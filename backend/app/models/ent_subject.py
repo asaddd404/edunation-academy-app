@@ -21,6 +21,9 @@ class EntSubject(Base):
     multiple_choice_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     matching_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     short_answer_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # A profile subject (профильный предмет) ignores the quotas above: every
+    # simulation draws the fixed ЕНТ structure in app.core.ent_structure.
+    is_profile: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # Nullable so the subject (and its question bank) survives if the
     # creating teacher's account is later removed.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

@@ -20,11 +20,21 @@
  * сохранится" is a riddle.
  */
 import type { EntQuestionImport } from "@/types";
+import { PROFILE_MULTIPLE_OPTIONS, PROFILE_SINGLE_OPTIONS } from "@/utils/entQuestionForm";
 
-export function savableProblem(q: EntQuestionImport): string | null {
+export function savableProblem(q: EntQuestionImport, profile = false): string | null {
   const correct = q.choices.filter((c) => c.is_correct).length;
 
-  if (q.qtype === "single") {
+  // A profile subject takes only the fixed ЕНТ format (app/core/ent_structure.py).
+  if (profile) {
+    if (q.qtype === "short_answer") return "В профильном предмете нет вопросов с кратким ответом";
+    if ((q.qtype === "single" || q.qtype === "context") && q.choices.length !== PROFILE_SINGLE_OPTIONS)
+      return `В профильном предмете нужно ровно ${PROFILE_SINGLE_OPTIONS} варианта`;
+    if (q.qtype === "multiple" && q.choices.length !== PROFILE_MULTIPLE_OPTIONS)
+      return `В профильном предмете нужно ровно ${PROFILE_MULTIPLE_OPTIONS} вариантов`;
+  }
+
+  if (q.qtype === "single" || q.qtype === "context") {
     if (q.choices.length < 2) return "Нужно минимум 2 варианта ответа";
     if (q.choices.length > 6) return "Не больше 6 вариантов ответа";
     if (correct !== 1) return "Должен быть отмечен ровно один правильный вариант";
@@ -34,7 +44,7 @@ export function savableProblem(q: EntQuestionImport): string | null {
   if (q.qtype === "multiple") {
     if (q.choices.length < 2) return "Нужно минимум 2 варианта ответа";
     if (q.choices.length > 8) return "Не больше 8 вариантов ответа";
-    if (correct < 2) return "Нужно отметить минимум два правильных варианта";
+    if (correct < 1 || correct > 3) return "Правильных вариантов должно быть от 1 до 3";
     return null;
   }
 

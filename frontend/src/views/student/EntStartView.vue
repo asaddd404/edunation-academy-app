@@ -42,7 +42,15 @@ const durationLabel = computed(() => formatExamDuration(durationMinutes.value));
 
 const canStart = computed(() => selectedSubjectIds.value.length > 0 && questionsPerSubject.value >= 1);
 
-const totalQuestions = computed(() => selectedSubjectIds.value.length * (questionsPerSubject.value || 0));
+// A profile subject is always the 40-question ЕНТ structure, whatever the
+// per-subject number says.
+const PROFILE_QUESTION_COUNT = 40;
+const totalQuestions = computed(() =>
+  selectedSubjectIds.value.reduce((sum, id) => {
+    const profile = subjects.value.find((s) => s.id === id)?.is_profile;
+    return sum + (profile ? PROFILE_QUESTION_COUNT : questionsPerSubject.value || 0);
+  }, 0),
+);
 
 /** A failed load, said as such -- it used to fall through to the empty
  * state, "Предметы ещё не добавлены учителями", which was simply untrue. */
@@ -250,6 +258,7 @@ function historyTone(s: EntSimulationSummary): string {
                 <SubjectIcon :name="subject.name" class="h-6 w-6" />
               </span>
               <span class="text-sm font-medium text-ink">{{ capitalize(subject.name) }}</span>
+              <span v-if="subject.is_profile" class="text-[11px] text-ink-3">профильный · 40 вопросов</span>
               <span
                 class="rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-200"
                 :class="selectedSubjectIds.includes(subject.id) ? 'bg-moss/20 text-moss' : 'bg-paper-2 text-ink-2'"
