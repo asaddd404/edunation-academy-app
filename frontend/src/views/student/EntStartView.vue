@@ -258,12 +258,18 @@ function historyTone(s: EntSimulationSummary): string {
                 <SubjectIcon :name="subject.name" class="h-6 w-6" />
               </span>
               <span class="text-sm font-medium text-ink">{{ capitalize(subject.name) }}</span>
-              <span v-if="subject.is_profile" class="text-[11px] text-ink-3">профильный · 40 вопросов</span>
+              <!-- A profile subject's test is always 40 questions; its bank size
+                   (both languages together, e.g. 80) next to that read as an
+                   80-question test, so a profile card shows only the test size. -->
+              <span v-if="subject.is_profile" class="text-[11px] text-ink-3">профильный предмет</span>
               <span
                 class="rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-200"
                 :class="selectedSubjectIds.includes(subject.id) ? 'bg-moss/20 text-moss' : 'bg-paper-2 text-ink-2'"
               >
-                {{ subject.question_count }} {{ pluralRu(subject.question_count, ["вопрос", "вопроса", "вопросов"]) }}
+                <template v-if="subject.is_profile">{{ PROFILE_QUESTION_COUNT }} вопросов в тесте</template>
+                <template v-else>
+                  {{ subject.question_count }} {{ pluralRu(subject.question_count, ["вопрос", "вопроса", "вопросов"]) }}
+                </template>
               </span>
             </button>
           </div>
