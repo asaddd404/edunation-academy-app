@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
@@ -73,10 +73,14 @@ class VideoTicketOut(BaseModel):
 
 
 class PresentationLinkOut(BaseModel):
-    """Where to point the lesson page's iframe: Microsoft's viewer, already
-    carrying a short-lived link to the file."""
+    """How the lesson page shows the presentation. "office" (.pptx/.ppsx):
+    frame `embed_url`, Microsoft's viewer already carrying a short-lived link
+    to the file. "pdf": fetch `file_path` (API-relative, same short-lived
+    link) and show it in the browser's PDF viewer."""
 
-    embed_url: str
+    kind: Literal["office", "pdf"]
+    embed_url: str | None = None
+    file_path: str | None = None
 
 
 class LessonContentImageOut(BaseModel):

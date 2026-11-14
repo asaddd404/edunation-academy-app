@@ -26,6 +26,8 @@ import { createLesson, deleteLesson, updateLesson } from "@/api/lessons";
 import { createSection, deleteSection, listTeacherSections, updateSection } from "@/api/sections";
 import {
   MAX_PRESENTATION_BYTES,
+  PRESENTATION_ACCEPT,
+  PRESENTATION_EXTENSIONS,
   deleteLessonPresentation,
   formatFileSize,
   getTeacherPresentationLink,
@@ -358,12 +360,14 @@ function handlePresentationFileChange(lessonId: number, event: Event) {
 async function uploadPresentation(lessonId: number, file: File) {
   const ui = presentationUi(lessonId);
   ui.error = "";
-  if (!file.name.toLowerCase().endsWith(".pptx")) {
-    ui.error = "Нужен файл PowerPoint в формате .pptx (в PowerPoint: Файл → Сохранить как → .pptx).";
+  const lower = file.name.toLowerCase();
+  if (!PRESENTATION_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
+    ui.error =
+      "Подходят .pptx, .ppsx или PDF. Старый .ppt или Google Slides сохраните как .pptx (Файл → Сохранить как / Скачать).";
     return;
   }
   if (file.size > MAX_PRESENTATION_BYTES) {
-    ui.error = "Файл больше 10 МБ — просмотрщик Microsoft такой не откроет. Сожмите картинки (Файл → Сжать рисунки).";
+    ui.error = "Файл больше 10 МБ. Сожмите картинки (в PowerPoint: Файл → Сжать рисунки) или уменьшите PDF.";
     return;
   }
   ui.uploading = true;
@@ -742,10 +746,10 @@ async function handleCreateLesson(sectionId: number) {
                         :class="presentationState[lesson.id]?.uploading ? 'pointer-events-none opacity-50' : ''"
                       >
                         <Plus :size="14" :stroke-width="2" />
-                        {{ lesson.presentation_name ? "Заменить" : "Загрузить .pptx" }}
+                        {{ lesson.presentation_name ? "Заменить" : "Загрузить файл" }}
                         <input
                           type="file"
-                          accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                          :accept="PRESENTATION_ACCEPT"
                           class="hidden"
                           :disabled="presentationState[lesson.id]?.uploading"
                           @change="handlePresentationFileChange(lesson.id, $event)"
@@ -781,9 +785,9 @@ async function handleCreateLesson(sectionId: number) {
                       {{ presentationState[lesson.id].error }}
                     </p>
                     <p v-if="!lesson.presentation_name" class="mt-2 text-xs text-ink-3">
-                      Файл PowerPoint (.pptx) до 10 МБ. Дизайн и анимации сохраняются. Чтобы шрифты не
-                      подменились, при сохранении включите «Внедрить шрифты в файл». Ученик сможет скачать
-                      презентацию из просмотрщика.
+                      PowerPoint (.pptx, .ppsx) или PDF, до 10 МБ. В PowerPoint сохраняются дизайн и анимации;
+                      чтобы шрифты не подменились, при сохранении включите «Внедрить шрифты в файл». PDF
+                      показывается без анимаций. Ученик сможет скачать файл.
                     </p>
                     <PresentationViewer
                       v-if="lesson.presentation_name && presentationState[lesson.id]?.preview"

@@ -16,7 +16,7 @@ from app.core.authorization import (
     assert_teacher_owns_section,
 )
 from app.core.rich_content import extract_image_paths, orphaned_image_paths
-from app.core.presentation import presentation_embed_url
+from app.core.presentation import presentation_link
 from app.core.storage import (
     delete_upload,
     resolve_upload_path,
@@ -589,7 +589,7 @@ async def get_teacher_presentation_link(
     lesson = await db.get(Lesson, lesson_id)
     if lesson is None or not lesson.presentation_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "У урока нет презентации")
-    return PresentationLinkOut(embed_url=presentation_embed_url(lesson_id, lesson.presentation_path))
+    return PresentationLinkOut(**presentation_link(lesson_id, lesson.presentation_path))
 
 
 _QUESTION_LOAD_OPTIONS = (

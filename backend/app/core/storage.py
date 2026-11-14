@@ -25,9 +25,18 @@ MAX_AVATAR_SIZE = 3 * 1024 * 1024  # 3 MB
 MAX_ENT_QUESTION_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_LESSON_CONTENT_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 # Microsoft's Office viewer refuses PowerPoint files above 10 MB, so a bigger
-# upload would store fine and then never display.
+# upload would store fine and then never display. PDFs get the same cap.
 MAX_PRESENTATION_SIZE = 10 * 1024 * 1024  # 10 MB
-PRESENTATION_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+# Extension -> served media type. .pptx and .ppsx (a deck saved to open as a
+# slideshow) are the same PresentationML package and both go to the Office
+# viewer; a PDF is shown by the browser's own PDF viewer (no animations).
+# Not accepted: .ppt (binary, can't be checked as cheaply) and .pptm (macros
+# a student would run on download).
+PRESENTATION_MEDIA_TYPES = {
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppsx": "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+    ".pdf": "application/pdf",
+}
 
 
 async def save_homework_file(upload: UploadFile) -> tuple[str, str]:
@@ -153,25 +162,29 @@ async def save_lesson_content_image(upload: UploadFile) -> str:
 
 
 async def save_lesson_presentation(upload: UploadFile) -> tuple[str, str, int]:
-    """Validates and stores a lesson's PowerPoint file. Returns
-    (relative_path, original_filename, size). Only .pptx: the viewer also
-    reads the old binary .ppt, but that format carries macros and cannot be
-    checked as cheaply. A .pptx is a zip whose package must contain
-    ppt/presentation.xml -- a renamed .docx or any other zip is refused."""
+    """Validates and stores a lesson's presentation (.pptx, .ppsx or .pdf,
+    see PRESENTATION_MEDIA_TYPES). Returns (relative_path, original_filename,
+    size). The bytes must match the extension: a .pptx/.ppsx is a zip whose
+    package contains ppt/presentation.xml (a renamed .docx or any other zip is
+    refused), a .pdf starts with the PDF header."""
     original_name = (upload.filename or "presentation.pptx").strip()
-    if Path(original_name).suffix.lower() != ".pptx":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужен файл PowerPoint в формате .pptx")
+    extension = Path(original_name).suffix.lower()
+    if extension not in PRESENTATION_MEDIA_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужна презентация PowerPoint (.pptx, .ppsx) или PDF")
 
     contents = await upload.read(MAX_PRESENTATION_SIZE + 1)
     if len(contents) > MAX_PRESENTATION_SIZE:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл слишком большой (максимум 10 МБ)")
     if not contents:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой файл")
-    if not _is_pptx_package(contents):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл не является презентацией PowerPoint (.pptx)")
+    if extension == ".pdf":
+        if not contents.startswith(b"%PDF-"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл не является PDF")
+    elif not _is_pptx_package(contents):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл не является презентацией PowerPoint")
 
     PRESENTATION_DIR.mkdir(parents=True, exist_ok=True)
-    stored_name = f"{uuid.uuid4().hex}.pptx"
+    stored_name = f"{uuid.uuid4().hex}{extension}"
     (PRESENTATION_DIR / stored_name).write_bytes(contents)
 
     return f"presentations/{stored_name}", original_name[:255], len(contents)
@@ -189,12 +202,13 @@ def _is_pptx_package(contents: bytes) -> bool:
 
 
 def presentation_response(path: Path, filename: str) -> FileResponse:
-    """Serves a lesson's .pptx to the Office viewer. A download, never a page
-    (same reasoning as `attachment_response`), and not cached anywhere shared:
-    the link is what authorizes it."""
+    """Serves a lesson's presentation -- to the Office viewer, or to the lesson
+    page that shows a PDF from a blob. A download, never a page (same
+    reasoning as `attachment_response`), and not cached anywhere shared: the
+    link is what authorizes it. The type comes from our own stored name."""
     return FileResponse(
         path,
-        media_type=PRESENTATION_MEDIA_TYPE,
+        media_type=PRESENTATION_MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream"),
         filename=filename,
         headers={
             "X-Content-Type-Options": "nosniff",

@@ -13,7 +13,7 @@ from app.core.authorization import (
     get_category_id_for_section,
 )
 from app.core.match_tokens import attempt_scope, match_answer_token
-from app.core.presentation import presentation_embed_url
+from app.core.presentation import presentation_link
 from app.core.progress import (
     get_lesson_progress,
     get_lessons_without_questions,
@@ -241,4 +241,4 @@ async def get_lesson_presentation_link(
     lesson = await db.get(Lesson, lesson_id)
     if lesson is None or not lesson.presentation_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "У урока нет презентации")
-    return PresentationLinkOut(embed_url=presentation_embed_url(lesson_id, lesson.presentation_path))
+    return PresentationLinkOut(**presentation_link(lesson_id, lesson.presentation_path))

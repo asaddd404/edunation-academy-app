@@ -28,4 +28,4 @@ async def get_presentation_file(ticket: str, filename: str, db: AsyncSession = D
     file_path = resolve_upload_path(path)
     if not file_path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Презентация не найдена")
-    return presentation_response(file_path, f"lesson-{lesson_id}.pptx")
+    return presentation_response(file_path, f"lesson-{lesson_id}{file_path.suffix.lower()}")
