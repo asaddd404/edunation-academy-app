@@ -2,8 +2,8 @@
 import { computed, defineAsyncComponent } from "vue";
 
 import GlossaryTooltip from "@/components/shared/GlossaryTooltip.vue";
-import { parseGlossary } from "@/utils/glossary";
-import { splitInlineMath } from "@/utils/inlineMath";
+import { parseGlossary, type GlossaryTermSegment } from "@/utils/glossary";
+import { splitInlineMath, type MathSegment } from "@/utils/inlineMath";
 
 /**
  * Renders legacy plain text that may carry `[Термин|Объяснение]` markup and
@@ -17,7 +17,7 @@ const props = defineProps<{ text: string }>();
 const MathView = defineAsyncComponent(() => import("@/components/richtext/MathView.vue"));
 
 const segments = computed(() =>
-  parseGlossary(props.text).flatMap((segment) =>
+  parseGlossary(props.text).flatMap<MathSegment | GlossaryTermSegment>((segment) =>
     segment.type === "text" ? splitInlineMath(segment.value) : [segment],
   ),
 );

@@ -21,6 +21,7 @@ from app.core.video import VideoProcessingError, delete_video_assets, save_raw_v
 from app.database import async_session_factory, get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
+from app.models.homework import HomeworkSubmission
 from app.models.lesson import Lesson, VideoStatusEnum
 from app.models.question import AnswerVariant, Choice, MatchPair, Question
 from app.models.section import Section
@@ -226,6 +227,19 @@ async def update_section(
     return SectionOut.model_validate(section)
 
 
+async def _homework_file_paths(db: AsyncSession, lesson_ids: list[int]) -> set[str]:
+    """Stored homework attachments of these lessons -- the DB cascade removes
+    the submissions but not their files."""
+    if not lesson_ids:
+        return set()
+    paths = await db.scalars(
+        select(HomeworkSubmission.file_path).where(
+            HomeworkSubmission.lesson_id.in_(lesson_ids), HomeworkSubmission.file_path.is_not(None)
+        )
+    )
+    return set(paths.all())
+
+
 @router.delete("/teacher/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_section(
     request: Request,
@@ -252,6 +266,9 @@ async def delete_section(
     images: set[str] = set()
     for row in rows:
         images |= extract_image_paths(row.description) | extract_image_paths(row.homework_assignment)
+    # Students' homework attachments go with the cascade too; their files
+    # would be left on disk with no row left for the retention sweep to find.
+    images |= await _homework_file_paths(db, lesson_ids)
 
     await db.delete(section)
     await db.commit()
@@ -345,6 +362,7 @@ async def delete_lesson(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
 
     images = extract_image_paths(lesson.description) | extract_image_paths(lesson.homework_assignment)
+    images |= await _homework_file_paths(db, [lesson_id])
 
     await db.delete(lesson)
     await db.commit()

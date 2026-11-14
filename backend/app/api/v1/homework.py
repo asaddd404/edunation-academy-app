@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -77,14 +78,18 @@ async def submit_homework(
     if submission is None:
         submission = HomeworkSubmission(lesson_id=lesson_id, student_id=student.id)
         db.add(submission)
+    elif submission.status == HomeworkStatusEnum.accepted:
+        # Accepted work is final: resubmitting would wipe the teacher's grade
+        # and comment and put it back in the review queue.
+        raise HTTPException(status.HTTP_409_CONFLICT, "Работа уже принята — повторно отправлять её не нужно")
 
     if text_answer is not None:
         submission.text_answer = text_answer
+    replaced_path: str | None = None
+    new_path: str | None = None
     if file is not None:
         relative_path, original_name = await save_homework_file(file)
-        # The replaced attachment would otherwise stay on disk with nothing
-        # pointing at it.
-        delete_upload(submission.file_path)
+        replaced_path, new_path = submission.file_path, relative_path
         submission.file_path = relative_path
         submission.file_original_name = original_name
         submission.file_deleted_at = None
@@ -111,7 +116,20 @@ async def submit_homework(
             link="/teacher/homework",
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as e:
+        # The row still points at the old file; the new one belongs to nothing.
+        delete_upload(new_path)
+        if isinstance(e, IntegrityError):
+            # A concurrent first submission (double click) won the unique
+            # (student, lesson) index.
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, "Работа уже отправляется, обновите страницу") from e
+        raise
+    # Only after the commit: deleting the replaced attachment first would
+    # leave the row pointing at a missing file if the write failed.
+    delete_upload(replaced_path)
     await db.refresh(submission)
     return HomeworkSubmissionOut.model_validate(submission)
 

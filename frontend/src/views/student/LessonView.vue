@@ -83,8 +83,9 @@ async function handleSubmitHomework() {
     const submission = await submitHomework(lessonId, homeworkText.value, homeworkFile.value);
     if (lesson.value) lesson.value.my_homework = submission;
     homeworkFile.value = null;
-  } catch {
-    homeworkError.value = "Не удалось отправить домашнее задание.";
+  } catch (e) {
+    // The server says what was wrong (file type, size, locked lesson).
+    homeworkError.value = describeApiError(e, "Не удалось отправить домашнее задание.");
   } finally {
     homeworkSubmitting.value = false;
   }
@@ -178,6 +179,12 @@ async function handleSubmitHomework() {
               </p>
             </div>
 
+            <!-- Accepted work is final: the server refuses a resubmission, which
+                 would otherwise wipe the teacher's grade and comment. -->
+            <p v-if="lesson.my_homework?.status === 'accepted'" class="text-sm text-ink-2">
+              Работа принята учителем — повторно отправлять её не нужно.
+            </p>
+            <template v-else>
             <textarea v-model="homeworkText" rows="4" placeholder="Текст ответа…" class="input" />
             <div class="space-y-1.5">
               <FilePicker
@@ -199,6 +206,7 @@ async function handleSubmitHomework() {
             <BaseButton variant="cta" :disabled="homeworkSubmitting" @click="handleSubmitHomework">
               Отправить домашку
             </BaseButton>
+            </template>
           </section>
         </div>
       </div>
