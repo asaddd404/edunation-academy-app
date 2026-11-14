@@ -78,6 +78,9 @@ export interface LessonSummary {
   /** A YouTube link, when the lesson's video is hosted there. */
   video_url?: string | null;
   has_homework: boolean;
+  /** The lesson's PowerPoint file, if one is attached. */
+  presentation_name?: string | null;
+  presentation_size?: number | null;
 }
 
 export interface Section {
@@ -233,6 +236,8 @@ export interface LessonDetail {
   my_homework: HomeworkSubmission | null;
   video_status: VideoStatus;
   video_duration_seconds: number | null;
+  presentation_name: string | null;
+  presentation_size: number | null;
 }
 
 export interface LessonTeacher {
@@ -247,6 +252,8 @@ export interface LessonTeacher {
   video_status: VideoStatus;
   video_duration_seconds: number | null;
   video_error: string | null;
+  presentation_name: string | null;
+  presentation_size: number | null;
 }
 
 export interface Notification {

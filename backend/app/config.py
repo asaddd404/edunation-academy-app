@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     jwt_access_ttl_minutes: int = 15
     jwt_refresh_ttl_days: int = 30
     video_ticket_ttl_minutes: int = 180
+    # A presentation link is fetched once by Microsoft's viewer when the page
+    # opens it; it only has to outlive that fetch, not the lesson.
+    presentation_ticket_ttl_minutes: int = 30
+    # The site's public address, for links that an outside service (the
+    # Office viewer) fetches. Empty: the first of cors_origins.
+    public_site_url: str = ""
 
     cors_origins: str = "http://localhost,http://localhost:5173"
 
@@ -97,6 +103,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.env.strip().lower() == "production"
+
+    @property
+    def public_base_url(self) -> str:
+        url = self.public_site_url.strip() or (self.cors_origins_list[0] if self.cors_origins_list else "")
+        return url.rstrip("/")
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -35,6 +35,14 @@ class Lesson(Base):
     video_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     video_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # A PowerPoint file shown next to the video through Microsoft's Office
+    # viewer (see app.core.presentation). The stored name is a fresh uuid per
+    # upload, so a replaced file gets a new URL and the viewer's cache of the
+    # old one is never shown again.
+    presentation_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    presentation_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    presentation_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     section: Mapped["Section"] = relationship(back_populates="lessons")
     # See Section.lessons: nulling questions.lesson_id would break the
     # exactly-one-owner CHECK, so deletion is left to the FK cascade.

@@ -13,6 +13,7 @@ from app.core.authorization import (
     get_category_id_for_section,
 )
 from app.core.match_tokens import attempt_scope, match_answer_token
+from app.core.presentation import presentation_embed_url
 from app.core.progress import (
     get_lesson_progress,
     get_lessons_without_questions,
@@ -27,7 +28,15 @@ from app.models.question import Question
 from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkSubmissionOut
-from app.schemas.lesson import ChoiceOut, LessonDetailOut, MatchAnswerOut, MatchItemOut, QuestionOut, VideoTicketOut
+from app.schemas.lesson import (
+    ChoiceOut,
+    LessonDetailOut,
+    MatchAnswerOut,
+    MatchItemOut,
+    PresentationLinkOut,
+    QuestionOut,
+    VideoTicketOut,
+)
 from app.core.storage import image_response, resolve_upload_path
 from app.schemas.section import SectionOut
 from app.schemas.test_attempt import SectionTestOut
@@ -188,6 +197,8 @@ async def get_lesson(
         my_homework=HomeworkSubmissionOut.model_validate(submission) if submission else None,
         video_status=lesson.video_status,
         video_duration_seconds=lesson.video_duration_seconds,
+        presentation_name=lesson.presentation_name,
+        presentation_size=lesson.presentation_size,
     )
 
 
@@ -211,3 +222,23 @@ async def get_lesson_video_ticket(
 
     set_video_ticket_cookie(response, lesson_id)
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")
+
+
+@router.post("/lessons/{lesson_id}/presentation/link", response_model=PresentationLinkOut)
+async def get_lesson_presentation_link(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    student: User = Depends(require_role(RoleEnum.student)),
+) -> PresentationLinkOut:
+    """Same gate as the lesson itself: course access and an unlocked lesson."""
+    category_id = await get_category_id_for_lesson(db, lesson_id)
+    await assert_student_has_category_access(db, student, category_id)
+
+    unlocked, _ = await get_lesson_progress(db, student.id, category_id)
+    if lesson_id not in unlocked:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Урок ещё заблокирован")
+
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None or not lesson.presentation_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "У урока нет презентации")
+    return PresentationLinkOut(embed_url=presentation_embed_url(lesson_id, lesson.presentation_path))

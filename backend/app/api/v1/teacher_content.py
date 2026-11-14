@@ -16,7 +16,14 @@ from app.core.authorization import (
     assert_teacher_owns_section,
 )
 from app.core.rich_content import extract_image_paths, orphaned_image_paths
-from app.core.storage import delete_upload, resolve_upload_path, save_category_image, save_lesson_content_image
+from app.core.presentation import presentation_embed_url
+from app.core.storage import (
+    delete_upload,
+    resolve_upload_path,
+    save_category_image,
+    save_lesson_content_image,
+    save_lesson_presentation,
+)
 from app.core.video import VideoProcessingError, delete_video_assets, save_raw_video, transcode_to_hls
 from app.database import async_session_factory, get_db
 from app.deps import require_role
@@ -32,6 +39,7 @@ from app.schemas.lesson import (
     LessonIn,
     LessonTeacherOut,
     LessonUpdateIn,
+    PresentationLinkOut,
     VideoTicketOut,
 )
 from app.schemas.question import QuestionIn, QuestionTeacherOut
@@ -257,7 +265,7 @@ async def delete_section(
     # clean both up ourselves afterward.
     rows = (
         await db.execute(
-            select(Lesson.id, Lesson.description, Lesson.homework_assignment).where(
+            select(Lesson.id, Lesson.description, Lesson.homework_assignment, Lesson.presentation_path).where(
                 Lesson.section_id == section_id
             )
         )
@@ -266,6 +274,8 @@ async def delete_section(
     images: set[str] = set()
     for row in rows:
         images |= extract_image_paths(row.description) | extract_image_paths(row.homework_assignment)
+        if row.presentation_path:
+            images.add(row.presentation_path)
     # Students' homework attachments go with the cascade too; their files
     # would be left on disk with no row left for the retention sweep to find.
     images |= await _homework_file_paths(db, lesson_ids)
@@ -363,6 +373,8 @@ async def delete_lesson(
 
     images = extract_image_paths(lesson.description) | extract_image_paths(lesson.homework_assignment)
     images |= await _homework_file_paths(db, [lesson_id])
+    if lesson.presentation_path:
+        images.add(lesson.presentation_path)
 
     await db.delete(lesson)
     await db.commit()
@@ -517,6 +529,67 @@ async def get_teacher_video_ticket(
 
     set_video_ticket_cookie(response, lesson_id)
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")
+
+
+@router.post("/teacher/lessons/{lesson_id}/presentation", response_model=LessonTeacherOut)
+async def upload_lesson_presentation(
+    lesson_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> LessonTeacherOut:
+    """Adds or replaces the lesson's PowerPoint presentation."""
+    await UPLOAD_BY_USER.enforce(str(teacher.id))
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+
+    path, name, size = await save_lesson_presentation(file)
+    previous = lesson.presentation_path
+    lesson.presentation_path, lesson.presentation_name, lesson.presentation_size = path, name, size
+    try:
+        await db.commit()
+    except Exception:
+        delete_upload(path)
+        raise
+    await db.refresh(lesson)
+    # Only once the row points at the new file.
+    delete_upload(previous)
+    return LessonTeacherOut.model_validate(lesson)
+
+
+@router.delete("/teacher/lessons/{lesson_id}/presentation", response_model=LessonTeacherOut)
+async def delete_lesson_presentation(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> LessonTeacherOut:
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
+
+    previous = lesson.presentation_path
+    lesson.presentation_path = lesson.presentation_name = lesson.presentation_size = None
+    await db.commit()
+    await db.refresh(lesson)
+    delete_upload(previous)
+    return LessonTeacherOut.model_validate(lesson)
+
+
+@router.post("/teacher/lessons/{lesson_id}/presentation/link", response_model=PresentationLinkOut)
+async def get_teacher_presentation_link(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
+) -> PresentationLinkOut:
+    """Preview for the teacher, through the same viewer students get."""
+    await assert_teacher_owns_lesson(db, teacher, lesson_id)
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None or not lesson.presentation_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "У урока нет презентации")
+    return PresentationLinkOut(embed_url=presentation_embed_url(lesson_id, lesson.presentation_path))
 
 
 _QUESTION_LOAD_OPTIONS = (

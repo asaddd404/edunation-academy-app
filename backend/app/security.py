@@ -216,6 +216,32 @@ def decode_video_ticket(token: str, lesson_id: int) -> None:
         raise ValueError("Ticket not valid for this lesson")
 
 
+def create_presentation_ticket(lesson_id: int, presentation_path: str) -> str:
+    """Short-lived token in the URL that Microsoft's Office viewer fetches a
+    lesson's .pptx from -- the viewer's servers carry no session, so the URL
+    itself is the authorization. Bound to the stored file as well as the
+    lesson, so replacing or removing the presentation kills links already
+    handed out."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "purpose": "presentation",
+        "lesson_id": lesson_id,
+        "path": presentation_path,
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.presentation_ticket_ttl_minutes),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def decode_presentation_ticket(token: str) -> tuple[int, str]:
+    """(lesson_id, presentation_path). Raises jwt.PyJWTError or ValueError."""
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    lesson_id, path = payload.get("lesson_id"), payload.get("path")
+    if payload.get("purpose") != "presentation" or not isinstance(lesson_id, int) or not isinstance(path, str):
+        raise ValueError("Not a presentation ticket")
+    return lesson_id, path
+
+
 def set_video_ticket_cookie(response: Response, lesson_id: int) -> None:
     """Scopes the cookie to this lesson's own video path, so the browser
     only ever sends it on manifest/segment requests for that lesson --

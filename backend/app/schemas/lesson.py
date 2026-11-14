@@ -44,6 +44,8 @@ class LessonTeacherOut(BaseModel):
     video_status: str
     video_duration_seconds: int | None
     video_error: str | None
+    presentation_name: str | None = None
+    presentation_size: int | None = None
 
 
 class LessonSummaryOut(BaseModel):
@@ -62,10 +64,19 @@ class LessonSummaryOut(BaseModel):
     question_count: int = 0
     has_homework: bool = False
     video_url: str | None = None
+    presentation_name: str | None = None
+    presentation_size: int | None = None
 
 
 class VideoTicketOut(BaseModel):
     playback_path: str
+
+
+class PresentationLinkOut(BaseModel):
+    """Where to point the lesson page's iframe: Microsoft's viewer, already
+    carrying a short-lived link to the file."""
+
+    embed_url: str
 
 
 class LessonContentImageOut(BaseModel):
@@ -129,3 +140,5 @@ class LessonDetailOut(BaseModel):
     my_homework: HomeworkSubmissionOut | None = None
     video_status: str
     video_duration_seconds: int | None
+    presentation_name: str | None = None
+    presentation_size: int | None = None

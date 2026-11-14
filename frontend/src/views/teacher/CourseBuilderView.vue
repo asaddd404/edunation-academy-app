@@ -7,6 +7,7 @@ import {
   ListChecks,
   Pencil,
   Plus,
+  Presentation,
   Trash2,
   Video,
 } from "@lucide/vue";
@@ -23,7 +24,15 @@ import {
 } from "@/api/categories";
 import { createLesson, deleteLesson, updateLesson } from "@/api/lessons";
 import { createSection, deleteSection, listTeacherSections, updateSection } from "@/api/sections";
+import {
+  MAX_PRESENTATION_BYTES,
+  deleteLessonPresentation,
+  formatFileSize,
+  getTeacherPresentationLink,
+  uploadLessonPresentation,
+} from "@/api/presentation";
 import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/video";
+import PresentationViewer from "@/components/media/PresentationViewer.vue";
 import QuestionBank from "@/components/course/QuestionBank.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
@@ -31,6 +40,7 @@ import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import type { Category, LessonSummary, Section, VideoStatus } from "@/types";
+import { describeApiError } from "@/utils/apiError";
 import { pluralRu } from "@/utils/subjectTheme";
 
 // TipTap is most of this page's bundle and only a lesson form uses it, so the
@@ -59,6 +69,13 @@ const lessonForms = reactive<
 >({});
 const videoUploadState = reactive<Record<number, { uploading: boolean; progress: number; error: string }>>({});
 const pollTimers: Record<number, ReturnType<typeof setTimeout>> = {};
+const presentationState = reactive<
+  Record<number, { uploading: boolean; progress: number; error: string; preview: boolean }>
+>({});
+
+function presentationUi(lessonId: number) {
+  return (presentationState[lessonId] ??= { uploading: false, progress: 0, error: "", preview: false });
+}
 
 const sectionEditForms = reactive<Record<number, { title: string; description: string; open: boolean }>>({});
 const lessonEditForms = reactive<
@@ -126,6 +143,10 @@ function lessonChips(lesson: LessonSummary) {
       label: lesson.has_homework ? "Домашка" : "Без домашки",
       done: lesson.has_homework,
     },
+    // Optional material: shown only when there is one, never as "missing".
+    ...(lesson.presentation_name
+      ? [{ key: "presentation", icon: Presentation, label: "Презентация", done: true }]
+      : []),
   ];
 }
 
@@ -314,6 +335,59 @@ async function uploadVideo(lessonId: number, file: File) {
     videoUploadState[lessonId].error = "Не удалось загрузить видео";
   } finally {
     videoUploadState[lessonId].uploading = false;
+  }
+}
+
+function setLessonPresentation(lessonId: number, name: string | null, size: number | null) {
+  for (const section of sections.value) {
+    const lesson = section.lessons.find((l) => l.id === lessonId);
+    if (lesson) {
+      lesson.presentation_name = name;
+      lesson.presentation_size = size;
+    }
+  }
+}
+
+function handlePresentationFileChange(lessonId: number, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (file) uploadPresentation(lessonId, file);
+}
+
+async function uploadPresentation(lessonId: number, file: File) {
+  const ui = presentationUi(lessonId);
+  ui.error = "";
+  if (!file.name.toLowerCase().endsWith(".pptx")) {
+    ui.error = "Нужен файл PowerPoint в формате .pptx (в PowerPoint: Файл → Сохранить как → .pptx).";
+    return;
+  }
+  if (file.size > MAX_PRESENTATION_BYTES) {
+    ui.error = "Файл больше 10 МБ — просмотрщик Microsoft такой не откроет. Сожмите картинки (Файл → Сжать рисунки).";
+    return;
+  }
+  ui.uploading = true;
+  ui.progress = 0;
+  ui.preview = false;
+  try {
+    const updated = await uploadLessonPresentation(lessonId, file, (percent) => (ui.progress = percent));
+    setLessonPresentation(lessonId, updated.presentation_name, updated.presentation_size);
+  } catch (e) {
+    ui.error = describeApiError(e, "Не удалось загрузить презентацию");
+  } finally {
+    ui.uploading = false;
+  }
+}
+
+async function handleDeletePresentation(lessonId: number) {
+  if (!confirm("Удалить презентацию из урока?")) return;
+  const ui = presentationUi(lessonId);
+  try {
+    await deleteLessonPresentation(lessonId);
+    ui.preview = false;
+    setLessonPresentation(lessonId, null, null);
+  } catch (e) {
+    ui.error = describeApiError(e, "Не удалось удалить презентацию");
   }
 }
 
@@ -647,6 +721,78 @@ async function handleCreateLesson(sectionId: number) {
                     <p v-if="videoUploadState[lesson.id]?.error" class="mt-2 text-sm text-clay">
                       {{ videoUploadState[lesson.id].error }}
                     </p>
+                  </section>
+
+                  <section class="border-t border-line pt-3">
+                    <p class="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium text-ink">
+                      <Presentation :size="15" :stroke-width="1.8" class="text-ink-3" />
+                      Презентация
+                      <span class="font-normal text-ink-3">— ученик видит её рядом с видео</span>
+                    </p>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span
+                        v-if="lesson.presentation_name"
+                        class="inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-lg bg-paper-2 px-3 text-sm text-ink"
+                      >
+                        <span class="truncate" :title="lesson.presentation_name">{{ lesson.presentation_name }}</span>
+                        <span class="shrink-0 text-ink-3">{{ formatFileSize(lesson.presentation_size) }}</span>
+                      </span>
+                      <label
+                        class="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-ink-2 transition-all duration-200 hover:border-moss/50 hover:text-ink"
+                        :class="presentationState[lesson.id]?.uploading ? 'pointer-events-none opacity-50' : ''"
+                      >
+                        <Plus :size="14" :stroke-width="2" />
+                        {{ lesson.presentation_name ? "Заменить" : "Загрузить .pptx" }}
+                        <input
+                          type="file"
+                          accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                          class="hidden"
+                          :disabled="presentationState[lesson.id]?.uploading"
+                          @change="handlePresentationFileChange(lesson.id, $event)"
+                        />
+                      </label>
+                      <button
+                        v-if="lesson.presentation_name"
+                        class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-ink-2 transition-all duration-200 hover:border-moss/50 hover:text-ink"
+                        @click="presentationUi(lesson.id).preview = !presentationUi(lesson.id).preview"
+                      >
+                        {{ presentationState[lesson.id]?.preview ? "Скрыть просмотр" : "Посмотреть как ученик" }}
+                      </button>
+                      <button
+                        v-if="lesson.presentation_name"
+                        class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-line bg-paper px-3 text-sm font-medium text-clay transition-all duration-200 hover:border-clay/40 disabled:opacity-50"
+                        :disabled="presentationState[lesson.id]?.uploading"
+                        @click="handleDeletePresentation(lesson.id)"
+                      >
+                        <Trash2 :size="14" :stroke-width="1.8" />
+                        Удалить
+                      </button>
+                    </div>
+                    <div v-if="presentationState[lesson.id]?.uploading" class="mt-2">
+                      <div class="h-1.5 overflow-hidden rounded-full bg-paper-2">
+                        <div
+                          class="h-full rounded-full bg-moss transition-[width] duration-300"
+                          :style="{ width: `${presentationState[lesson.id].progress}%` }"
+                        />
+                      </div>
+                      <p class="mt-1 text-xs text-ink-3">Загрузка: {{ presentationState[lesson.id].progress }}%</p>
+                    </div>
+                    <p v-if="presentationState[lesson.id]?.error" class="mt-2 text-sm text-clay">
+                      {{ presentationState[lesson.id].error }}
+                    </p>
+                    <p v-if="!lesson.presentation_name" class="mt-2 text-xs text-ink-3">
+                      Файл PowerPoint (.pptx) до 10 МБ. Дизайн и анимации сохраняются. Чтобы шрифты не
+                      подменились, при сохранении включите «Внедрить шрифты в файл». Ученик сможет скачать
+                      презентацию из просмотрщика.
+                    </p>
+                    <PresentationViewer
+                      v-if="lesson.presentation_name && presentationState[lesson.id]?.preview"
+                      :key="lesson.presentation_name + (lesson.presentation_size ?? '')"
+                      class="mt-3"
+                      :name="lesson.presentation_name"
+                      :size="lesson.presentation_size"
+                      :load-link="() => getTeacherPresentationLink(lesson.id)"
+                    />
                   </section>
 
                   <section class="border-t border-line pt-3">

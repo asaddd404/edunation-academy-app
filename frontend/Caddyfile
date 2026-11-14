@@ -73,6 +73,15 @@
 		reverse_proxy backend:8000
 	}
 
+	# Lesson presentations: MAX_PRESENTATION_SIZE (10 MB, the Office viewer's
+	# own limit) in app/core/storage.py, plus multipart overhead.
+	handle /api/v1/teacher/lessons/*/presentation {
+		request_body {
+			max_size 11MB
+		}
+		reverse_proxy backend:8000
+	}
+
 	# Image uploads: the largest app-side cap is 5 MB (storage.py).
 	@imageUploads path /api/v1/me/avatar /api/v1/teacher/categories/*/image /api/v1/teacher/lesson-content/image /api/v1/teacher/ent/questions/*/image
 	handle @imageUploads {
@@ -149,12 +158,13 @@
 		#     rendered formula; without it every lesson's maths collapses.
 		#   img-src blob: -- hls.js and the editor preview use blob URLs.
 		#   frame-src youtube-nocookie.com -- lesson videos hosted on YouTube;
+		#   frame-src view.officeapps.live.com -- lesson presentations (Office viewer);
 		#     the player URL is rebuilt from a validated 11-character id.
 		#   frame-src blob: -- the homework PDF preview: the file is fetched
 		#     with the bearer token and shown from a blob: URL.
 		# script-src has no 'unsafe-inline': the bundle is a static file, and
 		# that is the entry that actually stops injected script.
-		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; report-uri /api/v1/csp-report"
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; frame-src https://www.youtube-nocookie.com https://view.officeapps.live.com blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; report-uri /api/v1/csp-report"
 
 		# Caddy's own version banner tells an attacker which CVEs to try.
 		-Server
