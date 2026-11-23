@@ -20,7 +20,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Сначала тесты и сборка (.github/workflows/ci.yml); упали — выкладки не будет.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
