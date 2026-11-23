@@ -195,6 +195,49 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod exec backend alem
 
 Загруженные видео и картинки лежат в томе `uploads` и пересборку переживают.
 
+### Автодеплой через GitHub Actions
+
+Те же три команды выполняет `.github/workflows/deploy.yml` — сам, после
+каждого merge в `master`. Ручной запуск: вкладка **Actions → Deploy → Run
+workflow**. Настройка — один раз.
+
+**1. Ключ деплоя (на сервере):**
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "github-deploy" -f ~/.ssh/github_deploy
+cat ~/.ssh/github_deploy.pub >> ~/.ssh/authorized_keys
+cat ~/.ssh/github_deploy        # приватный ключ — скопировать целиком
+```
+
+**2. Секреты в GitHub:** репозиторий → **Settings → Secrets and variables →
+Actions → New repository secret**:
+
+| Имя        | Значение                                                   |
+|------------|------------------------------------------------------------|
+| `SSH_HOST` | IP сервера                                                 |
+| `SSH_USER` | `root`                                                     |
+| `SSH_KEY`  | вывод `cat ~/.ssh/github_deploy`, включая строки BEGIN/END |
+| `SSH_PORT` | только если SSH не на 22                                   |
+
+После этого удалите приватный ключ с сервера — он нужен только GitHub:
+`rm ~/.ssh/github_deploy` (публичная часть в `authorized_keys` остаётся).
+
+**3. Сервер должен уметь `git fetch` без пароля.** Проверить:
+
+```bash
+cd /opt/edunation && git fetch origin master
+```
+
+Если репозиторий приватный и команда просит логин — создайте на сервере
+отдельный ключ (`ssh-keygen -t ed25519 -N "" -f ~/.ssh/repo_read`), добавьте
+его публичную часть в GitHub **Settings → Deploy keys** (только чтение) и
+переключите адрес:
+`git remote set-url origin git@github.com:asaddd404/edunation-academy-app.git`.
+
+Если деплой упал — лог во вкладке **Actions**. Частая причина: на сервере
+есть ручные правки файлов (`git status` в `/opt/edunation`), и `--ff-only`
+отказывается их перезаписывать.
+
 ## Бэкап базы
 
 ```bash
