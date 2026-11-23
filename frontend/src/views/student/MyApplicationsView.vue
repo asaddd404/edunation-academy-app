@@ -77,9 +77,9 @@ const DOT_CLASS: Record<ApplicationStatus, string> = {
           :class="DOT_CLASS[application.status]"
         />
         <div class="card p-4">
-          <div class="flex items-start justify-between gap-2">
-            <h2 class="font-semibold text-ink">{{ application.category_name ?? `Категория #${application.category_id}` }}</h2>
-            <ApplicationStatusBadge :status="application.status" />
+          <div class="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+            <h2 class="min-w-0 font-semibold text-ink">{{ application.category_name ?? `Категория #${application.category_id}` }}</h2>
+            <ApplicationStatusBadge :status="application.status" class="shrink-0" />
           </div>
           <p class="mt-1 text-xs text-ink-3">Подано {{ formatDate(application.created_at) }}</p>
           <p v-if="application.decided_at" class="text-xs text-ink-3">Решение принято {{ formatDate(application.decided_at) }}</p>

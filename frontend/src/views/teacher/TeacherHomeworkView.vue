@@ -160,7 +160,7 @@ function gradeTone(grade: number): string {
           :key="t.value"
           role="tab"
           :aria-selected="tab === t.value"
-          class="rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors"
+          class="min-h-10 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors"
           :class="tab === t.value ? 'bg-moss text-moss-fg shadow-sm' : 'text-ink-2 hover:bg-paper-2'"
           @click="setTab(t.value)"
         >
@@ -230,10 +230,10 @@ function gradeTone(grade: number): string {
           </span>
         </div>
 
-        <p class="flex items-center gap-1.5 text-xs text-ink-3">
-          <Clock :size="13" />
-          Отправлено {{ formatDateTime(submission.submitted_at) }}
-          <span class="text-ink-3/80">({{ ago(submission.submitted_at) }})</span>
+        <p class="flex flex-wrap items-center gap-x-1.5 text-xs text-ink-3">
+          <Clock :size="13" class="shrink-0" />
+          <span>Отправлено {{ formatDateTime(submission.submitted_at) }}</span>
+          <span class="whitespace-nowrap text-ink-3/80">({{ ago(submission.submitted_at) }})</span>
         </p>
 
         <p v-if="submission.text_answer" class="whitespace-pre-line rounded-xl bg-paper-2/60 px-3.5 py-3 text-sm text-ink">
@@ -276,15 +276,18 @@ function gradeTone(grade: number): string {
                 <span class="text-sm text-ink-3">/ 100</span>
               </span>
             </label>
-            <div class="flex flex-1 flex-wrap justify-end gap-2">
+            <!-- Full-width pair on a phone: right-aligned buttons of different
+                 widths wrapped onto two ragged lines there. -->
+            <div class="flex w-full gap-2 sm:w-auto sm:flex-1 sm:justify-end">
               <BaseButton
                 variant="secondary"
+                class="flex-1 sm:flex-none"
                 :disabled="reviewingId === submission.id"
                 @click="handleReview(submission, 'revision_requested')"
               >
                 На доработку
               </BaseButton>
-              <BaseButton :disabled="reviewingId === submission.id" @click="handleReview(submission, 'accepted')">
+              <BaseButton class="flex-1 sm:flex-none" :disabled="reviewingId === submission.id" @click="handleReview(submission, 'accepted')">
                 Принять
               </BaseButton>
             </div>

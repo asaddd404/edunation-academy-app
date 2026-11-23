@@ -17,11 +17,14 @@ const src = computed(() => {
 </script>
 
 <template>
+  <!-- color-scheme on the iframe: in the dark theme the browser otherwise
+       paints a cross-origin frame with a light document as an opaque white
+       box until YouTube's own black page has loaded. -->
   <div v-if="src" class="aspect-video w-full overflow-hidden rounded-2xl border border-line bg-black shadow-sm">
     <iframe
       :src="src"
       :title="`Видео: ${title}`"
-      class="h-full w-full"
+      class="h-full w-full [color-scheme:light]"
       loading="lazy"
       referrerpolicy="strict-origin-when-cross-origin"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

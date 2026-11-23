@@ -23,16 +23,18 @@ const tab = ref<Tab>("users");
   <PageContainer>
     <PageHeader title="Админ-панель" />
 
-    <div class="mb-6 inline-flex w-full flex-wrap gap-1 rounded-xl border border-line bg-paper p-1 sm:w-auto">
+    <!-- Three equal columns on a phone: with flex-wrap the third tab fell
+         onto a line of its own. -->
+    <div class="mb-6 grid w-full grid-cols-3 gap-1 rounded-xl border border-line bg-paper p-1 sm:inline-flex sm:w-auto">
       <button
         v-for="t in TABS"
         :key="t.id"
         type="button"
-        class="flex min-h-11 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors"
+        class="flex min-h-11 items-center justify-center gap-2 rounded-lg px-1 py-2.5 text-[13px] font-medium transition-colors sm:px-4 sm:text-sm"
         :class="tab === t.id ? 'bg-moss text-moss-fg' : 'text-ink-2 hover:bg-paper-2 hover:text-ink'"
         @click="tab = t.id"
       >
-        <component :is="t.icon" :size="16" :stroke-width="1.8" />
+        <component :is="t.icon" :size="16" :stroke-width="1.8" class="hidden shrink-0 sm:block" />
         {{ t.label }}
       </button>
     </div>

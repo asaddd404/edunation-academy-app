@@ -110,7 +110,7 @@ select option {
     @apply btn bg-clay text-white hover:brightness-110;
   }
   .badge {
-    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 whitespace-nowrap text-xs font-medium;
   }
 
   /* Brand gradient for a single headline accent word. Both stops are
@@ -228,5 +228,17 @@ select option {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* iOS Safari zooms the whole page in when a focused field's text is under
+ * 16px, and does not zoom back out. Several fields here use text-sm/text-xs
+ * for density on desktop; on phones they all get 16px so focusing one never
+ * jumps the layout. !important because the size utilities sit later. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
   }
 }

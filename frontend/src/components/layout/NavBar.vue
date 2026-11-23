@@ -164,7 +164,7 @@ function handleLogout() {
       <div class="flex h-16 w-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <router-link
           to="/"
-          class="flex shrink-0 items-center gap-2.5 transition-opacity hover:opacity-80"
+          class="flex min-h-11 shrink-0 items-center gap-2.5 transition-opacity hover:opacity-80"
           aria-label="Edunation Academy — на главную"
         >
           <!-- White cap straight on the header colour, no plate. -->
@@ -204,13 +204,13 @@ function handleLogout() {
           <div v-if="!auth.isAuthenticated" class="flex items-center gap-1.5 sm:gap-2">
             <router-link
               to="/login"
-              class="rounded-lg px-2.5 py-1.5 text-body text-brand-header-fg/85 transition-colors duration-200 hover:bg-brand-header-fg/10 hover:text-brand-header-fg sm:px-3"
+              class="flex min-h-10 items-center rounded-lg px-2.5 text-body text-brand-header-fg/85 transition-colors duration-200 hover:bg-brand-header-fg/10 hover:text-brand-header-fg sm:px-3"
             >
               Войти
             </router-link>
             <router-link
               to="/register"
-              class="rounded-lg bg-brand-header-fg px-3 py-1.5 text-sm font-medium text-brand-header transition-colors hover:brightness-95 sm:px-4"
+              class="flex min-h-10 items-center rounded-lg bg-brand-header-fg px-3 text-sm font-medium text-brand-header transition-colors hover:brightness-95 sm:px-4"
             >
               Регистрация
             </router-link>
@@ -285,7 +285,7 @@ function handleLogout() {
                     {{ notification.message }}
                   </p>
                   <p class="mt-1 text-xs text-ink-3">
-                    {{ new Date(notification.created_at).toLocaleString("ru-RU") }}
+                    {{ new Date(notification.created_at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }}
                   </p>
                 </div>
                 <button

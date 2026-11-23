@@ -263,10 +263,10 @@ function historyTone(s: EntSimulationSummary): string {
                    80-question test, so a profile card shows only the test size. -->
               <span v-if="subject.is_profile" class="text-[11px] text-ink-3">профильный предмет</span>
               <span
-                class="rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-200"
+                class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-200"
                 :class="selectedSubjectIds.includes(subject.id) ? 'bg-moss/20 text-moss' : 'bg-paper-2 text-ink-2'"
               >
-                <template v-if="subject.is_profile">{{ PROFILE_QUESTION_COUNT }} вопросов в тесте</template>
+                <template v-if="subject.is_profile">{{ PROFILE_QUESTION_COUNT }} вопр. в тесте</template>
                 <template v-else>
                   {{ subject.question_count }} {{ pluralRu(subject.question_count, ["вопрос", "вопроса", "вопросов"]) }}
                 </template>
@@ -408,7 +408,7 @@ function historyTone(s: EntSimulationSummary): string {
                   <span class="block truncate font-medium text-ink">
                     {{ s.status === "in_progress" ? "Не завершена" : `${s.total_score} / ${s.max_score} баллов` }}
                   </span>
-                  <span class="block truncate text-xs text-ink-3">
+                  <span class="block text-xs text-ink-3">
                     {{ formatAttemptDate(s.started_at) }} · {{ timingLabel(s) }}
                   </span>
                 </span>
