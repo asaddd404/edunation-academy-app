@@ -1,0 +1,49 @@
+# Автодеплой на боевой сервер после каждого merge в master.
+# Повторяет ручные шаги из DEPLOY.md («Обновление после правок»).
+#
+# Нужны секреты репозитория (Settings → Secrets and variables → Actions):
+#   SSH_HOST  — IP сервера
+#   SSH_USER  — пользователь (например, root)
+#   SSH_KEY   — приватный ключ деплоя (целиком, с BEGIN/END строками)
+#   SSH_PORT  — необязательно, по умолчанию 22
+
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: # ручной запуск: вкладка Actions → Deploy → Run workflow
+
+# Два деплоя одновременно сломают сборку — второй ждёт первого.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Обновить и перезапустить на сервере
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          # Первая сборка идёт 5–15 минут (ffmpeg, npm) — запас по времени.
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd /opt/edunation
+            git fetch origin master
+            git checkout master
+            # --ff-only: если на сервере кто-то правил файлы руками,
+            # деплой остановится, а не смешает изменения.
+            git merge --ff-only origin/master
+            COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.prod"
+            $COMPOSE up -d --build
+            $COMPOSE exec -T backend alembic upgrade head
+            $COMPOSE ps
+            # Старые слои сборки быстро съедают 50 ГБ диска.
+            docker image prune -f
