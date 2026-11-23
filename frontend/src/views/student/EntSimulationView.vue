@@ -175,7 +175,7 @@ function handleKeydown(event: KeyboardEvent) {
   else if (event.key === "ArrowLeft") goPrev();
 }
 
-const notFound = ref(false);
+const deadEnd = ref<{ to: string; label: string } | null>(null);
 
 async function load() {
   phase.value = "loading";
@@ -196,10 +196,26 @@ async function load() {
         // fall through to error
       }
     }
-    // A wrong or someone else's id is not a network blip: "Повторить" could
-    // never help there, so say what happened and point back to the start.
-    notFound.value = isAxiosError(e) && (e.response?.status === 404 || e.response?.status === 403);
-    errorMessage.value = notFound.value ? "Такой симуляции нет или она не ваша." : "Не удалось загрузить симуляцию.";
+    // Neither of these is a network blip, so "Повторить" could never help:
+    // 404 -- the id is wrong or the attempt is someone else's (the server
+    // answers both the same way); 403 -- the student has no approved course,
+    // which gates the whole ENT section, so the way on is the catalog.
+    const status = isAxiosError(e) ? e.response?.status : undefined;
+    const detail = isAxiosError(e) ? e.response?.data?.detail : undefined;
+    deadEnd.value =
+      status === 404
+        ? { to: "/ent", label: "К ЕНТ-тренажёру" }
+        : status === 403
+          ? { to: "/catalog", label: "К каталогу" }
+          : null;
+    errorMessage.value =
+      status === 404
+        ? "Такой симуляции нет или она не ваша."
+        : status === 403
+          ? typeof detail === "string" && detail
+            ? detail
+            : "ЕНТ-тренажёр откроется, когда учитель одобрит заявку хотя бы на один курс."
+          : "Не удалось загрузить симуляцию.";
     phase.value = "error";
   }
 }
@@ -364,8 +380,8 @@ function timingLabel(r: EntSimulationResult): string {
     </div>
 
     <div v-else-if="phase === 'error'" class="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
-      <p :class="notFound ? 'text-ink-2' : 'text-clay'">{{ errorMessage }}</p>
-      <router-link v-if="notFound" to="/ent" class="btn-primary">К ЕНТ-тренажёру</router-link>
+      <p class="max-w-md" :class="deadEnd ? 'text-ink-2' : 'text-clay'">{{ errorMessage }}</p>
+      <router-link v-if="deadEnd" :to="deadEnd.to" class="btn-primary">{{ deadEnd.label }}</router-link>
       <BaseButton v-else variant="secondary" @click="load">Повторить</BaseButton>
     </div>
 

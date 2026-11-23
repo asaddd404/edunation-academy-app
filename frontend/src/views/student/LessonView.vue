@@ -115,13 +115,18 @@ const nextStep = computed<NextStep | null>(() => {
   const lessons = [...section.lessons].sort((a, b) => a.order_index - b.order_index || a.id - b.id);
   const next = lessons[lessons.findIndex((x) => x.id === l.id) + 1];
   if (next) return { to: `/lessons/${next.id}`, kicker: "Следующий урок", title: next.title, locked: !next.is_unlocked };
-  if (section.has_test)
-    return { to: `/sections/${section.id}/test`, kicker: "Дальше", title: "Итоговый тест раздела", locked: !section.is_test_unlocked };
+  const sectionTest: NextStep | null = section.has_test
+    ? { to: `/sections/${section.id}/test`, kicker: "Дальше", title: "Итоговый тест раздела", locked: !section.is_test_unlocked }
+    : null;
+  // An unpassed section test is the next thing to do; once it's passed the
+  // way on is the next section, and the test is only offered again when the
+  // course has nothing after it.
+  if (sectionTest && !section.is_test_passed) return sectionTest;
   const nextSection = ordered[sectionIndex + 1];
   const first = nextSection && [...nextSection.lessons].sort((a, b) => a.order_index - b.order_index || a.id - b.id)[0];
   if (first)
     return { to: `/lessons/${first.id}`, kicker: `Следующий раздел · ${nextSection.title}`, title: first.title, locked: !first.is_unlocked };
-  return null;
+  return sectionTest;
 });
 
 function handleLessonPassed() {
