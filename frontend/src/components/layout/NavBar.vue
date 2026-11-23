@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import wordmarkWhiteUrl from "@/assets/brand/wordmark-white.png";
-import BrandMark from "@/components/brand/BrandMark.vue";
+import markWhiteUrl from "@/assets/brand/mark-white.png";
 import { useActivityTracker } from "@/composables/useActivityTracker";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationsStore } from "@/stores/notifications";
@@ -167,7 +167,8 @@ function handleLogout() {
           class="flex shrink-0 items-center gap-2.5 transition-opacity hover:opacity-80"
           aria-label="Edunation Academy — на главную"
         >
-          <BrandMark :size="36" />
+          <!-- White cap straight on the header colour, no plate. -->
+          <img :src="markWhiteUrl" alt="" width="36" height="31" class="h-[31px] w-9 object-contain" />
           <img :src="wordmarkWhiteUrl" alt="" class="hidden h-[26px] w-auto sm:block" />
         </router-link>
 
