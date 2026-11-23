@@ -125,7 +125,7 @@ function avatarSize(rank: number): number {
         </div>
 
         <p class="mt-1 flex w-full items-center justify-center gap-1 text-center text-xs font-semibold text-ink sm:text-sm">
-          <span class="truncate">{{ spot.entry.last_name }} {{ spot.entry.first_name }}</span>
+          <span class="line-clamp-2 break-words leading-tight">{{ spot.entry.last_name }} {{ spot.entry.first_name }}</span>
         </p>
         <span v-if="spot.entry.is_me" class="mt-0.5 rounded-full bg-moss px-1.5 py-px text-[10px] font-semibold text-moss-fg">
           Вы

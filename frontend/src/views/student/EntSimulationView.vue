@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { isAxiosError } from "axios";
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import {
@@ -55,6 +55,18 @@ const AUTOSAVE_LABEL: Record<string, string> = {
 // One question on screen at a time -- the exam is navigated through the
 // number palette / arrows rather than by scrolling one long page.
 const currentIndex = ref(0);
+
+// On a phone the question chips are one sideways-scrolling row (a wrapped
+// grid ate a third of the screen under the sticky bar). Keep the current
+// chip in view as the student moves through the exam.
+const chipRowRef = ref<HTMLElement | null>(null);
+watch(currentIndex, async () => {
+  await nextTick();
+  const row = chipRowRef.value;
+  const chip = row?.querySelector<HTMLElement>('[aria-current="true"]');
+  if (!row || !chip || row.scrollWidth <= row.clientWidth) return;
+  row.scrollTo({ left: chip.offsetLeft - row.clientWidth / 2 + chip.offsetWidth / 2, behavior: "smooth" });
+});
 const questionCardRef = ref<HTMLElement | null>(null);
 
 // The control bar pins directly below the app's navbar, whose height varies
@@ -412,12 +424,15 @@ function timingLabel(r: EntSimulationResult): string {
         <!-- Subject tabs: one horizontal row, active tab in solid moss.
              Skipped for single-subject exams, where it'd just repeat the
              header's subject name. -->
-        <div v-if="subjectGroups.length > 1" class="mt-3 flex flex-wrap gap-2">
+        <div
+          v-if="subjectGroups.length > 1"
+          class="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 py-0.5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
+        >
           <button
             v-for="group in subjectGroups"
             :key="group.subjectName"
             type="button"
-            class="rounded-xl px-3 py-1.5 text-xs font-medium transition-colors duration-150"
+            class="shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-medium transition-colors duration-150"
             :class="
               isCurrentSubject(group)
                 ? 'bg-moss text-moss-fg'
@@ -432,16 +447,20 @@ function timingLabel(r: EntSimulationResult): string {
           </button>
         </div>
 
-        <!-- Question chips: only the active subject's questions, so the grid
-             never grows past one subject's worth of numbers. Capped in height
-             on a phone -- 40 chips at 36px would otherwise push the question
-             itself off screen -- and scrolls inside its own box. -->
-        <div v-if="activeGroup" class="mt-3 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto sm:max-h-none sm:overflow-visible">
+        <!-- Question chips: only the active subject's questions. On a phone
+             they are a single row that scrolls sideways (and follows the
+             current question), so the sticky bar stays short and the question
+             itself gets the screen; from sm up they wrap into a grid. -->
+        <div
+          v-if="activeGroup"
+          ref="chipRowRef"
+          class="-mx-4 mt-2 flex gap-1.5 overflow-x-auto px-4 py-1 [scrollbar-width:none] sm:mx-0 sm:mt-3 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
+        >
           <button
             v-for="(entry, localIndex) in activeGroup.entries"
             :key="entry.question.id"
             type="button"
-            class="flex h-9 w-9 items-center justify-center rounded-xl text-xs transition-colors duration-150"
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs transition-colors duration-150"
             :class="
               entry.globalIndex === currentIndex
                 ? 'bg-paper font-bold text-ink ring-2 ring-moss'

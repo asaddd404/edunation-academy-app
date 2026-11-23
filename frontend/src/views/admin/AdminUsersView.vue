@@ -284,10 +284,10 @@ async function copyPassword() {
             {{ actionError.message }}
           </p>
 
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2">
             <button
               type="button"
-              class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-line p-2 text-sm text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+              class="flex min-h-11 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-line px-1.5 py-2 text-sm text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
               aria-label="Сбросить пароль"
               @click="handleResetPassword(user)"
             >
@@ -296,7 +296,7 @@ async function copyPassword() {
             </button>
             <button
               type="button"
-              class="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-line p-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              class="flex min-h-11 flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-line px-1.5 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               :class="user.is_active ? 'text-ink-2 hover:bg-clay/10 hover:text-clay' : 'text-ink-2 hover:bg-moss/10 hover:text-moss'"
               :disabled="updatingUserId === user.id"
               :aria-label="user.is_active ? 'Заблокировать' : 'Активировать'"

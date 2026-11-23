@@ -53,7 +53,7 @@ const filtered = computed(() => {
         >
           <ChevronLeft :size="22" :stroke-width="2" />
         </button>
-        <h1 class="min-w-0 flex-1 truncate font-display text-lg font-semibold text-ink">
+        <h1 class="line-clamp-2 min-w-0 flex-1 font-display text-lg font-semibold leading-snug text-ink">
           {{ current.title }}
         </h1>
       </div>
@@ -120,7 +120,7 @@ const filtered = computed(() => {
           </span>
 
           <span class="min-w-0 flex-1">
-            <span class="block truncate font-medium text-ink">{{ item.label }}</span>
+            <span class="line-clamp-2 font-medium leading-snug text-ink">{{ item.label }}</span>
             <span v-if="item.meta" class="block truncate text-xs text-ink-3">{{ item.meta }}</span>
           </span>
 

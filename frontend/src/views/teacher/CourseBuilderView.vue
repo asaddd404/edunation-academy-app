@@ -593,7 +593,7 @@ async function handleCreateLesson(sectionId: number) {
                 </span>
 
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate font-medium text-ink">{{ lesson.title }}</span>
+                  <span class="line-clamp-2 font-medium leading-snug text-ink">{{ lesson.title }}</span>
                   <span class="mt-1 flex flex-wrap gap-1.5">
                     <span
                       v-for="chip in lessonChips(lesson)"

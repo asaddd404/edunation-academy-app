@@ -106,7 +106,7 @@ const steps = [
             непонятного термина прямо в задании.
           </p>
 
-          <div class="mt-8 flex flex-wrap gap-3 motion-safe:animate-fade-up" style="animation-delay: 240ms">
+          <div class="mt-8 flex flex-col gap-3 motion-safe:animate-fade-up sm:flex-row sm:flex-wrap" style="animation-delay: 240ms">
             <router-link to="/register" class="btn-primary px-6 py-3 text-base">Начать подготовку</router-link>
             <router-link to="/login" class="btn-ghost px-6 py-3 text-base">Демо-тест</router-link>
           </div>
@@ -159,7 +159,7 @@ const steps = [
               </div>
             </div>
 
-            <p class="mt-4 text-caption text-ink-3">Наведите на подчёркнутый термин — подсказка работает по-настоящему.</p>
+            <p class="mt-4 text-caption text-ink-3">Нажмите или наведите на подчёркнутый термин — подсказка работает по-настоящему.</p>
           </div>
         </div>
       </div>
@@ -213,12 +213,12 @@ const steps = [
           <div
             v-for="subject in subjects"
             :key="subject.name"
-            class="flex items-center gap-3 rounded-2xl border border-line bg-paper p-4 transition-all duration-200 ease-out hover:border-moss/40 hover:shadow-sm"
+            class="flex items-center gap-2.5 rounded-2xl border border-line bg-paper p-3 transition-all duration-200 ease-out hover:border-moss/40 hover:shadow-sm sm:gap-3 sm:p-4"
           >
-            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-paper-2 text-ink-2">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-paper-2 text-ink-2 sm:h-10 sm:w-10">
               <component :is="subject.icon" :size="19" :stroke-width="1.7" />
             </span>
-            <span class="truncate text-sm font-medium text-ink">{{ subject.name }}</span>
+            <span class="min-w-0 break-words text-sm font-medium leading-snug text-ink">{{ subject.name }}</span>
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Eye, EyeOff, Inbox, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from "@lucide/vue";
-import { computed, reactive, ref } from "vue";
+import { computed, nextTick, reactive, ref } from "vue";
 import { onMounted } from "vue";
 
 import {
@@ -415,6 +415,8 @@ async function handleRenameSubject(subjectId: number) {
   await load();
 }
 
+const mainPanelRef = ref<HTMLElement | null>(null);
+
 async function selectSubject(subjectId: number) {
   clearSelection();
   searchQuery.value = "";
@@ -431,6 +433,12 @@ async function selectSubject(subjectId: number) {
     questionsLoading.value = true;
     await loadQuestions(subjectId);
     questionsLoading.value = false;
+  }
+  // Below lg the panel is stacked under the subject list, so a tap on a
+  // subject changed nothing on screen. Bring the panel up to meet it.
+  if (window.matchMedia("(max-width: 1023px)").matches) {
+    await nextTick();
+    mainPanelRef.value?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -650,10 +658,12 @@ function questionCardClass(q: EntQuestionTeacher): string {
       </aside>
 
       <!-- ── Main panel ────────────────────────────────────────────────── -->
-      <section class="min-w-0 flex-1 space-y-4">
+      <section ref="mainPanelRef" class="min-w-0 flex-1 scroll-mt-20 space-y-4">
+        <!-- Desktop only: on a phone the list sits right above, so an empty
+             dashed box under it was just a blank screen to scroll past. -->
         <div
           v-if="!selectedSubject"
-          class="flex h-64 items-center justify-center rounded-xl border border-dashed border-line text-sm text-ink-3"
+          class="hidden h-64 items-center justify-center rounded-xl border border-dashed border-line text-sm text-ink-3 lg:flex"
         >
           Выберите предмет в списке
         </div>
