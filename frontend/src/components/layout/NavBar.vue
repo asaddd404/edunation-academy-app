@@ -161,7 +161,7 @@ function handleLogout() {
   <header class="sticky top-0 z-50 w-full">
     <!-- Primary header: brand teal, logo + global search + utility icons -->
     <div class="w-full bg-brand-header text-brand-header-fg">
-      <div class="flex h-16 w-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto flex h-16 w-full max-w-[90rem] items-center justify-between gap-3 px-4 sm:px-6 lg:px-10 xl:px-14">
         <router-link
           to="/"
           class="flex min-h-11 shrink-0 items-center gap-2.5 transition-opacity hover:opacity-80"
@@ -341,7 +341,7 @@ function handleLogout() {
       v-if="auth.isAuthenticated"
       class="hidden w-full border-b border-line bg-paper md:flex"
     >
-      <div class="flex h-12 w-full items-center gap-1 px-4 sm:px-6 lg:px-8">
+      <div class="mx-auto flex h-12 w-full max-w-[90rem] items-center gap-1 px-4 sm:px-6 lg:px-10 xl:px-14">
         <router-link
           v-for="link in links"
           :key="link.to"

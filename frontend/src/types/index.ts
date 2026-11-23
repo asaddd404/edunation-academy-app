@@ -223,6 +223,7 @@ export type HomeworkListFilter = "submitted" | "accepted" | "revision_requested"
 export interface LessonDetail {
   id: number;
   section_id: number;
+  category_id?: number | null;
   title: string;
   description: string | null;
   video_url: string | null;

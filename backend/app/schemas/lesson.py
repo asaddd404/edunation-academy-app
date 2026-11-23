@@ -130,6 +130,9 @@ class LessonDetailOut(BaseModel):
 
     id: int
     section_id: int
+    # Lets the lesson page link back to its course and find the next lesson
+    # without a second lookup. Optional so older clients/tests are unaffected.
+    category_id: int | None = None
     title: str
     description: str | None
     video_url: str | None
