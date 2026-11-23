@@ -41,9 +41,9 @@ onMounted(load);
 
 <template>
   <PageContainer>
-    <div v-if="loading" class="space-y-6">
+    <div v-if="loading" class="mx-auto max-w-3xl space-y-6">
       <div class="h-8 w-2/3 animate-pulse rounded-lg bg-paper-2"></div>
-      <div class="h-64 w-full max-w-[42rem] animate-pulse rounded-2xl bg-paper-2"></div>
+      <div class="h-64 w-full animate-pulse rounded-2xl bg-paper-2"></div>
     </div>
 
     <div v-else-if="locked" class="card mx-auto flex max-w-md flex-col items-center gap-3 px-6 py-10 text-center">
@@ -60,7 +60,9 @@ onMounted(load);
       <BaseButton variant="secondary" @click="load">Повторить</BaseButton>
     </div>
 
-    <template v-else-if="test">
+    <!-- Same centred column as a lesson: full-width header with the card
+         pinned left left the "Пройден" badge stranded at the far edge. -->
+    <div v-else-if="test" class="mx-auto max-w-3xl">
       <PageHeader title="Тест раздела">
         <template #actions>
           <BaseBadge :tone="test.is_passed ? 'success' : 'neutral'">
@@ -69,7 +71,7 @@ onMounted(load);
         </template>
       </PageHeader>
 
-      <div class="max-w-[42rem]">
+      <div>
         <CourseTestPanel
           v-if="test.question_count"
           title="Итоговый тест"
@@ -81,6 +83,6 @@ onMounted(load);
         />
         <p v-else class="card p-4 text-sm text-ink-2">В этом разделе ещё нет теста.</p>
       </div>
-    </template>
+    </div>
   </PageContainer>
 </template>

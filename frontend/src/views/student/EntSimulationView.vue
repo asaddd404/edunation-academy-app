@@ -175,6 +175,8 @@ function handleKeydown(event: KeyboardEvent) {
   else if (event.key === "ArrowLeft") goPrev();
 }
 
+const notFound = ref(false);
+
 async function load() {
   phase.value = "loading";
   try {
@@ -194,7 +196,10 @@ async function load() {
         // fall through to error
       }
     }
-    errorMessage.value = "Не удалось загрузить симуляцию.";
+    // A wrong or someone else's id is not a network blip: "Повторить" could
+    // never help there, so say what happened and point back to the start.
+    notFound.value = isAxiosError(e) && (e.response?.status === 404 || e.response?.status === 403);
+    errorMessage.value = notFound.value ? "Такой симуляции нет или она не ваша." : "Не удалось загрузить симуляцию.";
     phase.value = "error";
   }
 }
@@ -359,8 +364,9 @@ function timingLabel(r: EntSimulationResult): string {
     </div>
 
     <div v-else-if="phase === 'error'" class="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
-      <p class="text-clay">{{ errorMessage }}</p>
-      <BaseButton variant="secondary" @click="load">Повторить</BaseButton>
+      <p :class="notFound ? 'text-ink-2' : 'text-clay'">{{ errorMessage }}</p>
+      <router-link v-if="notFound" to="/ent" class="btn-primary">К ЕНТ-тренажёру</router-link>
+      <BaseButton v-else variant="secondary" @click="load">Повторить</BaseButton>
     </div>
 
     <template v-else-if="phase === 'exam' && exam && currentQuestion">

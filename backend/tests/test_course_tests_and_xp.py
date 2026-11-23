@@ -146,6 +146,19 @@ async def test_lesson_detail_no_longer_hands_out_questions(client, db_session, m
     assert body["question_count"] == 2
 
 
+async def test_lesson_detail_names_its_course_for_navigation(client, db_session, make_user, login_as):
+    # The lesson page links back to its course and on to the next lesson;
+    # both need the category, which a lesson only knows through its section.
+    student = await make_user(RoleEnum.student)
+    lesson, _, _ = await _enrolled_course(db_session, student, "nav")
+    login_as(student)
+
+    body = (await client.get(f"/api/v1/lessons/{lesson.id}")).json()
+    section = await db_session.get(Section, lesson.section_id)
+    assert body["section_id"] == lesson.section_id
+    assert body["category_id"] == section.category_id
+
+
 async def test_start_resumes_the_open_attempt(client, db_session, make_user, login_as):
     student = await make_user(RoleEnum.student)
     lesson, _, _ = await _enrolled_course(db_session, student, "resume")

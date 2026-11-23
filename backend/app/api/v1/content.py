@@ -185,6 +185,7 @@ async def get_lesson(
     return LessonDetailOut(
         id=lesson.id,
         section_id=lesson.section_id,
+        category_id=category_id,
         title=lesson.title,
         description=lesson.description,
         video_url=lesson.video_url,

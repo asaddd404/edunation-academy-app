@@ -6,6 +6,7 @@ import { useRoute } from "vue-router";
 
 import { submitHomework } from "@/api/homework";
 import { getLesson, startLessonTest } from "@/api/lessons";
+import { listSections } from "@/api/sections";
 import { getStudentPresentationLink } from "@/api/presentation";
 import { getStudentVideoTicket } from "@/api/video";
 import PresentationViewer from "@/components/media/PresentationViewer.vue";
@@ -15,9 +16,10 @@ import PageHeader from "@/components/layout/PageHeader.vue";
 import RichContent from "@/components/richtext/RichContent.vue";
 import CourseTestPanel from "@/components/test/CourseTestPanel.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
+import BackLink from "@/components/ui/BackLink.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import FilePicker from "@/components/ui/FilePicker.vue";
-import type { LessonDetail } from "@/types";
+import type { LessonDetail, Section } from "@/types";
 import { isRichDocEmpty, parseRichContent } from "@/utils/richContent";
 import { describeApiError } from "@/utils/apiError";
 
@@ -73,12 +75,68 @@ const hasHomework = computed(() => {
   return parsed.kind === "plain" || !isRichDocEmpty(parsed.doc);
 });
 
+// ── Course navigation ───────────────────────────────────────────────────
+// The page used to end at the homework card with no way on: a student had
+// to go back to the catalog and find the next lesson by hand. The course's
+// sections come from the same listing the catalog uses, so lock state
+// matches what the catalog shows.
+const courseSections = ref<Section[]>([]);
+
+async function loadCourseSections() {
+  const categoryId = lesson.value?.category_id;
+  if (!categoryId) return;
+  try {
+    courseSections.value = await listSections(categoryId);
+  } catch {
+    courseSections.value = []; // navigation is a convenience; never block the lesson on it
+  }
+}
+
+const backLink = computed(() => {
+  const l = lesson.value;
+  if (!l?.category_id) return "/catalog";
+  return `/catalog?category=${l.category_id}&section=${l.section_id}`;
+});
+
+interface NextStep {
+  to: string;
+  kicker: string;
+  title: string;
+  locked: boolean;
+}
+
+const nextStep = computed<NextStep | null>(() => {
+  const l = lesson.value;
+  if (!l) return null;
+  const ordered = [...courseSections.value].sort((a, b) => a.order_index - b.order_index || a.id - b.id);
+  const sectionIndex = ordered.findIndex((s) => s.id === l.section_id);
+  const section = ordered[sectionIndex];
+  if (!section) return null;
+  const lessons = [...section.lessons].sort((a, b) => a.order_index - b.order_index || a.id - b.id);
+  const next = lessons[lessons.findIndex((x) => x.id === l.id) + 1];
+  if (next) return { to: `/lessons/${next.id}`, kicker: "Следующий урок", title: next.title, locked: !next.is_unlocked };
+  if (section.has_test)
+    return { to: `/sections/${section.id}/test`, kicker: "Дальше", title: "Итоговый тест раздела", locked: !section.is_test_unlocked };
+  const nextSection = ordered[sectionIndex + 1];
+  const first = nextSection && [...nextSection.lessons].sort((a, b) => a.order_index - b.order_index || a.id - b.id)[0];
+  if (first)
+    return { to: `/lessons/${first.id}`, kicker: `Следующий раздел · ${nextSection.title}`, title: first.title, locked: !first.is_unlocked };
+  return null;
+});
+
+function handleLessonPassed() {
+  if (lesson.value) lesson.value.is_passed = true;
+  // Passing the mini-test is what unlocks the next step; refresh its state.
+  loadCourseSections();
+}
+
 async function load() {
   loading.value = true;
   loadError.value = "";
   try {
     lesson.value = await getLesson(lessonId);
     homeworkText.value = lesson.value.my_homework?.text_answer ?? "";
+    loadCourseSections();
     if (lesson.value.presentation_name && !hasVideoBlock.value) showMedia("presentation");
     if (lesson.value.video_status === "ready") {
       try {
@@ -138,6 +196,7 @@ async function handleSubmitHomework() {
       <!-- One centred reading column: on a laptop the cards used to sit in a
            narrow strip on the left while the header's badge hung off the far
            right edge, half a screen away from anything it described. -->
+      <BackLink :to="backLink" label="К курсу" class="mb-4" />
       <PageHeader :title="lesson.title">
         <template #actions>
           <BaseBadge :tone="lesson.is_passed ? 'success' : 'neutral'">
@@ -207,7 +266,7 @@ async function handleSubmitHomework() {
             :is-passed="lesson.is_passed"
             :start="() => startLessonTest(lessonId)"
             :leaderboard-to="{ path: '/leaderboard', query: { lesson: lessonId } }"
-            @passed="lesson.is_passed = true"
+            @passed="handleLessonPassed"
           />
 
           <section v-if="hasHomework" class="card space-y-3 p-4 sm:p-5">
@@ -274,6 +333,36 @@ async function handleSubmitHomework() {
           </section>
         </div>
       </div>
+
+      <component
+        :is="nextStep.locked ? 'div' : 'router-link'"
+        v-if="nextStep"
+        :to="nextStep.locked ? undefined : nextStep.to"
+        class="group mt-6 flex items-center justify-between gap-4 rounded-2xl border p-4 transition-all duration-200 sm:p-5"
+        :class="
+          nextStep.locked
+            ? 'border-dashed border-line-strong text-ink-3'
+            : 'border-line bg-paper hover:border-moss/50 hover:shadow-sm'
+        "
+        :aria-disabled="nextStep.locked ? 'true' : undefined"
+      >
+        <span class="min-w-0">
+          <span class="block text-xs font-medium uppercase tracking-wide text-ink-3">{{ nextStep.kicker }}</span>
+          <span class="mt-0.5 block font-semibold leading-snug" :class="nextStep.locked ? 'text-ink-3' : 'text-ink'">
+            {{ nextStep.title }}
+          </span>
+          <span v-if="nextStep.locked" class="mt-1 block text-xs">Откроется после мини-теста этого урока</span>
+        </span>
+        <span
+          v-if="!nextStep.locked"
+          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-moss text-moss-fg transition-transform duration-200 group-hover:translate-x-0.5"
+          aria-hidden="true"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 3 l5 5 -5 5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+      </component>
     </div>
   </PageContainer>
 </template>

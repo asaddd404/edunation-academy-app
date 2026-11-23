@@ -49,7 +49,7 @@ const emit = defineEmits<{ (e: "select", itemId: number | string): void; (e: "re
           <Lock v-if="item.locked" :size="16" :stroke-width="1.8" class="shrink-0 text-ink-3" />
           <Folder v-else-if="item.kind === 'folder'" :size="16" :stroke-width="1.8" class="shrink-0 text-ink-3" />
           <FileText v-else :size="16" :stroke-width="1.8" class="shrink-0 text-moss" />
-          <span class="truncate">{{ item.label }}</span>
+          <span class="line-clamp-2 leading-snug">{{ item.label }}</span>
         </span>
         <span class="flex shrink-0 items-center gap-2">
           <span v-if="item.meta" class="text-xs text-ink-3">{{ item.meta }}</span>
