@@ -4,6 +4,7 @@ import {
   CircleCheck,
   FileText,
   FolderOpen,
+  ClipboardCheck,
   ListChecks,
   Pencil,
   Plus,
@@ -35,6 +36,7 @@ import {
 } from "@/api/presentation";
 import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/video";
 import PresentationViewer from "@/components/media/PresentationViewer.vue";
+import HwBuilder from "@/components/autohw/HwBuilder.vue";
 import QuestionBank from "@/components/course/QuestionBank.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
@@ -806,6 +808,15 @@ async function handleCreateLesson(sectionId: number) {
                       <span class="font-normal text-ink-3">— ученик проходит после видео</span>
                     </p>
                     <QuestionBank :lesson-id="lesson.id" />
+                  </section>
+
+                  <section class="border-t border-line pt-3">
+                    <p class="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium text-ink">
+                      <ClipboardCheck :size="15" :stroke-width="1.8" class="text-ink-3" />
+                      Домашнее задание с автопроверкой
+                      <span class="font-normal text-ink-3">— пропуски, тесты, эссе, фото; сроки и попытки</span>
+                    </p>
+                    <HwBuilder :lesson-id="lesson.id" />
                   </section>
                 </div>
               </div>

@@ -11,6 +11,7 @@ from app.api.v1 import (
     ent,
     ent_teacher,
     homework,
+    homework_auto,
     leaderboard,
     notifications,
     presentation,
@@ -31,6 +32,7 @@ api_router.include_router(content.public_router)
 api_router.include_router(content.router)
 api_router.include_router(tests.router)
 api_router.include_router(homework.router)
+api_router.include_router(homework_auto.router)
 api_router.include_router(ent_teacher.router)
 api_router.include_router(ent.public_router)
 api_router.include_router(ent.router)
