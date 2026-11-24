@@ -429,3 +429,59 @@ async def test_editing_or_deleting_a_task_mid_attempt_does_not_change_that_attem
     nxt = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
     prompts = {t["id"]: t["prompt"] for t in nxt["tasks"]}
     assert prompts[short["id"]] == "2x=18, x=?" and single["id"] not in prompts
+
+
+# ── «Сегодня» ────────────────────────────────────────────────────────────────
+
+
+async def test_today_sums_up_what_needs_the_teacher(client, login_as, course, db_session, make_user):
+    lid, *_ = await _basic_homework(client, login_as, course)
+    login_as(course["teacher"])
+    await _add(client, lid, "essay", "Почему?", {"min_words": 0})
+    await _settings(client, lid, deadline=_iso(datetime.now(timezone.utc) + timedelta(hours=2)))
+    # A second lesson with no homework at all.
+    db_session.add(Lesson(section_id=course["lesson"].section_id, title="Пустой урок", order_index=1))
+    await db_session.commit()
+
+    login_as(course["s1"])
+    a = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
+    await client.post(f"/api/v1/auto-homework/attempts/{a['id']}/submit", json={"answers": _answers_for(a, ["1845", "Семей"], "4", "8")})
+
+    login_as(course["teacher"])
+    today = (await client.get("/api/v1/teacher/today")).json()
+    assert today["new_results"]["total"] == 1
+    assert today["manual_pending"]["total"] == 1  # the essay waits for marks
+    deadline = today["deadlines"][0]
+    assert deadline["lesson_id"] == lid and deadline["not_submitted"] == 1 and deadline["students"] == 2
+    assert [l["title"] for l in today["without_homework"]["lessons"]] == ["Пустой урок"]
+    assert today["courses"][0]["lessons"] == 2 and today["courses"][0]["with_homework"] == 1
+
+    # Another teacher sees none of it; students may not ask at all.
+    login_as(await make_user(RoleEnum.teacher))
+    other = (await client.get("/api/v1/teacher/today")).json()
+    assert other["new_results"]["total"] == 0 and other["courses"] == []
+    login_as(course["s1"])
+    assert (await client.get("/api/v1/teacher/today")).status_code == 403
+
+
+async def test_today_ignores_long_abandoned_open_attempts(client, login_as, course, db_session, monkeypatch):
+    lid, *_ = await _basic_homework(client, login_as, course)
+    login_as(course["s1"])
+    a = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
+    attempt = await db_session.get(HomeworkAttempt, a["id"])
+    attempt.started_at = datetime.now(timezone.utc) - timedelta(days=90)
+    await db_session.commit()
+
+    import app.api.v1.teacher_today as today_module
+
+    looked_at = []
+    real = today_module._results_rows
+
+    async def spy(db, lesson, now):
+        looked_at.append(lesson.id)
+        return await real(db, lesson, now)
+
+    monkeypatch.setattr(today_module, "_results_rows", spy)
+    login_as(course["teacher"])
+    assert (await client.get("/api/v1/teacher/today")).status_code == 200
+    assert looked_at == []  # an untimed sitting abandoned long ago is not "activity"

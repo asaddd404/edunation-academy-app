@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { Bell, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
+import { Bell, CircleHelp, LogOut, Menu, Moon, Search, Sun, X } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import wordmarkWhiteUrl from "@/assets/brand/wordmark-white.png";
 import markWhiteUrl from "@/assets/brand/mark-white.png";
+import HelpPanel from "@/components/teacher/HelpPanel.vue";
 import { useActivityTracker } from "@/composables/useActivityTracker";
 import { useAuthStore } from "@/stores/auth";
+import { useFontScaleStore } from "@/stores/fontScale";
 import { useNotificationsStore } from "@/stores/notifications";
+import { useTeacherHelpStore } from "@/stores/teacherHelp";
 import { useThemeStore } from "@/stores/theme";
 import { ROLE_LABEL } from "@/utils/roleLabel";
 
@@ -16,6 +19,9 @@ const router = useRouter();
 const notifications = useNotificationsStore();
 const theme = useThemeStore();
 const activityTracker = useActivityTracker();
+const fontScale = useFontScaleStore();
+const help = useTeacherHelpStore();
+const isStaff = computed(() => auth.role === "teacher" || auth.role === "admin");
 
 const searchQuery = ref("");
 const searchInput = ref<HTMLInputElement | null>(null);
@@ -32,7 +38,21 @@ function handleGlobalShortcut(event: KeyboardEvent) {
   }
 }
 
-const links = computed(() => {
+interface NavLink {
+  to: string;
+  label: string;
+  tour?: string;
+}
+
+const TEACHER_LINKS: NavLink[] = [
+  { to: "/teacher", label: "Сегодня" },
+  { to: "/teacher/categories", label: "Мои курсы", tour: "nav-courses" },
+  { to: "/teacher/applications", label: "Заявки" },
+  { to: "/teacher/homework", label: "Домашки" },
+  { to: "/teacher/ent", label: "Банк ЕНТ" },
+];
+
+const links = computed<NavLink[]>(() => {
   if (auth.role === "student") {
     return [
       { to: "/catalog", label: "Каталог" },
@@ -41,23 +61,8 @@ const links = computed(() => {
       { to: "/leaderboard", label: "Тесты и Рейтинг" },
     ];
   }
-  if (auth.role === "teacher") {
-    return [
-      { to: "/teacher", label: "Заявки" },
-      { to: "/teacher/categories", label: "Мои категории" },
-      { to: "/teacher/homework", label: "Домашки" },
-      { to: "/teacher/ent", label: "Банк ЕНТ" },
-    ];
-  }
-  if (auth.role === "admin") {
-    return [
-      { to: "/admin", label: "Админ-панель" },
-      { to: "/teacher", label: "Заявки" },
-      { to: "/teacher/categories", label: "Мои категории" },
-      { to: "/teacher/homework", label: "Домашки" },
-      { to: "/teacher/ent", label: "Банк ЕНТ" },
-    ];
-  }
+  if (auth.role === "teacher") return TEACHER_LINKS;
+  if (auth.role === "admin") return [{ to: "/admin", label: "Админ-панель" }, ...TEACHER_LINKS];
   return [];
 });
 
@@ -192,6 +197,26 @@ function handleLogout() {
         </div>
 
         <div class="flex shrink-0 items-center gap-1 sm:gap-2">
+          <template v-if="isStaff">
+            <button
+              type="button"
+              data-tour="font-size"
+              class="flex h-11 min-w-11 items-center justify-center rounded-lg px-1.5 text-lg font-bold text-brand-header-fg/90 hover:bg-brand-header-fg/10 md:hidden"
+              :aria-label="`Размер текста: ${fontScale.label}. Нажмите, чтобы изменить`"
+              @click="fontScale.next"
+            >
+              A+
+            </button>
+            <button
+              type="button"
+              data-tour="help"
+              class="flex h-11 w-11 items-center justify-center rounded-lg text-brand-header-fg/90 hover:bg-brand-header-fg/10 md:hidden"
+              aria-label="Помощь"
+              @click="help.show()"
+            >
+              <CircleHelp :size="22" :stroke-width="1.8" />
+            </button>
+          </template>
           <button
             class="flex h-11 w-11 items-center justify-center rounded-lg text-brand-header-fg/80 transition-colors hover:bg-brand-header-fg/10 hover:text-brand-header-fg"
             :aria-label="theme.theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
@@ -346,11 +371,32 @@ function handleLogout() {
           v-for="link in links"
           :key="link.to"
           :to="link.to"
+          :data-tour="link.tour"
           class="relative flex h-full items-center px-3 text-body text-ink-2 transition-colors hover:text-ink"
           exact-active-class="!text-ink font-semibold after:absolute after:inset-x-3 after:-bottom-px after:h-[2px] after:rounded-full after:bg-moss"
         >
           {{ link.label }}
         </router-link>
+        <div v-if="isStaff" class="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            data-tour="font-size"
+            class="flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-body font-semibold text-ink-2 hover:border-moss/50 hover:text-ink"
+            :title="`Размер текста: ${fontScale.label}`"
+            @click="fontScale.next"
+          >
+            <span class="text-base font-bold">A+</span>
+            <span class="hidden lg:inline">{{ fontScale.index === 0 ? "Крупнее" : fontScale.label }}</span>
+          </button>
+          <button
+            type="button"
+            data-tour="help"
+            class="flex min-h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-body font-semibold text-ink-2 hover:border-moss/50 hover:text-ink"
+            @click="help.show()"
+          >
+            <CircleHelp :size="16" :stroke-width="2" /> Помощь
+          </button>
+        </div>
       </div>
     </nav>
 
@@ -374,6 +420,16 @@ function handleLogout() {
         Профиль
       </router-link>
       <button
+        v-if="isStaff"
+        class="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-ink-2 hover:bg-paper-2"
+        @click="
+          help.show();
+          closeMobileMenu();
+        "
+      >
+        <CircleHelp :size="16" :stroke-width="1.8" /> Помощь
+      </button>
+      <button
         class="flex min-h-11 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-ink-3 hover:bg-paper-2"
         @click="
           theme.toggle();
@@ -392,5 +448,6 @@ function handleLogout() {
         Выйти
       </button>
     </nav>
+    <HelpPanel v-if="isStaff" />
   </header>
 </template>

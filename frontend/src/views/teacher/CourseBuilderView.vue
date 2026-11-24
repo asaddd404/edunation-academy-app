@@ -144,7 +144,11 @@ function lessonChips(lesson: LessonSummary) {
     {
       key: "homework",
       icon: FileText,
-      label: lesson.has_homework ? "Домашка" : "Без домашки",
+      label: lesson.auto_hw_tasks
+        ? `Домашка: ${lesson.auto_hw_tasks} ${pluralRu(lesson.auto_hw_tasks, ["задание", "задания", "заданий"])}`
+        : lesson.has_homework
+          ? "Домашка"
+          : "Без домашки",
       done: lesson.has_homework,
     },
     // Optional material: shown only when there is one, never as "missing".
@@ -152,6 +156,38 @@ function lessonChips(lesson: LessonSummary) {
       ? [{ key: "presentation", icon: Presentation, label: "Презентация", done: true }]
       : []),
   ];
+}
+
+// The open lesson is edited step by step: one block on screen at a time
+// instead of a long wall of forms. Blocks stay mounted (v-show), so moving
+// between steps never drops a half-typed question or task.
+type LessonStep = "video" | "presentation" | "test" | "homework";
+const LESSON_STEPS: { key: LessonStep; label: string }[] = [
+  { key: "video", label: "Видео" },
+  { key: "presentation", label: "Презентация" },
+  { key: "test", label: "Мини-тест" },
+  { key: "homework", label: "Домашка" },
+];
+const lessonStep = reactive<Record<number, LessonStep>>({});
+
+function stepOf(lessonId: number): LessonStep {
+  return lessonStep[lessonId] ?? "video";
+}
+function stepIndex(lessonId: number): number {
+  return LESSON_STEPS.findIndex((s) => s.key === stepOf(lessonId));
+}
+function goStep(lessonId: number, delta: number) {
+  const next = LESSON_STEPS[stepIndex(lessonId) + delta];
+  if (next) lessonStep[lessonId] = next.key;
+  requestAnimationFrame(() =>
+    document.getElementById(`lesson-steps-${lessonId}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+  );
+}
+function stepDone(lesson: LessonSummary, key: LessonStep): boolean | null {
+  if (key === "video") return lesson.video_status === "ready" || (!!lesson.video_url && lesson.video_status === "none");
+  if (key === "presentation") return lesson.presentation_name ? true : null; // optional: never "missing"
+  if (key === "test") return lesson.question_count > 0;
+  return lesson.has_homework;
 }
 
 function lessonIsReady(lesson: LessonSummary): boolean {
@@ -162,6 +198,23 @@ async function load() {
   loading.value = true;
   sections.value = await listTeacherSections(categoryId);
   loading.value = false;
+}
+
+/** Re-reads the lesson chips (video, test, homework) without the loading
+ *  state, so an open lesson and its half-filled forms stay on screen. */
+async function refreshLessonSummaries() {
+  try {
+    const fresh = await listTeacherSections(categoryId);
+    const byId = new Map(fresh.flatMap((sec) => sec.lessons).map((l) => [l.id, l]));
+    for (const sec of sections.value) {
+      for (const lesson of sec.lessons) {
+        const f = byId.get(lesson.id);
+        if (f) Object.assign(lesson, f);
+      }
+    }
+  } catch {
+    /* the chips just keep their previous state */
+  }
 }
 
 async function initialLoad() {
@@ -600,7 +653,7 @@ async function handleCreateLesson(sectionId: number) {
                     <span
                       v-for="chip in lessonChips(lesson)"
                       :key="chip.key"
-                      class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium"
+                      class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
                       :class="
                         chip.failed
                           ? 'bg-red-500/10 text-red-600 dark:text-red-400'
@@ -676,8 +729,35 @@ async function handleCreateLesson(sectionId: number) {
                   </button>
                 </div>
 
+                <nav
+                  :id="`lesson-steps-${lesson.id}`"
+                  class="grid scroll-mt-32 grid-cols-2 gap-2 border-b border-line p-3 sm:grid-cols-4"
+                  aria-label="Шаги урока"
+                >
+                  <button
+                    v-for="(st, si) in LESSON_STEPS"
+                    :key="st.key"
+                    type="button"
+                    class="flex min-h-12 min-w-0 items-center gap-2 rounded-xl border-2 px-2 text-left text-sm font-semibold transition-colors sm:px-3 sm:text-base"
+                    :class="stepOf(lesson.id) === st.key ? 'border-moss bg-moss/10 text-moss' : 'border-line text-ink-2 hover:border-moss/40'"
+                    :aria-current="stepOf(lesson.id) === st.key ? 'step' : undefined"
+                    @click="lessonStep[lesson.id] = st.key"
+                  >
+                    <span
+                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold sm:h-7 sm:w-7 sm:text-sm"
+                      :class="stepDone(lesson, st.key) ? 'bg-moss text-white' : 'bg-paper-2 text-ink-3'"
+                    >
+                      {{ stepDone(lesson, st.key) ? "✓" : si + 1 }}
+                    </span>
+                    <span class="min-w-0">
+                      {{ st.label }}
+                      <span v-if="st.key === 'presentation'" class="hidden text-xs font-normal text-ink-3 sm:block">по желанию</span>
+                    </span>
+                  </button>
+                </nav>
+
                 <div class="space-y-4 p-3">
-                  <section>
+                  <section v-show="stepOf(lesson.id) === 'video'">
                     <p class="mb-2 flex items-center gap-1.5 text-sm font-medium text-ink">
                       <Video :size="15" :stroke-width="1.8" class="text-ink-3" />
                       Видеоурок
@@ -729,7 +809,7 @@ async function handleCreateLesson(sectionId: number) {
                     </p>
                   </section>
 
-                  <section class="border-t border-line pt-3">
+                  <section v-show="stepOf(lesson.id) === 'presentation'">
                     <p class="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium text-ink">
                       <Presentation :size="15" :stroke-width="1.8" class="text-ink-3" />
                       Презентация
@@ -801,7 +881,7 @@ async function handleCreateLesson(sectionId: number) {
                     />
                   </section>
 
-                  <section class="border-t border-line pt-3">
+                  <section v-show="stepOf(lesson.id) === 'test'">
                     <p class="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium text-ink">
                       <ListChecks :size="15" :stroke-width="1.8" class="text-ink-3" />
                       Мини-тест урока
@@ -810,14 +890,37 @@ async function handleCreateLesson(sectionId: number) {
                     <QuestionBank :lesson-id="lesson.id" />
                   </section>
 
-                  <section class="border-t border-line pt-3">
+                  <section v-show="stepOf(lesson.id) === 'homework'">
                     <p class="mb-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium text-ink">
                       <ClipboardCheck :size="15" :stroke-width="1.8" class="text-ink-3" />
                       Домашнее задание с автопроверкой
                       <span class="font-normal text-ink-3">— пропуски, тесты, эссе, фото; сроки и попытки</span>
                     </p>
-                    <HwBuilder :lesson-id="lesson.id" />
+                    <HwBuilder :lesson-id="lesson.id" @changed="refreshLessonSummaries" />
                   </section>
+
+                  <div class="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+                    <button
+                      v-if="stepIndex(lesson.id) > 0"
+                      type="button"
+                      class="min-h-12 rounded-xl border-2 border-line px-4 font-semibold text-ink-2 hover:border-moss/40"
+                      @click="goStep(lesson.id, -1)"
+                    >
+                      ← Назад
+                    </button>
+                    <span v-else />
+                    <button
+                      v-if="stepIndex(lesson.id) < LESSON_STEPS.length - 1"
+                      type="button"
+                      class="btn-primary min-h-12 px-5 text-base"
+                      @click="goStep(lesson.id, 1)"
+                    >
+                      Далее: {{ LESSON_STEPS[stepIndex(lesson.id) + 1].label }} →
+                    </button>
+                    <button v-else type="button" class="btn-primary min-h-12 px-5 text-base" @click="toggleLesson(lesson.id)">
+                      Готово — свернуть урок
+                    </button>
+                  </div>
                 </div>
               </div>
             </li>

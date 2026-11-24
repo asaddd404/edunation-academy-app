@@ -136,6 +136,9 @@ services:
         # Baked into the bundle at build time. Relative on purpose -- Caddy
         # serves the app and the API on one origin, so this needs no domain.
         VITE_API_BASE_URL: /api/v1
+        # Admin's WhatsApp for the teachers' «Помощь» panel (digits, e.g.
+        # 77001234567). Set SUPPORT_WHATSAPP in .env.prod; empty hides the button.
+        VITE_SUPPORT_WHATSAPP: ${SUPPORT_WHATSAPP:-}
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN}

@@ -1069,6 +1069,10 @@ async def teacher_problems(
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await _lesson(db, lesson_id)
     rows, tasks_by_id = await _results_rows(db, lesson, _now())
+    return {"items": _problem_items(rows, tasks_by_id)}
+
+
+def _problem_items(rows: list[dict], tasks_by_id: dict[int, HomeworkTask]) -> list[dict]:
     stats: dict[tuple[int, str], dict] = {}
     for row in rows:
         best = row["_best"]
@@ -1110,7 +1114,7 @@ async def teacher_problems(
             }
         )
     out.sort(key=lambda r: (-r["percent"], r["task_number"]))
-    return {"items": out}
+    return out
 
 
 async def _class_student(db: AsyncSession, lesson_id: int, student_id: int) -> User:

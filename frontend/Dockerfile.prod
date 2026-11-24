@@ -18,6 +18,9 @@ COPY . .
 # real environment variable during `vite build` -- not supplied at runtime.
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# Optional: the admin's WhatsApp number shown in the teachers' «Помощь» panel.
+ARG VITE_SUPPORT_WHATSAPP=
+ENV VITE_SUPPORT_WHATSAPP=$VITE_SUPPORT_WHATSAPP
 
 # `npm run build` is `vue-tsc -b && vite build`. Type-checking is a
 # development-time gate (and runs on every change locally); doing it again

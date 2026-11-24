@@ -63,6 +63,7 @@ class LessonSummaryOut(BaseModel):
     # them nothing.
     question_count: int = 0
     has_homework: bool = False
+    auto_hw_tasks: int = 0
     video_url: str | None = None
     presentation_name: str | None = None
     presentation_size: int | None = None

@@ -18,7 +18,7 @@ onMounted(async () => {
 
 <template>
   <PageContainer>
-    <PageHeader title="Мои категории" />
+    <PageHeader title="Мои курсы" />
 
     <div v-if="loading" class="space-y-3">
       <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-xl bg-paper-2" />

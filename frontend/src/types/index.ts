@@ -78,6 +78,8 @@ export interface LessonSummary {
   /** A YouTube link, when the lesson's video is hosted there. */
   video_url?: string | null;
   has_homework: boolean;
+  /** Tasks in the lesson's auto-checked homework (teacher listing only). */
+  auto_hw_tasks?: number;
   /** The lesson's PowerPoint file, if one is attached. */
   presentation_name?: string | null;
   presentation_size?: number | null;

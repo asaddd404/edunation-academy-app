@@ -374,7 +374,7 @@ async def create_applications(db, plans, students, courses, staff, rng):
                 if status == ApplicationStatusEnum.pending:
                     for recipient in (course.teacher, admin):
                         notify(db, recipient, "new_application", f"Новая заявка от {name} на курс «{course.category.name}»",
-                               "/teacher", created, read=False)
+                               "/teacher/applications", created, read=False)
                 else:
                     word = "одобрена" if status == ApplicationStatusEnum.approved else "отклонена"
                     notify(db, student, f"application_{status.value}", f"Заявка на курс «{course.category.name}» {word}",

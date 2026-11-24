@@ -21,7 +21,7 @@ const lessonId = Number(route.params.id);
 const results = ref<HwResults | null>(null);
 const problems = ref<HwProblem[] | null>(null);
 const error = ref<string | null>(null);
-const view = ref<"students" | "problems">("students");
+const view = ref<"students" | "problems">(route.query.tab === "problems" ? "problems" : "students");
 const filter = ref<"all" | "done" | "not" | "manual" | "flag">("all");
 const openId = ref<number | null>(null);
 const settingsOpen = ref(false);
