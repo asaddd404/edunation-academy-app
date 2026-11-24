@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import random
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -169,15 +170,53 @@ def _is_expired(attempt: HomeworkAttempt, now: datetime) -> bool:
     return expires is not None and now > expires + GRACE
 
 
+# ── The task versions an attempt was given ───────────────────────────────────
+
+
+@dataclass(frozen=True)
+class _TaskVersion:
+    """A task as frozen into an attempt when it started."""
+
+    id: int
+    type: str
+    prompt: str
+    data: dict
+    points: int
+    order_index: int = 0
+
+
+def _snapshot(tasks: list[HomeworkTask]) -> dict:
+    return {str(t.id): {"type": t.type, "prompt": t.prompt, "data": t.data, "points": t.points} for t in tasks}
+
+
+def _attempt_tasks(attempt: HomeworkAttempt, live: dict[int, HomeworkTask]) -> dict[int, Any]:
+    """The tasks of this attempt, in its order, as the student saw them.
+    Edits and deletions made after the start do not reach an attempt; a task
+    missing from the copy (none should be) falls back to the live row."""
+    frozen = attempt.tasks_snapshot or {}
+    out: dict[int, Any] = {}
+    for tid in attempt.task_ids:
+        snap = frozen.get(str(tid))
+        if snap is not None:
+            live_task = live.get(tid)
+            out[tid] = _TaskVersion(
+                tid, snap["type"], snap["prompt"], snap["data"], snap["points"], live_task.order_index if live_task else 0
+            )
+        elif tid in live:
+            out[tid] = live[tid]
+    return out
+
+
 # ── Grading an attempt ───────────────────────────────────────────────────────
 
 
 def _grade_attempt(attempt: HomeworkAttempt, tasks_by_id: dict[int, HomeworkTask], now: datetime) -> None:
     auto_earned = auto_max = manual_max = 0.0
     results: dict[str, Any] = {}
+    versions = _attempt_tasks(attempt, tasks_by_id)
     for tid in attempt.task_ids:
-        task = tasks_by_id.get(tid)
-        if task is None:  # deleted since the attempt started: not graded at all
+        task = versions.get(tid)
+        if task is None:
             continue
         g = grade(task.type, task.data, task.points, (attempt.answers or {}).get(str(tid)))
         results[str(tid)] = {"earned": g.earned, "max": g.max, "items": g.items}
@@ -208,7 +247,8 @@ async def _finalize_if_expired(db: AsyncSession, attempt: HomeworkAttempt | None
 
 
 def _manual_ids(attempt: HomeworkAttempt, tasks_by_id: dict[int, HomeworkTask]) -> list[int]:
-    return [tid for tid in attempt.task_ids if tid in tasks_by_id and tasks_by_id[tid].type in MANUAL_TYPES]
+    versions = _attempt_tasks(attempt, tasks_by_id)
+    return [tid for tid in attempt.task_ids if tid in versions and versions[tid].type in MANUAL_TYPES]
 
 
 def _summary(
@@ -230,7 +270,8 @@ def _summary(
             manual_earned = None
             break
         manual_earned += float(entry.get("earned") or 0)
-    manual_max = sum(tasks_by_id[tid].points for tid in manual_ids)
+    versions = _attempt_tasks(latest, tasks_by_id) if latest else {}
+    manual_max = sum(versions[tid].points for tid in manual_ids)
     total_max = (best.auto_max or 0) + manual_max
     computed: int | None = None
     if manual_earned is not None and total_max > 0:
@@ -543,8 +584,9 @@ async def _student_lesson(db: AsyncSession, student: User, lesson_id: int) -> Le
 
 def _attempt_payload(attempt: HomeworkAttempt, tasks_by_id: dict[int, HomeworkTask]) -> dict:
     views = []
+    versions = _attempt_tasks(attempt, tasks_by_id)
     for tid in attempt.task_ids:
-        task = tasks_by_id.get(tid)
+        task = versions.get(tid)
         if task is None:
             continue
         views.append(student_view(task.id, task.type, task.prompt, task.data, task.points, (attempt.layout or {}).get(str(tid), {})))
@@ -565,8 +607,9 @@ def _attempt_payload(attempt: HomeworkAttempt, tasks_by_id: dict[int, HomeworkTa
 def _review(attempt: HomeworkAttempt, tasks_by_id: dict[int, HomeworkTask], record: HomeworkRecord | None) -> list[dict]:
     out = []
     scores = (record.manual_scores if record else None) or {}
+    versions = _attempt_tasks(attempt, tasks_by_id)
     for tid in attempt.task_ids:
-        task = tasks_by_id.get(tid)
+        task = versions.get(tid)
         if task is None:
             continue
         result = (attempt.results or {}).get(str(tid), {})
@@ -696,6 +739,7 @@ async def student_start(
         student_id=student.id,
         task_ids=variant,
         layout=layout,
+        tasks_snapshot=_snapshot([tasks_by_id[tid] for tid in variant]),
         answers={},
         started_at=now,
         expires_at=_expiry_for(lesson, record, now),
@@ -728,7 +772,8 @@ async def _own_open_attempt(db: AsyncSession, student: User, attempt_id: int) ->
 
 
 def _merge_answers(attempt: HomeworkAttempt, tasks_by_id: dict[int, HomeworkTask], incoming: dict[str, Any]) -> None:
-    allowed = {str(tid): tasks_by_id[tid].type for tid in attempt.task_ids if tid in tasks_by_id}
+    versions = _attempt_tasks(attempt, tasks_by_id)
+    allowed = {str(tid): versions[tid].type for tid in attempt.task_ids if tid in versions}
     merged = dict(attempt.answers or {})
     for key, value in incoming.items():
         ttype = allowed.get(str(key))
@@ -775,8 +820,9 @@ async def student_upload_file(
     if await _finalize_if_expired(db, attempt, now):
         await db.commit()
         raise HTTPException(status.HTTP_409_CONFLICT, "Время вышло — отправлены ответы, сохранённые вовремя")
-    task = await db.get(HomeworkTask, task_id)
-    if task is None or task.id not in attempt.task_ids or task.type != "file":
+    versions = _attempt_tasks(attempt, {t.id: t for t in await _tasks(db, attempt.lesson_id)})
+    task = versions.get(task_id)
+    if task is None or task.type != "file":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не найдено")
     relative_path, original_name = await save_homework_file(file)
     answers = dict(attempt.answers or {})
@@ -830,7 +876,7 @@ async def student_practice(
     if not state["reveal"] or not state["result"]:
         raise HTTPException(status.HTTP_409_CONFLICT, "Работа над ошибками откроется после срока сдачи")
     best = await db.get(HomeworkAttempt, state["result"]["attempt_id"])
-    tasks_by_id = {t.id: t for t in await _tasks(db, lesson_id)}
+    tasks_by_id = _attempt_tasks(best, {t.id: t for t in await _tasks(db, lesson_id)})
     out = {}
     for key, answer in payload.answers.items():
         try:
@@ -898,8 +944,9 @@ def _signals(rows: list[dict], tasks_by_id: dict[int, HomeworkTask]) -> dict[int
         best: HomeworkAttempt | None = row["_best"]
         if best is None:
             continue
+        versions = _attempt_tasks(best, tasks_by_id)
         for tid_str, res in (best.results or {}).items():
-            task = tasks_by_id.get(int(tid_str))
+            task = versions.get(int(tid_str))
             if task is None or task.type not in ("gaps", "short"):
                 continue
             for item in res.get("items", []):
@@ -1097,8 +1144,9 @@ async def teacher_student_detail(
 
     def task_block(attempt: HomeworkAttempt) -> list[dict]:
         blocks = _review(attempt, tasks_by_id, record)
-        for b, tid in zip(blocks, [t for t in attempt.task_ids if t in tasks_by_id]):
-            task = tasks_by_id[tid]
+        versions = _attempt_tasks(attempt, tasks_by_id)
+        for b, tid in zip(blocks, [t for t in attempt.task_ids if t in versions]):
+            task = versions[tid]
             b["task_full"] = _task_out(task)
             if task.type in MANUAL_TYPES:
                 entry = ((record.manual_scores if record else None) or {}).get(str(tid))
@@ -1155,14 +1203,16 @@ async def teacher_grade_manual(
     await assert_teacher_owns_lesson(db, teacher, lesson_id)
     lesson = await _lesson(db, lesson_id)
     await _class_student(db, lesson_id, student_id)
-    task = await db.get(HomeworkTask, payload.task_id)
-    if task is None or task.lesson_id != lesson_id or task.type not in MANUAL_TYPES:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не найдено")
+    live = {t.id: t for t in await _tasks(db, lesson_id)}
     record = await _record(db, lesson_id, student_id, create=True)
     attempts = await _attempts(db, lesson_id, student_id)
     latest = _latest(_counted(attempts, record))
-    if latest is None or task.id not in latest.task_ids:
+    # Marked against the version the student answered, not today's edit.
+    task = _attempt_tasks(latest, live).get(payload.task_id) if latest else None
+    if task is None and payload.task_id in live and live[payload.task_id].type in MANUAL_TYPES:
         raise HTTPException(status.HTTP_409_CONFLICT, "Ученик ещё не сдавал это задание")
+    if task is None or task.type not in MANUAL_TYPES:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Задание не найдено")
 
     criteria = (task.data or {}).get("criteria") or []
     if payload.criteria is not None and criteria:
@@ -1179,8 +1229,7 @@ async def teacher_grade_manual(
     scores = dict(record.manual_scores or {})
     scores[str(task.id)] = {"earned": earned, "criteria": chosen_ids, "attempt_id": latest.id}
     record.manual_scores = scores
-    tasks_by_id = {t.id: t for t in await _tasks(db, lesson_id)}
-    summary = _summary(_counted(attempts, record), record, tasks_by_id)
+    summary = _summary(_counted(attempts, record), record, live)
     if summary and not summary["manual_pending"]:
         notify(
             db,
@@ -1221,11 +1270,21 @@ async def teacher_decision(
                 raise HTTPException(status.HTTP_409_CONFLICT, "Ученик уже начал пересдачу — отменить её нельзя")
             record.attempts_reset_at = record.previous_reset_at
             record.variant_task_ids = record.previous_variant
+            before = record.previous_decision or {}
             record.previous_reset_at = None
             record.previous_variant = None
-        record.override_grade = None
-        record.teacher_comment = None
-        record.decision = None
+            record.previous_decision = None
+            # Back to exactly what the teacher had before the retake.
+            record.override_grade = before.get("override_grade")
+            record.teacher_comment = before.get("teacher_comment")
+            record.decision = before.get("decision")
+            restored_at = before.get("decided_at")
+            record.decided_at = datetime.fromisoformat(restored_at) if restored_at else None
+            record.decided_by = before.get("decided_by")
+        else:
+            record.override_grade = None
+            record.teacher_comment = None
+            record.decision = None
     elif action == "keep":
         record.decision = "keep"
     elif action in ("zero", "edit"):
@@ -1240,6 +1299,13 @@ async def teacher_decision(
     elif action == "retake":
         record.previous_reset_at = record.attempts_reset_at
         record.previous_variant = record.variant_task_ids
+        record.previous_decision = {
+            "decision": record.decision,
+            "override_grade": record.override_grade,
+            "teacher_comment": record.teacher_comment,
+            "decided_at": _aware(record.decided_at).isoformat() if record.decided_at else None,
+            "decided_by": record.decided_by,
+        }
         record.attempts_reset_at = now
         record.variant_task_ids = None
         record.override_grade = None
@@ -1252,8 +1318,11 @@ async def teacher_decision(
     else:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Неизвестное действие")
 
-    record.decided_at = now if record.decision else None
-    record.decided_by = teacher.id if record.decision else None
+    if action != "undo":
+        record.decided_at = now if record.decision else None
+        record.decided_by = teacher.id if record.decision else None
+    elif record.decision is None:
+        record.decided_at = record.decided_by = None
     if message:
         notify(db, student_id, "homework_decision", message + (f". Комментарий: {comment}" if comment else ""), link=f"/lessons/{lesson_id}")
     await db.commit()

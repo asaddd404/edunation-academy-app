@@ -335,15 +335,21 @@ async def test_zero_edit_undo_and_retake(client, login_as, course):
     assert (await client.post(base, json={"action": "zero", "comment": "списал"})).json()["result"]["grade"] == 0
     assert (await client.post(base, json={"action": "undo"})).json()["result"]["grade"] == 100
     assert (await client.post(base, json={"action": "edit"})).status_code == 422
-    assert (await client.post(base, json={"action": "edit", "grade": 40})).json()["result"]["grade"] == 40
+    assert (await client.post(base, json={"action": "edit", "grade": 40, "comment": "Подойди"})).json()["result"]["grade"] == 40
 
     r = await client.post(base, json={"action": "retake"})
     assert r.json()["decision"] == "retake" and r.json()["result"] is None
     login_as(course["s1"])
     state = (await client.get(f"/api/v1/lessons/{lid}/auto-homework")).json()
     assert state["attempts_left"] == 1 and state["can_start"]
-    # Undo is possible until the student starts again.
+    # Undo is possible until the student starts again, and it brings back
+    # the teacher's earlier grade and comment, not a blank slate.
     login_as(course["teacher"])
+    undone = (await client.post(base, json={"action": "undo"})).json()
+    assert undone["result"]["grade"] == 40 and undone["decision"] == "edit"
+    detail = (await client.get(f"/api/v1/teacher/lessons/{lid}/auto-homework/students/{course['s1'].id}")).json()
+    assert detail["record"]["teacher_comment"] == "Подойди" and detail["record"]["override_grade"] == 40
+    # A second undo clears that decision as usual.
     assert (await client.post(base, json={"action": "undo"})).json()["result"]["grade"] == 100
     await client.post(base, json={"action": "retake"})
     login_as(course["s1"])
@@ -396,3 +402,30 @@ async def test_file_task_upload_and_teacher_download(client, login_as, course, m
     assert r.status_code == 200 and r.content.startswith(b"\x89PNG")
     detail = (await client.get(f"/api/v1/teacher/lessons/{lid}/auto-homework/students/{course['s1'].id}")).json()
     assert detail["latest"][0]["has_file"] is True
+
+
+async def test_editing_or_deleting_a_task_mid_attempt_does_not_change_that_attempt(client, login_as, course):
+    lid, gaps, single, short = await _basic_homework(client, login_as, course)
+    login_as(course["s1"])
+    a = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
+    answers = _answers_for(a, ["1845", "Семей"], "4", "8")
+    await client.put(f"/api/v1/auto-homework/attempts/{a['id']}/answers", json={"answers": answers, "away_count": 0})
+
+    # The teacher changes the short answer's key and deletes the single choice.
+    login_as(course["teacher"])
+    r = await client.put(f"/api/v1/teacher/auto-homework/tasks/{short['id']}", json={"prompt": "2x=18, x=?", "data": {"answers": ["9"]}, "points": 5})
+    assert r.status_code == 200, r.text
+    assert (await client.delete(f"/api/v1/teacher/auto-homework/tasks/{single['id']}")).status_code in (200, 204)
+
+    # The student still sees and is graded on what they started with.
+    login_as(course["s1"])
+    resumed = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
+    prompts = {t["id"]: t["prompt"] for t in resumed["tasks"]}
+    assert prompts[short["id"]] == "2x=16, x=?" and single["id"] in prompts
+    result = (await client.post(f"/api/v1/auto-homework/attempts/{a['id']}/submit", json={"answers": answers})).json()
+    assert result["result"]["auto_earned"] == 4.0 and result["result"]["auto_max"] == 4.0
+
+    # The next attempt gets the new version.
+    nxt = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
+    prompts = {t["id"]: t["prompt"] for t in nxt["tasks"]}
+    assert prompts[short["id"]] == "2x=18, x=?" and single["id"] not in prompts

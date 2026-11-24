@@ -115,9 +115,14 @@ async function flush() {
       return;
     }
     currentId.value = saved.id;
-    adoptIds(saved.data);
+    adoptIds(draft.data, saved.data);
     if (props.type === "essay") draft.points = saved.points;
-    savedJson = JSON.stringify(snapshot());
+    // The baseline is what was SENT (plus the ids the server gave it), not
+    // the draft now: edits made while the request was out must still differ
+    // from it, so the follow-up save really sends them.
+    adoptIds(body.data, saved.data);
+    if (props.type === "essay") body.points = saved.points;
+    savedJson = JSON.stringify(body);
     // Edited again while the request was out: the next save carries it.
     saveState.value = JSON.stringify(snapshot()) === savedJson ? "saved" : "dirty";
     message.value = null;
@@ -136,9 +141,9 @@ async function flush() {
 }
 
 /** Copy ids/rids the server minted for new rows into the draft, by position. */
-function adoptIds(server: HwTaskData) {
+function adoptIds(target: HwTaskData, server: HwTaskData) {
   for (const key of ["options", "pairs", "items", "criteria"] as const) {
-    const mine = draft.data[key] as { id?: string; rid?: string }[] | undefined;
+    const mine = target[key] as { id?: string; rid?: string }[] | undefined;
     const theirs = server[key] as { id?: string; rid?: string }[] | undefined;
     if (!mine || !theirs) continue;
     mine.forEach((row, i) => {

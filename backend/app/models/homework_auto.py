@@ -60,6 +60,11 @@ class HomeworkAttempt(Base):
     # (option order, shuffled right-hand sides) -- fixed at start.
     task_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     layout: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # The tasks exactly as they were when the attempt started (type, prompt,
+    # data, points per task id). The attempt is shown and graded against
+    # this copy, so a teacher editing or deleting a task mid-sitting never
+    # changes the key under a student who is already answering.
+    tasks_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # {task_id: answer}, cleaned per type. Autosaved during the attempt, so a
     # sitting that runs out of time is graded on what was saved in time.
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -112,6 +117,9 @@ class HomeworkRecord(Base):
     attempts_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     previous_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     previous_variant: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # The teacher's decision before a retake (decision, grade, comment), so
+    # undoing the retake puts it back instead of wiping it.
+    previous_decision: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     extended_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # {task_id: {"earned", "criteria": [ids], "attempt_id"}} for essay/file tasks.
     manual_scores: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
