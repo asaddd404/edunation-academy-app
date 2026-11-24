@@ -11,6 +11,7 @@ from app.models.ent_question import (
 from app.models.ent_simulation import EntSimulation, EntSimulationQuestion, EntSimulationStatus
 from app.models.ent_subject import EntSubject
 from app.models.homework import HomeworkStatusEnum, HomeworkSubmission
+from app.models.homework_auto import HomeworkAttempt, HomeworkRecord, HomeworkTask
 from app.models.lesson import Lesson
 from app.models.notification import Notification
 from app.models.question import AnswerVariant, Choice, MatchPair, Question
@@ -38,7 +39,10 @@ __all__ = [
     "EntSimulationQuestion",
     "EntSimulationStatus",
     "EntSubject",
+    "HomeworkAttempt",
+    "HomeworkRecord",
     "HomeworkStatusEnum",
+    "HomeworkTask",
     "HomeworkSubmission",
     "Lesson",
     "MatchPair",

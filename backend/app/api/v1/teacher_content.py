@@ -28,6 +28,7 @@ from app.core.video import VideoProcessingError, delete_video_assets, save_raw_v
 from app.database import async_session_factory, get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
+from app.models.homework_auto import HomeworkAttempt
 from app.models.homework import HomeworkSubmission
 from app.models.lesson import Lesson, VideoStatusEnum
 from app.models.question import AnswerVariant, Choice, MatchPair, Question
@@ -245,7 +246,15 @@ async def _homework_file_paths(db: AsyncSession, lesson_ids: list[int]) -> set[s
             HomeworkSubmission.lesson_id.in_(lesson_ids), HomeworkSubmission.file_path.is_not(None)
         )
     )
-    return set(paths.all())
+    found = set(paths.all())
+    # Photos/files handed in for auto-checked homework live inside the
+    # attempts' answers ({task_id: {"file_path": ...}}).
+    answers = await db.scalars(select(HomeworkAttempt.answers).where(HomeworkAttempt.lesson_id.in_(lesson_ids)))
+    for answer_map in answers:
+        for value in (answer_map or {}).values():
+            if isinstance(value, dict) and isinstance(value.get("file_path"), str):
+                found.add(value["file_path"])
+    return found
 
 
 @router.delete("/teacher/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)

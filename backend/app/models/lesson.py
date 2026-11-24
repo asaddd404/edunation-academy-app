@@ -43,6 +43,16 @@ class Lesson(Base):
     presentation_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     presentation_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Settings of the auto-checked homework (models/homework_auto.py). All
+    # optional: no opening date = open at once, no deadline = hand in any
+    # time, no time limit = untimed, max_attempts None = unlimited,
+    # tasks_per_student None = everyone gets every task.
+    hw_opens_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hw_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hw_time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hw_max_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=3, server_default="3")
+    hw_tasks_per_student: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     section: Mapped["Section"] = relationship(back_populates="lessons")
     # See Section.lessons: nulling questions.lesson_id would break the
     # exactly-one-owner CHECK, so deletion is left to the FK cascade.
