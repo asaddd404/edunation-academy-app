@@ -28,7 +28,7 @@ from app.core.video import VideoProcessingError, delete_video_assets, save_raw_v
 from app.database import async_session_factory, get_db
 from app.deps import require_role
 from app.models.category import Category, teacher_categories
-from app.models.homework_auto import HomeworkAttempt
+from app.models.homework_auto import HomeworkAttempt, HomeworkTask
 from app.models.homework import HomeworkSubmission
 from app.models.lesson import Lesson, VideoStatusEnum
 from app.models.question import AnswerVariant, Choice, MatchPair, Question
@@ -162,6 +162,7 @@ async def list_category_sections(
     # to render the builder's readiness chips.
     lesson_ids = [lesson.id for section in sections for lesson in section.lessons]
     counts: dict[int, int] = {}
+    hw_counts: dict[int, int] = {}
     if lesson_ids:
         rows = await db.execute(
             select(Question.lesson_id, func.count())
@@ -169,6 +170,12 @@ async def list_category_sections(
             .group_by(Question.lesson_id)
         )
         counts = {lesson_id: total for lesson_id, total in rows}
+        hw_rows = await db.execute(
+            select(HomeworkTask.lesson_id, func.count())
+            .where(HomeworkTask.lesson_id.in_(lesson_ids))
+            .group_by(HomeworkTask.lesson_id)
+        )
+        hw_counts = {lesson_id: total for lesson_id, total in hw_rows}
 
     out: list[SectionOut] = []
     for section in sections:
@@ -176,7 +183,8 @@ async def list_category_sections(
         by_id = {lesson.id: lesson for lesson in section.lessons}
         for summary in payload.lessons:
             summary.question_count = counts.get(summary.id, 0)
-            summary.has_homework = bool((by_id[summary.id].homework_assignment or "").strip())
+            summary.auto_hw_tasks = hw_counts.get(summary.id, 0)
+            summary.has_homework = bool((by_id[summary.id].homework_assignment or "").strip()) or summary.auto_hw_tasks > 0
         out.append(payload)
     return out
 

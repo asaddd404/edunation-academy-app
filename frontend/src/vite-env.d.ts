@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string;
+  /** Admin's WhatsApp number for the teachers' «Помощь» panel; optional. */
+  readonly VITE_SUPPORT_WHATSAPP?: string;
 }
 
 interface ImportMeta {

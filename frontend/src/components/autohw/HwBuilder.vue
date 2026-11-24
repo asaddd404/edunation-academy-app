@@ -14,6 +14,8 @@ import { HW_TYPES, HW_TYPE_ORDER, pluralPoints } from "@/utils/hwTasks";
  * in any order), the "add a task" picker, and the timing settings.
  */
 const props = defineProps<{ lessonId: number }>();
+/** The number of saved tasks changed (first save, copy, delete). */
+const emit = defineEmits<{ changed: [] }>();
 const toast = useToastStore();
 
 interface Row {
@@ -58,7 +60,9 @@ function add(type: HwTaskType) {
 }
 
 function onSaved(row: Row, task: HwTask) {
+  const isNew = !row.task;
   row.task = task;
+  if (isNew) emit("changed");
 }
 
 function toggle(row: Row) {
@@ -72,6 +76,7 @@ async function remove(row: Row) {
   if (!row.task) return;
   try {
     await deleteHomeworkTask(row.task.id);
+    emit("changed");
   } catch (e) {
     rows.value.splice(index, 0, row); // put it back: it still exists
     toast.push(describeApiError(e, "Не удалось удалить задание."));
@@ -86,6 +91,7 @@ async function duplicate(row: Row) {
     const key = `t${copy.id}`;
     rows.value.splice(index + 1, 0, { key, type: copy.type, task: copy });
     openKey.value = key;
+    emit("changed");
   } catch (e) {
     toast.push(describeApiError(e, "Не удалось скопировать задание."));
   }

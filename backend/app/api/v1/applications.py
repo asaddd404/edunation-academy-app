@@ -74,7 +74,7 @@ async def create_application(
             teacher_id,
             "new_application",
             f"Новая заявка от {student.first_name} {student.last_name} на курс «{category.name}»",
-            link="/teacher",
+            link="/teacher/applications",
         )
 
     await db.commit()

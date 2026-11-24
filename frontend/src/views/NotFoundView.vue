@@ -11,7 +11,7 @@ const router = useRouter();
 // when signed in, the public landing otherwise.
 const homeLink = computed(() => {
   if (!auth.isAuthenticated) return { to: "/", label: "На главную" };
-  if (auth.role === "teacher") return { to: "/teacher", label: "К заявкам" };
+  if (auth.role === "teacher") return { to: "/teacher", label: "На главную учителя" };
   if (auth.role === "admin") return { to: "/admin", label: "В админ-панель" };
   return { to: "/catalog", label: "В каталог" };
 });
