@@ -16,7 +16,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.homework_auto import _problem_items, _results_rows, _signals
@@ -114,13 +114,19 @@ async def teacher_today(
     new_by_lesson: dict[int, int] = defaultdict(int)
     if lesson_ids:
         recent = await db.execute(
-            select(HomeworkAttempt.lesson_id, HomeworkAttempt.submitted_at, HomeworkAttempt.status, HomeworkAttempt.expires_at)
+            select(HomeworkAttempt.lesson_id, HomeworkAttempt.submitted_at, HomeworkAttempt.status)
             .where(
                 HomeworkAttempt.lesson_id.in_(lesson_ids),
-                or_(HomeworkAttempt.submitted_at >= now - RECENT, HomeworkAttempt.status == "in_progress"),
+                or_(
+                    HomeworkAttempt.submitted_at >= now - RECENT,
+                    # An open sitting counts only while it's recent: one a
+                    # student started and abandoned months ago (no timer, so
+                    # it never closes) must not keep its lesson "active".
+                    and_(HomeworkAttempt.status == "in_progress", HomeworkAttempt.started_at >= now - RECENT),
+                ),
             )
         )
-        for lesson_id, submitted_at, status, _expires in recent.all():
+        for lesson_id, submitted_at, status in recent.all():
             active.add(lesson_id)
             if status == "submitted" and submitted_at and submitted_at >= now - NEW_RESULTS:
                 new_by_lesson[lesson_id] += 1

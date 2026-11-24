@@ -462,3 +462,26 @@ async def test_today_sums_up_what_needs_the_teacher(client, login_as, course, db
     assert other["new_results"]["total"] == 0 and other["courses"] == []
     login_as(course["s1"])
     assert (await client.get("/api/v1/teacher/today")).status_code == 403
+
+
+async def test_today_ignores_long_abandoned_open_attempts(client, login_as, course, db_session, monkeypatch):
+    lid, *_ = await _basic_homework(client, login_as, course)
+    login_as(course["s1"])
+    a = (await client.post(f"/api/v1/lessons/{lid}/auto-homework/start")).json()
+    attempt = await db_session.get(HomeworkAttempt, a["id"])
+    attempt.started_at = datetime.now(timezone.utc) - timedelta(days=90)
+    await db_session.commit()
+
+    import app.api.v1.teacher_today as today_module
+
+    looked_at = []
+    real = today_module._results_rows
+
+    async def spy(db, lesson, now):
+        looked_at.append(lesson.id)
+        return await real(db, lesson, now)
+
+    monkeypatch.setattr(today_module, "_results_rows", spy)
+    login_as(course["teacher"])
+    assert (await client.get("/api/v1/teacher/today")).status_code == 200
+    assert looked_at == []  # an untimed sitting abandoned long ago is not "activity"
