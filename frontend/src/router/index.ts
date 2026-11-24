@@ -125,6 +125,12 @@ const router = createRouter({
       meta: { roles: ["teacher", "admin"], remountOnParams: true },
     },
     {
+      path: "/teacher/lessons/:id/homework",
+      name: "teacher-auto-homework",
+      component: () => import("@/views/teacher/TeacherAutoHomeworkView.vue"),
+      meta: { roles: ["teacher", "admin"], remountOnParams: true },
+    },
+    {
       path: "/teacher/homework",
       name: "teacher-homework",
       component: () => import("@/views/teacher/TeacherHomeworkView.vue"),

@@ -14,6 +14,7 @@ import YouTubeEmbed from "@/components/media/YouTubeEmbed.vue";
 import PageContainer from "@/components/layout/PageContainer.vue";
 import PageHeader from "@/components/layout/PageHeader.vue";
 import RichContent from "@/components/richtext/RichContent.vue";
+import HwStudent from "@/components/autohw/HwStudent.vue";
 import CourseTestPanel from "@/components/test/CourseTestPanel.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BackLink from "@/components/ui/BackLink.vue";
@@ -273,6 +274,8 @@ async function handleSubmitHomework() {
             :leaderboard-to="{ path: '/leaderboard', query: { lesson: lessonId } }"
             @passed="handleLessonPassed"
           />
+
+          <HwStudent :lesson-id="lessonId" :title="hasHomework ? 'Домашнее задание с автопроверкой' : undefined" />
 
           <section v-if="hasHomework" class="card space-y-3 p-4 sm:p-5">
             <h2 class="text-lg font-medium text-ink">Домашнее задание</h2>
