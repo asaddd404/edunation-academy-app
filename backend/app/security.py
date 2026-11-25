@@ -90,18 +90,30 @@ async def issue_refresh_token(user_id: int) -> str:
 REFRESH_ROTATION_GRACE_SECONDS = 60
 
 
+# Takes the token and leaves the "rotated" marker in one step. Done as two
+# commands, a second tab arriving between them would find neither the token
+# nor the marker, take the token for a forged one and clear the cookie the
+# first tab was just given -- signing the user out.
+CONSUME_REFRESH_SCRIPT = """
+local user_id = redis.call('GETDEL', KEYS[1])
+if user_id then
+  redis.call('SET', KEYS[2], user_id, 'EX', ARGV[1])
+end
+return user_id
+"""
+
+
 async def consume_refresh_token(token: str) -> int | None:
     """Validates and deletes the refresh token (rotation). Returns user_id or None.
 
-    GETDEL, not GET then DELETE: in between, a second request carrying the
-    same token would also see it as valid and one token would mint two
-    sessions."""
-    key = f"refresh:{token}"
-    user_id = await redis_client.getdel(key)
+    Atomic (see CONSUME_REFRESH_SCRIPT): a second request carrying the same
+    token can neither use it again nor miss that it was just rotated."""
+    user_id = await redis_client.eval(
+        CONSUME_REFRESH_SCRIPT, 2, f"refresh:{token}", f"refresh_rotated:{token}", REFRESH_ROTATION_GRACE_SECONDS
+    )
     if user_id is None:
         return None
     await redis_client.srem(_user_sessions_key(user_id), token)
-    await redis_client.set(f"refresh_rotated:{token}", str(user_id), ex=REFRESH_ROTATION_GRACE_SECONDS)
     return int(user_id)
 
 
