@@ -90,6 +90,12 @@ const router = createRouter({
       meta: { roles: ["student"] },
     },
     {
+      path: "/tests",
+      name: "my-tests",
+      component: () => import("@/views/student/MyTestsView.vue"),
+      meta: { roles: ["student"] },
+    },
+    {
       path: "/leaderboard",
       name: "leaderboard",
       component: () => import("@/views/student/LeaderboardView.vue"),

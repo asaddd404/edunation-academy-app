@@ -233,6 +233,8 @@ async def update_section(
         section.title = payload.title
     if payload.description is not None:
         section.description = payload.description
+    if payload.questions_per_attempt is not None:
+        section.questions_per_attempt = payload.questions_per_attempt or None
     await db.commit()
 
     # Re-fetch with lessons eager-loaded rather than db.refresh(), which
@@ -387,6 +389,8 @@ async def update_lesson(
         lesson.homework_assignment = payload.homework_assignment
     if payload.video_url is not None:
         lesson.video_url = payload.video_url or None
+    if payload.questions_per_attempt is not None:
+        lesson.questions_per_attempt = payload.questions_per_attempt or None
     await db.commit()
     await db.refresh(lesson)
 

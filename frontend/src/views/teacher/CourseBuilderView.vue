@@ -887,7 +887,11 @@ async function handleCreateLesson(sectionId: number) {
                       Мини-тест урока
                       <span class="font-normal text-ink-3">— ученик проходит после видео</span>
                     </p>
-                    <QuestionBank :lesson-id="lesson.id" />
+                    <QuestionBank
+                      :lesson-id="lesson.id"
+                      :per-attempt="lesson.questions_per_attempt ?? null"
+                      @per-attempt-saved="lesson.questions_per_attempt = $event"
+                    />
                   </section>
 
                   <section v-show="stepOf(lesson.id) === 'homework'">
@@ -975,7 +979,11 @@ async function handleCreateLesson(sectionId: number) {
               />
             </button>
             <div v-if="openSectionTestIds.has(section.id)" class="border-t border-line p-3">
-              <QuestionBank :section-id="section.id" />
+              <QuestionBank
+                :section-id="section.id"
+                :per-attempt="section.questions_per_attempt ?? null"
+                @per-attempt-saved="section.questions_per_attempt = $event"
+              />
             </div>
           </div>
           </div>

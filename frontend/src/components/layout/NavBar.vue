@@ -57,8 +57,9 @@ const links = computed<NavLink[]>(() => {
     return [
       { to: "/catalog", label: "Каталог" },
       { to: "/my-applications", label: "Мои заявки" },
+      { to: "/tests", label: "Мои тесты" },
       { to: "/ent", label: "ЕНТ-тренажёр" },
-      { to: "/leaderboard", label: "Тесты и Рейтинг" },
+      { to: "/leaderboard", label: "Рейтинг" },
     ];
   }
   if (auth.role === "teacher") return TEACHER_LINKS;

@@ -24,6 +24,8 @@ class LessonIn(BaseModel):
 
 class LessonUpdateIn(BaseModel):
     title: OptionalNonBlankShortText = None
+    # Mini-test bank: questions per attempt. 0 = all of them (stored as NULL).
+    questions_per_attempt: int | None = Field(default=None, ge=0, le=200)
     description: OptionalRichText = None
     homework_assignment: OptionalRichText = None
     # Omitted: unchanged. "": remove the video. Otherwise a YouTube link.
@@ -42,6 +44,7 @@ class LessonTeacherOut(BaseModel):
     order_index: int
     created_at: datetime
     video_status: str
+    questions_per_attempt: int | None = None
     video_duration_seconds: int | None
     video_error: str | None
     presentation_name: str | None = None
@@ -64,6 +67,7 @@ class LessonSummaryOut(BaseModel):
     question_count: int = 0
     has_homework: bool = False
     auto_hw_tasks: int = 0
+    questions_per_attempt: int | None = None
     video_url: str | None = None
     presentation_name: str | None = None
     presentation_size: int | None = None

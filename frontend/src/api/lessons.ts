@@ -22,7 +22,14 @@ export function createLesson(
 export function updateLesson(
   lessonId: number,
   /** `video_url`: a YouTube link, or "" to remove it. */
-  payload: { title?: string; description?: string; homework_assignment?: string; video_url?: string },
+  payload: {
+    title?: string;
+    description?: string;
+    homework_assignment?: string;
+    video_url?: string;
+    /** Mini-test: questions per attempt; 0 = all. */
+    questions_per_attempt?: number;
+  },
 ) {
   return http.patch(`/teacher/lessons/${lessonId}`, payload).then((r) => r.data);
 }

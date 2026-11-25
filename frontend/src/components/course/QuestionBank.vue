@@ -6,6 +6,7 @@ import { onMounted, ref } from "vue";
 import { createQuestion, listLessonQuestions } from "@/api/lessons";
 import { deleteQuestion, updateQuestion } from "@/api/questions";
 import { createSectionQuestion, listSectionQuestions } from "@/api/sections";
+import PoolSizeSetting from "@/components/course/PoolSizeSetting.vue";
 import QuestionEditor from "@/components/course/QuestionEditor.vue";
 import SmartText from "@/components/shared/SmartText.vue";
 import BaseBadge from "@/components/ui/BaseBadge.vue";
@@ -17,7 +18,8 @@ import { pluralRu } from "@/utils/subjectTheme";
 
 /** The questions of one lesson mini-test or one section test: listed with
  * their answer key, edited in place, added at the bottom. */
-const props = defineProps<{ lessonId?: number; sectionId?: number }>();
+const props = defineProps<{ lessonId?: number; sectionId?: number; perAttempt?: number | null }>();
+const emit = defineEmits<{ perAttemptSaved: [value: number | null] }>();
 
 const questions = ref<QuestionTeacher[]>([]);
 const loading = ref(true);
@@ -199,5 +201,14 @@ async function remove(questionId: number) {
     >
       <Plus :size="16" /> Добавить вопрос
     </button>
+
+    <PoolSizeSetting
+      v-if="!loading && !loadError && questions.length >= 2"
+      :lesson-id="lessonId"
+      :section-id="sectionId"
+      :value="perAttempt ?? null"
+      :total="questions.length"
+      @saved="emit('perAttemptSaved', $event)"
+    />
   </div>
 </template>

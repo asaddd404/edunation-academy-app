@@ -13,6 +13,7 @@ from app.api.v1 import (
     homework,
     homework_auto,
     leaderboard,
+    my_tests,
     notifications,
     presentation,
     profile,
@@ -32,6 +33,7 @@ api_router.include_router(teacher_content.router)
 api_router.include_router(content.public_router)
 api_router.include_router(content.router)
 api_router.include_router(tests.router)
+api_router.include_router(my_tests.router)
 api_router.include_router(homework.router)
 api_router.include_router(homework_auto.router)
 api_router.include_router(teacher_today.router)
