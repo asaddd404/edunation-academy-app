@@ -186,3 +186,18 @@ async def test_my_tests_lists_status_attempts_and_best_score(client, db_session,
 async def test_my_tests_is_for_students_only(client, make_user, login_as):
     login_as(await make_user(RoleEnum.teacher))
     assert (await client.get("/api/v1/tests/my")).status_code == 403
+
+
+async def test_an_abandoned_sitting_counts_as_the_previous_one(client, db_session, make_user, login_as):
+    from datetime import datetime, timedelta, timezone
+
+    student, _, _, _, lesson = await _course(db_session, make_user, questions=6, per_attempt=3, slug="pool-stale")
+    login_as(student)
+    first = await _start(client, lesson.id)
+    attempt = await db_session.get(TestAttempt, first["attempt_id"])
+    attempt.started_at = datetime.now(timezone.utc) - timedelta(hours=3)  # left open, dropped on next start
+    await db_session.commit()
+
+    second = await _start(client, lesson.id)
+    assert second["attempt_id"] != first["attempt_id"]
+    assert not {q["id"] for q in first["questions"]} & {q["id"] for q in second["questions"]}

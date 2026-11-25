@@ -74,13 +74,15 @@ async def _per_attempt(db: AsyncSession, *, lesson_id: int | None, section_id: i
     return await db.scalar(select(Section.questions_per_attempt).where(Section.id == section_id))
 
 
-async def _draw(db: AsyncSession, attempt: TestAttempt, student: User) -> None:
+async def _draw(db: AsyncSession, attempt: TestAttempt, student: User, abandoned_ids: list | None = None) -> None:
     """Fixes which questions a new attempt gets, avoiding the ones the
-    student's previous attempt at this test showed where the bank allows."""
+    student's previous attempt at this test showed where the bank allows.
+    `abandoned_ids`: the sheet of a sitting left open too long and dropped
+    -- the student has seen those questions, so they count as previous."""
     bank = await _bank(db, attempt)
     per_attempt = await _per_attempt(db, lesson_id=attempt.lesson_id, section_id=attempt.section_id)
-    previous_ids = None
-    if per_attempt:
+    previous_ids = abandoned_ids or None
+    if per_attempt and previous_ids is None:
         scope = TestAttempt.lesson_id == attempt.lesson_id if attempt.lesson_id else TestAttempt.section_id == attempt.section_id
         previous = await db.scalar(
             select(TestAttempt)
@@ -112,7 +114,9 @@ async def _open_session(db: AsyncSession, student: User, *, lesson_id: int | Non
     now = datetime.now(timezone.utc)
 
     attempt = await db.scalar(select(TestAttempt).where(*open_filter))
+    abandoned_ids = None
     if attempt is not None and _elapsed_seconds(attempt.started_at, now) > STALE_ATTEMPT_AFTER.total_seconds():
+        abandoned_ids = attempt.question_ids
         await db.execute(delete(TestAttempt).where(TestAttempt.id == attempt.id))
         attempt = None
 
@@ -121,7 +125,7 @@ async def _open_session(db: AsyncSession, student: User, *, lesson_id: int | Non
         db.add(attempt)
         try:
             await db.flush()
-            await _draw(db, attempt, student)
+            await _draw(db, attempt, student, abandoned_ids)
             await db.commit()
         except IntegrityError:
             # A concurrent start won the partial unique index; resume theirs.
