@@ -404,7 +404,7 @@ function handleLogout() {
       v-if="auth.isAuthenticated && mobileMenuOpen"
       id="mobile-drawer"
       ref="mobileMenuRoot"
-      class="motion-safe:animate-fade-in flex flex-col gap-1 border-t border-line px-4 py-3 text-sm md:hidden"
+      class="motion-safe:animate-fade-in flex max-h-[calc(100dvh-4rem)] flex-col gap-1 overflow-y-auto overscroll-contain border-b border-t border-line bg-paper px-4 py-3 text-sm shadow-lg md:hidden"
       @keydown.esc="closeMobileMenu"
     >
       <router-link
