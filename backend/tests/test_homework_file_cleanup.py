@@ -31,6 +31,8 @@ async def test_deleting_a_lesson_removes_its_homework_files(client, db_session, 
 
     login_as(teacher)
     assert (await client.delete(f"/api/v1/teacher/lessons/{lesson.id}")).status_code == 204
+    assert path.exists()  # in the trash: everything kept for 30 days
+    assert (await client.delete(f"/api/v1/teacher/trash/lesson/{lesson.id}")).status_code == 204
     assert not path.exists()
 
 
@@ -39,6 +41,8 @@ async def test_deleting_a_section_removes_its_homework_files(client, db_session,
 
     login_as(teacher)
     assert (await client.delete(f"/api/v1/teacher/sections/{lesson.section_id}")).status_code == 204
+    assert path.exists()
+    assert (await client.delete(f"/api/v1/teacher/trash/section/{lesson.section_id}")).status_code == 204
     assert not path.exists()
 
 

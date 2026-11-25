@@ -22,6 +22,9 @@ class Category(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # The one hidden course deleted sections and lessons are parked in (see
+    # app.core.trash). Never listed, never applied to, never taught.
+    is_trash: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     teachers: Mapped[list["User"]] = relationship(secondary=teacher_categories, back_populates="taught_categories")

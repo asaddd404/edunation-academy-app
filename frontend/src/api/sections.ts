@@ -13,7 +13,10 @@ export function createSection(categoryId: number, payload: { title: string; desc
   return http.post<Section>(`/teacher/categories/${categoryId}/sections`, payload).then((r) => r.data);
 }
 
-export function updateSection(sectionId: number, payload: { title?: string; description?: string }) {
+export function updateSection(
+  sectionId: number,
+  payload: { title?: string; description?: string; /** 0 = all questions */ questions_per_attempt?: number },
+) {
   return http.patch<Section>(`/teacher/sections/${sectionId}`, payload).then((r) => r.data);
 }
 

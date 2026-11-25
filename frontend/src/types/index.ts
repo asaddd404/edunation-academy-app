@@ -78,6 +78,8 @@ export interface LessonSummary {
   /** A YouTube link, when the lesson's video is hosted there. */
   video_url?: string | null;
   has_homework: boolean;
+  /** Mini-test: questions drawn per attempt (null = all). */
+  questions_per_attempt?: number | null;
   /** Tasks in the lesson's auto-checked homework (teacher listing only). */
   auto_hw_tasks?: number;
   /** The lesson's PowerPoint file, if one is attached. */
@@ -92,6 +94,8 @@ export interface Section {
   description: string | null;
   order_index: number;
   created_at: string;
+  /** Section test: questions drawn per attempt (null = all). */
+  questions_per_attempt?: number | null;
   lessons: LessonSummary[];
   has_test: boolean;
   is_test_unlocked: boolean;

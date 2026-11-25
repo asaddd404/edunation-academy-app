@@ -190,11 +190,11 @@ def test_school_day_rolls_over_at_kazakhstan_midnight(monkeypatch):
 async def test_deleting_a_lesson_keeps_an_image_another_lesson_uses(client, db_session, make_user, login_as, monkeypatch):
     import json
 
-    from app.api.v1 import teacher_content
+    from app.core import trash
     from app.models.category import teacher_categories
 
     deleted: list[str] = []
-    monkeypatch.setattr(teacher_content, "delete_upload", lambda path: deleted.append(path))
+    monkeypatch.setattr(trash, "delete_upload", lambda path: deleted.append(path))
 
     teacher = await make_user(RoleEnum.teacher)
     category = Category(name="shared-img", slug="shared-img", is_active=True)
@@ -211,10 +211,15 @@ async def test_deleting_a_lesson_keeps_an_image_another_lesson_uses(client, db_s
     await db_session.commit()
     login_as(teacher)
 
-    assert (await client.delete(f"/api/v1/teacher/lessons/{first.id}")).status_code == 204
-    assert "lesson-content/shared.png" not in deleted  # the second lesson still shows it
+    # Deleting goes to the trash; files only go when it is emptied for good.
+    for lesson in (first, second):
+        assert (await client.delete(f"/api/v1/teacher/lessons/{lesson.id}")).status_code == 204
+    assert deleted == []
 
-    assert (await client.delete(f"/api/v1/teacher/lessons/{second.id}")).status_code == 204
+    assert (await client.delete(f"/api/v1/teacher/trash/lesson/{first.id}")).status_code == 204
+    assert "lesson-content/shared.png" not in deleted  # the second lesson (in the trash) still shows it
+
+    assert (await client.delete(f"/api/v1/teacher/trash/lesson/{second.id}")).status_code == 204
     assert "lesson-content/shared.png" in deleted  # now nothing does
 
 

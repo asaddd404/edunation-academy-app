@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.storage import delete_upload
+from app.core.trash import purge_trash
 from app.database import async_session_factory, engine
 from app.models.homework import HomeworkStatusEnum, HomeworkSubmission
 
@@ -94,7 +95,10 @@ async def sweep_once() -> int:
     """
     if engine.dialect.name != "postgresql":
         async with async_session_factory() as db:
-            return await purge_expired_homework_files(db)
+            removed = await purge_expired_homework_files(db)
+        async with async_session_factory() as db:
+            await purge_trash(db)
+        return removed
 
     async with engine.connect() as lock_conn:
         lock_conn = await lock_conn.execution_options(isolation_level="AUTOCOMMIT")
@@ -103,6 +107,8 @@ async def sweep_once() -> int:
         try:
             async with async_session_factory() as db:
                 removed = await purge_expired_homework_files(db)
+            async with async_session_factory() as db:
+                await purge_trash(db)
         finally:
             await lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": _ADVISORY_LOCK_KEY})
     if removed:

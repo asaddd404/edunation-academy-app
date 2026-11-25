@@ -15,7 +15,9 @@ from app.core.authorization import (
     assert_teacher_owns_question,
     assert_teacher_owns_section,
 )
-from app.core.rich_content import extract_image_paths, orphaned_image_paths
+from app.core.lesson_files import still_referenced
+from app.core.rich_content import orphaned_image_paths
+from app.core.trash import trash_lesson, trash_section
 from app.core.presentation import presentation_link
 from app.core.storage import (
     delete_upload,
@@ -57,7 +59,7 @@ async def list_my_categories(
     db: AsyncSession = Depends(get_db),
     teacher: User = Depends(require_role(RoleEnum.teacher, RoleEnum.admin)),
 ) -> list[CategoryOut]:
-    query = select(Category)
+    query = select(Category).where(Category.is_trash.is_(False))
     if teacher.role != RoleEnum.admin:
         query = query.join(teacher_categories, teacher_categories.c.category_id == Category.id).where(
             teacher_categories.c.teacher_id == teacher.id
@@ -233,6 +235,8 @@ async def update_section(
         section.title = payload.title
     if payload.description is not None:
         section.description = payload.description
+    if payload.questions_per_attempt is not None:
+        section.questions_per_attempt = payload.questions_per_attempt or None
     await db.commit()
 
     # Re-fetch with lessons eager-loaded rather than db.refresh(), which
@@ -242,27 +246,6 @@ async def update_section(
         select(Section).where(Section.id == section_id).options(selectinload(Section.lessons))
     )
     return SectionOut.model_validate(section)
-
-
-async def _homework_file_paths(db: AsyncSession, lesson_ids: list[int]) -> set[str]:
-    """Stored homework attachments of these lessons -- the DB cascade removes
-    the submissions but not their files."""
-    if not lesson_ids:
-        return set()
-    paths = await db.scalars(
-        select(HomeworkSubmission.file_path).where(
-            HomeworkSubmission.lesson_id.in_(lesson_ids), HomeworkSubmission.file_path.is_not(None)
-        )
-    )
-    found = set(paths.all())
-    # Photos/files handed in for auto-checked homework live inside the
-    # attempts' answers ({task_id: {"file_path": ...}}).
-    answers = await db.scalars(select(HomeworkAttempt.answers).where(HomeworkAttempt.lesson_id.in_(lesson_ids)))
-    for answer_map in answers:
-        for value in (answer_map or {}).values():
-            if isinstance(value, dict) and isinstance(value.get("file_path"), str):
-                found.add(value["file_path"])
-    return found
 
 
 @router.delete("/teacher/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -277,62 +260,19 @@ async def delete_section(
     if section is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Раздел не найден")
 
-    # The DB cascade-deletes lesson/question rows, but not the on-disk HLS
-    # files for any lesson videos, nor the images embedded in lesson bodies --
-    # clean both up ourselves afterward.
-    rows = (
-        await db.execute(
-            select(Lesson.id, Lesson.description, Lesson.homework_assignment, Lesson.presentation_path).where(
-                Lesson.section_id == section_id
-            )
-        )
-    ).all()
-    lesson_ids = [row.id for row in rows]
-    images: set[str] = set()
-    for row in rows:
-        images |= extract_image_paths(row.description) | extract_image_paths(row.homework_assignment)
-        if row.presentation_path:
-            images.add(row.presentation_path)
-    # Students' homework attachments go with the cascade too; their files
-    # would be left on disk with no row left for the retention sweep to find.
-    images |= await _homework_file_paths(db, lesson_ids)
-
-    await db.delete(section)
+    # Not deleted: parked in the trash for 30 days with everything in it,
+    # so a mistaken click costs nothing. Files go when the trash is purged.
+    lesson_ids = list(await db.scalars(select(Lesson.id).where(Lesson.section_id == section_id)))
+    await trash_section(db, section, teacher)
     await db.commit()
     audit_log(
-        "content.section.delete",
+        "content.section.trash",
         actor_id=teacher.id,
         actor_role=teacher.role.value,
         request=request,
         section_id=section_id,
-        cascaded_lesson_ids=lesson_ids,
+        lesson_ids=lesson_ids,
     )
-    for lesson_id in lesson_ids:
-        delete_video_assets(lesson_id)
-    for path in images - await _still_referenced(db, images):
-        delete_upload(path)
-
-
-async def _still_referenced(db: AsyncSession, paths: set[str]) -> set[str]:
-    """Which of these lesson-content images some lesson still shows.
-
-    A teacher copying a lesson's text into another lesson copies the image
-    links with it, so one uploaded picture can sit in several lessons;
-    deleting it with the first lesson broke it in all the others. Called
-    after the commit, so the lesson being deleted or edited no longer
-    counts."""
-    images = {p for p in paths if p.startswith("lesson-content/")}
-    if not images:
-        return set()
-    conditions = []
-    for path in images:
-        conditions.append(Lesson.description.contains(path, autoescape=True))
-        conditions.append(Lesson.homework_assignment.contains(path, autoescape=True))
-    rows = await db.execute(select(Lesson.description, Lesson.homework_assignment).where(or_(*conditions)))
-    used: set[str] = set()
-    for description, homework in rows:
-        used |= extract_image_paths(description) | extract_image_paths(homework)
-    return images & used
 
 
 @router.post("/teacher/sections/{section_id}/lessons", response_model=LessonTeacherOut, status_code=status.HTTP_201_CREATED)
@@ -387,12 +327,14 @@ async def update_lesson(
         lesson.homework_assignment = payload.homework_assignment
     if payload.video_url is not None:
         lesson.video_url = payload.video_url or None
+    if payload.questions_per_attempt is not None:
+        lesson.questions_per_attempt = payload.questions_per_attempt or None
     await db.commit()
     await db.refresh(lesson)
 
     # Only after the commit -- if the write failed, the rows still reference
     # these files and deleting them would leave broken images behind.
-    for path in dropped_images - await _still_referenced(db, dropped_images):
+    for path in dropped_images - await still_referenced(db, dropped_images):
         delete_upload(path)
 
     return LessonTeacherOut.model_validate(lesson)
@@ -410,23 +352,16 @@ async def delete_lesson(
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
 
-    images = extract_image_paths(lesson.description) | extract_image_paths(lesson.homework_assignment)
-    images |= await _homework_file_paths(db, [lesson_id])
-    if lesson.presentation_path:
-        images.add(lesson.presentation_path)
-
-    await db.delete(lesson)
+    # Parked in the trash for 30 days (see app.core.trash), not deleted.
+    await trash_lesson(db, lesson, teacher)
     await db.commit()
     audit_log(
-        "content.lesson.delete",
+        "content.lesson.trash",
         actor_id=teacher.id,
         actor_role=teacher.role.value,
         request=request,
         lesson_id=lesson_id,
     )
-    delete_video_assets(lesson_id)
-    for path in images - await _still_referenced(db, images):
-        delete_upload(path)
 
 
 @router.get("/teacher/lessons/{lesson_id}", response_model=LessonTeacherOut)

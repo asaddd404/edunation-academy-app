@@ -52,6 +52,9 @@ class Lesson(Base):
     hw_time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     hw_max_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=3, server_default="3")
     hw_tasks_per_student: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Mini-test: how many questions one attempt draws from the bank (NULL =
+    # all of them, in the teacher's order).
+    questions_per_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     section: Mapped["Section"] = relationship(back_populates="lessons")
     # See Section.lessons: nulling questions.lesson_id would break the

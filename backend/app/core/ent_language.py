@@ -70,6 +70,8 @@ def question_pool_filters(
     filters: list[ColumnElement[bool]] = [
         EntQuestion.subject_id == subject_id,
         EntQuestion.language == language,
+        # Archived questions stay only so past results keep them.
+        EntQuestion.archived_at.is_(None),
     ]
     if qtype is not None:
         filters.append(EntQuestion.qtype == qtype)

@@ -152,6 +152,7 @@ async def list_categories_for_admin(
 ) -> Page[CategoryAdminOut]:
     query = (
         select(Category)
+        .where(Category.is_trash.is_(False))
         .options(selectinload(Category.teachers))
         .order_by(Category.created_at.desc(), Category.id.desc())
     )

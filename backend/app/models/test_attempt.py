@@ -56,6 +56,9 @@ class TestAttempt(Base):
     # {question_id: answer_data}, stored with matching answers already
     # translated from tokens back to row ids.
     answers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The questions this attempt was given, in display order. NULL: an
+    # attempt from before question banks, which used every question.
+    question_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     student: Mapped["User"] = relationship()

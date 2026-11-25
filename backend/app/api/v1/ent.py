@@ -148,7 +148,7 @@ async def list_subjects(db: AsyncSession = Depends(get_db)) -> list[EntSubjectOu
     rows = (
         await db.execute(
             select(EntSubject, func.count(EntQuestion.id))
-            .outerjoin(EntQuestion, EntQuestion.subject_id == EntSubject.id)
+            .outerjoin(EntQuestion, (EntQuestion.subject_id == EntSubject.id) & EntQuestion.archived_at.is_(None))
             .where(EntSubject.is_active.is_(True))
             .group_by(EntSubject.id)
             .order_by(EntSubject.name)

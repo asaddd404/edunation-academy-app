@@ -37,6 +37,17 @@ const TONE = {
         <component :is="ICON[toast.tone]" :size="18" :stroke-width="2" class="mt-px shrink-0" />
         <p class="min-w-0 flex-1">{{ toast.message }}</p>
         <button
+          v-if="toast.action"
+          type="button"
+          class="min-h-9 shrink-0 rounded-lg border-2 border-current px-3 text-sm font-bold"
+          @click="
+            toasts.dismiss(toast.id);
+            toast.action.run();
+          "
+        >
+          {{ toast.action.label }}
+        </button>
+        <button
           type="button"
           class="shrink-0 rounded-md p-0.5 opacity-70 hover:opacity-100"
           aria-label="Закрыть уведомление"

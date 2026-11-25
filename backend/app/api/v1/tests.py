@@ -7,6 +7,7 @@ under a row lock, and credits XP for a passed attempt by its accuracy and
 the time the server measured between the two calls.
 """
 
+import random
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -25,9 +26,12 @@ from app.core.progress import get_lesson_progress, is_section_test_unlocked
 from app.core.question_scoring import grade_question
 from app.core.rate_limit import TEST_START_BY_USER, TEST_SUBMIT_BY_USER
 from app.core.rating import apply_test_attempt_xp, compute_test_xp
+from app.core.test_draw import draw_question_ids
 from app.database import get_db
 from app.deps import require_role
+from app.models.lesson import Lesson
 from app.models.question import Question
+from app.models.section import Section
 from app.models.test_attempt import TestAttempt, TestAttemptStatus
 from app.models.user import RoleEnum, User
 from app.schemas.test_attempt import TestAttemptIn, TestAttemptOut, TestSessionOut
@@ -42,13 +46,57 @@ PASS_THRESHOLD_PERCENT = 50
 STALE_ATTEMPT_AFTER = timedelta(hours=2)
 
 
-async def _questions_for(db: AsyncSession, attempt: TestAttempt) -> list[Question]:
+async def _bank(db: AsyncSession, attempt: TestAttempt) -> list[Question]:
     owner = Question.lesson_id == attempt.lesson_id if attempt.lesson_id else Question.section_id == attempt.section_id
     return list(
         (
-            await db.scalars(select(Question).where(owner).options(*QUESTION_LOAD_OPTIONS).order_by(Question.order_index))
+            await db.scalars(
+                select(Question).where(owner).options(*QUESTION_LOAD_OPTIONS).order_by(Question.order_index, Question.id)
+            )
         ).all()
     )
+
+
+async def _questions_for(db: AsyncSession, attempt: TestAttempt) -> list[Question]:
+    """The attempt's own questions, in its order. An attempt from before
+    question banks (no `question_ids`) is the whole bank, as it was then. A
+    question the teacher deleted mid-attempt simply drops out."""
+    bank = await _bank(db, attempt)
+    if attempt.question_ids is None:
+        return bank
+    by_id = {q.id: q for q in bank}
+    return [by_id[qid] for qid in attempt.question_ids if qid in by_id]
+
+
+async def _per_attempt(db: AsyncSession, *, lesson_id: int | None, section_id: int | None) -> int | None:
+    if lesson_id is not None:
+        return await db.scalar(select(Lesson.questions_per_attempt).where(Lesson.id == lesson_id))
+    return await db.scalar(select(Section.questions_per_attempt).where(Section.id == section_id))
+
+
+async def _draw(db: AsyncSession, attempt: TestAttempt, student: User, abandoned_ids: list | None = None) -> None:
+    """Fixes which questions a new attempt gets, avoiding the ones the
+    student's previous attempt at this test showed where the bank allows.
+    `abandoned_ids`: the sheet of a sitting left open too long and dropped
+    -- the student has seen those questions, so they count as previous."""
+    bank = await _bank(db, attempt)
+    per_attempt = await _per_attempt(db, lesson_id=attempt.lesson_id, section_id=attempt.section_id)
+    previous_ids = abandoned_ids or None
+    if per_attempt and previous_ids is None:
+        scope = TestAttempt.lesson_id == attempt.lesson_id if attempt.lesson_id else TestAttempt.section_id == attempt.section_id
+        previous = await db.scalar(
+            select(TestAttempt)
+            .where(
+                TestAttempt.student_id == student.id,
+                scope,
+                TestAttempt.status == TestAttemptStatus.completed,
+                TestAttempt.id != attempt.id,
+            )
+            .order_by(TestAttempt.id.desc())
+            .limit(1)
+        )
+        previous_ids = previous.question_ids if previous is not None else None
+    attempt.question_ids = draw_question_ids([q.id for q in bank], per_attempt, previous_ids, random.Random())
 
 
 def _aware(moment: datetime) -> datetime:
@@ -66,7 +114,9 @@ async def _open_session(db: AsyncSession, student: User, *, lesson_id: int | Non
     now = datetime.now(timezone.utc)
 
     attempt = await db.scalar(select(TestAttempt).where(*open_filter))
+    abandoned_ids = None
     if attempt is not None and _elapsed_seconds(attempt.started_at, now) > STALE_ATTEMPT_AFTER.total_seconds():
+        abandoned_ids = attempt.question_ids
         await db.execute(delete(TestAttempt).where(TestAttempt.id == attempt.id))
         attempt = None
 
@@ -74,6 +124,8 @@ async def _open_session(db: AsyncSession, student: User, *, lesson_id: int | Non
         attempt = TestAttempt(student_id=student.id, lesson_id=lesson_id, section_id=section_id, started_at=now)
         db.add(attempt)
         try:
+            await db.flush()
+            await _draw(db, attempt, student, abandoned_ids)
             await db.commit()
         except IntegrityError:
             # A concurrent start won the partial unique index; resume theirs.

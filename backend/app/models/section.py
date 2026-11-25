@@ -15,6 +15,8 @@ class Section(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Section test: how many questions one attempt draws (NULL = all).
+    questions_per_attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     category: Mapped["Category"] = relationship()
     # The children's foreign keys are ON DELETE CASCADE; passive_deletes

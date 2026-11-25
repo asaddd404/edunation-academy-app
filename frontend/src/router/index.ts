@@ -90,6 +90,12 @@ const router = createRouter({
       meta: { roles: ["student"] },
     },
     {
+      path: "/tests",
+      name: "my-tests",
+      component: () => import("@/views/student/MyTestsView.vue"),
+      meta: { roles: ["student"] },
+    },
+    {
       path: "/leaderboard",
       name: "leaderboard",
       component: () => import("@/views/student/LeaderboardView.vue"),
@@ -110,6 +116,12 @@ const router = createRouter({
       path: "/teacher",
       name: "teacher",
       component: () => import("@/views/teacher/TeacherTodayView.vue"),
+      meta: { roles: ["teacher", "admin"] },
+    },
+    {
+      path: "/teacher/trash",
+      name: "teacher-trash",
+      component: () => import("@/views/teacher/TeacherTrashView.vue"),
       meta: { roles: ["teacher", "admin"] },
     },
     {

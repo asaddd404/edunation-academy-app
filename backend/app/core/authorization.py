@@ -70,7 +70,11 @@ async def assert_owns_ent_subject(db: AsyncSession, teacher: User, subject_id: i
 
 
 async def get_subject_id_for_ent_question(db: AsyncSession, question_id: int) -> int:
-    subject_id = await db.scalar(select(EntQuestion.subject_id).where(EntQuestion.id == question_id))
+    # An archived question has left the bank: it is kept only so past
+    # attempts stay intact, and is no longer edited, deleted or illustrated.
+    subject_id = await db.scalar(
+        select(EntQuestion.subject_id).where(EntQuestion.id == question_id, EntQuestion.archived_at.is_(None))
+    )
     if subject_id is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Вопрос не найден")
     return subject_id

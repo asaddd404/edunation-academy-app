@@ -58,6 +58,9 @@ class EntQuestion(Base):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Set instead of deleting a question some attempt already drew: past
+    # results keep it, while the bank, new attempts and counts ignore it.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     subject: Mapped["EntSubject"] = relationship(back_populates="questions")
     created_by: Mapped["User | None"] = relationship()

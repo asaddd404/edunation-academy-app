@@ -143,6 +143,10 @@ async def get_section_test(
     await assert_student_has_category_access(db, student, category_id)
 
     question_count = await db.scalar(select(func.count(Question.id)).where(Question.section_id == section_id))
+    # What one attempt shows, not the size of the bank behind it.
+    per_attempt = await db.scalar(select(Section.questions_per_attempt).where(Section.id == section_id))
+    if per_attempt and question_count:
+        question_count = min(question_count, per_attempt)
 
     unlocked = await is_section_test_unlocked(db, student.id, section_id, category_id)
     if not unlocked:
@@ -171,6 +175,8 @@ async def get_lesson(
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Урок не найден")
     question_count = await db.scalar(select(func.count(Question.id)).where(Question.lesson_id == lesson_id))
+    if lesson.questions_per_attempt and question_count:
+        question_count = min(question_count, lesson.questions_per_attempt)
 
     unlocked, passed = await get_lesson_progress(db, student.id, category_id)
     if lesson_id not in unlocked:

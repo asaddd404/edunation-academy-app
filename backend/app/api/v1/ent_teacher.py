@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import ValidationError
@@ -32,6 +33,7 @@ from app.core.slug import slugify
 from app.core.storage import delete_upload, save_ent_question_image
 from app.database import get_db
 from app.deps import require_role
+from app.models.ent_simulation import EntSimulationQuestion
 from app.models.ent_question import EntAnswerVariant, EntChoice, EntLanguage, EntMatchPair, EntQuestion, EntQuestionType
 from app.models.ent_subject import EntSubject
 from app.models.user import RoleEnum, User
@@ -122,7 +124,7 @@ async def list_subjects(
         # is already right there.
         func.count(EntQuestion.id).filter(EntQuestion.language == EntLanguage.ru),
         func.count(EntQuestion.id).filter(EntQuestion.language == EntLanguage.kk),
-    ).outerjoin(EntQuestion, EntQuestion.subject_id == EntSubject.id)
+    ).outerjoin(EntQuestion, (EntQuestion.subject_id == EntSubject.id) & EntQuestion.archived_at.is_(None))
     if user.role != RoleEnum.admin:
         query = query.where(or_(EntSubject.is_active.is_(True), EntSubject.created_by_id == user.id))
     query = query.group_by(EntSubject.id).order_by(EntSubject.name)
@@ -185,7 +187,7 @@ async def update_subject(
     await db.refresh(subject)
     out = EntSubjectOut.model_validate(subject)
     out.question_count = await db.scalar(
-        select(func.count(EntQuestion.id)).where(EntQuestion.subject_id == subject.id)
+        select(func.count(EntQuestion.id)).where(EntQuestion.subject_id == subject.id, EntQuestion.archived_at.is_(None))
     )
     return out
 
@@ -208,7 +210,7 @@ async def get_subject_structure(
     async def counts(qtype: EntQuestionType, extra: list) -> dict[str, int]:
         rows = await db.execute(
             select(EntQuestion.language, func.count(EntQuestion.id))
-            .where(EntQuestion.subject_id == subject_id, EntQuestion.qtype == qtype, *extra)
+            .where(EntQuestion.subject_id == subject_id, EntQuestion.qtype == qtype, EntQuestion.archived_at.is_(None), *extra)
             .group_by(EntQuestion.language)
         )
         found = {language.value: n for language, n in rows.all()}
@@ -250,7 +252,7 @@ async def get_subject_structure(
 async def counts_unused(db: AsyncSession, subject_id: int, used: list[EntQuestionType]) -> dict[str, int]:
     rows = await db.execute(
         select(EntQuestion.language, func.count(EntQuestion.id))
-        .where(EntQuestion.subject_id == subject_id, EntQuestion.qtype.not_in(used))
+        .where(EntQuestion.subject_id == subject_id, EntQuestion.qtype.not_in(used), EntQuestion.archived_at.is_(None))
         .group_by(EntQuestion.language)
     )
     found = {language.value: n for language, n in rows.all()}
@@ -275,7 +277,7 @@ async def list_subject_questions(
     every caller written before the ru/kk split asks for."""
     await assert_owns_ent_subject(db, user, subject_id)
 
-    filters = [EntQuestion.subject_id == subject_id]
+    filters = [EntQuestion.subject_id == subject_id, EntQuestion.archived_at.is_(None)]
     if qtype is not None:
         filters.append(EntQuestion.qtype == qtype)
     if language is not None:
@@ -373,12 +375,30 @@ async def delete_question(
 ) -> None:
     await assert_owns_ent_question(db, user, question_id)
     question = await db.get(EntQuestion, question_id)
+    if await _drawn_ids(db, [question_id]):
+        # Some student's attempt has it: deleting would cut it out of their
+        # past result. It leaves the bank instead (and keeps its image).
+        question.archived_at = datetime.now(timezone.utc)
+        await db.commit()
+        return
     image_path = question.image_path
     await db.delete(question)
     await db.commit()
     # Only after the row is gone, so a failed commit can't leave a live
     # question pointing at a deleted file.
     delete_upload(image_path)
+
+
+async def _drawn_ids(db: AsyncSession, question_ids) -> set[int]:
+    """Which of these questions some ЕНТ attempt has drawn."""
+    ids = list(question_ids)
+    if not ids:
+        return set()
+    return set(
+        await db.scalars(
+            select(EntSimulationQuestion.question_id).where(EntSimulationQuestion.question_id.in_(ids)).distinct()
+        )
+    )
 
 
 @router.post("/questions/bulk-delete", response_model=EntBulkDeleteOut)
@@ -406,7 +426,9 @@ async def bulk_delete_questions(
             status.HTTP_400_BAD_REQUEST, f"Не более {MAX_BULK_DELETE_BATCH} вопросов за один запрос"
         )
 
-    questions = (await db.scalars(select(EntQuestion).where(EntQuestion.id.in_(ids)))).all()
+    questions = (
+        await db.scalars(select(EntQuestion).where(EntQuestion.id.in_(ids), EntQuestion.archived_at.is_(None)))
+    ).all()
     found_by_id = {q.id: q for q in questions}
     not_found = ids - found_by_id.keys()
 
@@ -416,9 +438,14 @@ async def bulk_delete_questions(
     for subject_id in {q.subject_id for q in questions}:
         await assert_owns_ent_subject(db, user, subject_id)
 
-    image_paths = [q.image_path for q in questions if q.image_path]
+    drawn = await _drawn_ids(db, found_by_id.keys())
+    now = datetime.now(timezone.utc)
+    image_paths = [q.image_path for q in questions if q.image_path and q.id not in drawn]
     for question in questions:
-        await db.delete(question)
+        if question.id in drawn:
+            question.archived_at = now  # kept for past results, gone from the bank
+        else:
+            await db.delete(question)
     await db.commit()
     # Only after the rows are gone, matching the single-delete endpoint's
     # ordering -- a failed commit can't leave a live question pointing at a
