@@ -42,7 +42,7 @@ PROBLEM_MIN_PERCENT = 50
 
 async def _category_ids(db: AsyncSession, teacher: User) -> list[int]:
     if teacher.role == RoleEnum.admin:
-        return list(await db.scalars(select(Category.id)))
+        return list(await db.scalars(select(Category.id).where(Category.is_trash.is_(False))))
     return list(await db.scalars(select(teacher_categories.c.category_id).where(teacher_categories.c.teacher_id == teacher.id)))
 
 

@@ -158,6 +158,9 @@ async def test_teacher_deletes_a_section_with_lessons_and_questions(client, db_s
     response = await client.delete(f"/api/v1/teacher/sections/{section['id']}")
 
     assert response.status_code == 204, response.text
+    # Into the trash first, then emptied for good.
+    assert (await client.delete(f"/api/v1/teacher/trash/section/{section['id']}")).status_code == 204
+    db_session.expunge_all()
     assert await db_session.get(Section, section["id"]) is None
     assert await db_session.get(Lesson, lesson["id"]) is None
     assert await db_session.scalar(select(func.count(Question.id))) == 0
@@ -171,6 +174,8 @@ async def test_teacher_deletes_a_lesson_with_questions(client, db_session, make_
     response = await client.delete(f"/api/v1/teacher/lessons/{lesson['id']}")
 
     assert response.status_code == 204, response.text
+    assert (await client.delete(f"/api/v1/teacher/trash/lesson/{lesson['id']}")).status_code == 204
+    db_session.expunge_all()
     assert await db_session.get(Lesson, lesson["id"]) is None
     # The section's own test is untouched.
     remaining = (await db_session.scalars(select(Question.section_id))).all()

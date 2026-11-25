@@ -167,6 +167,8 @@ async def test_deleting_lesson_or_section_removes_the_file(client, db_session, m
     stored = storage.resolve_upload_path((await db_session.get(Lesson, lesson.id, populate_existing=True)).presentation_path)
     assert stored.is_file()
     assert (await client.delete(f"/api/v1/teacher/sections/{lesson.section_id}")).status_code == 204
+    assert stored.is_file()  # in the trash
+    assert (await client.delete(f"/api/v1/teacher/trash/section/{lesson.section_id}")).status_code == 204
     assert not stored.exists()
 
 

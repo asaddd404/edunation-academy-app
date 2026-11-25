@@ -34,6 +34,7 @@ import {
   getTeacherPresentationLink,
   uploadLessonPresentation,
 } from "@/api/presentation";
+import { restoreFromTrash, type TrashKind } from "@/api/trash";
 import { deleteLessonVideo, getTeacherLesson, uploadLessonVideo } from "@/api/video";
 import PresentationViewer from "@/components/media/PresentationViewer.vue";
 import HwBuilder from "@/components/autohw/HwBuilder.vue";
@@ -44,6 +45,7 @@ import BaseBadge from "@/components/ui/BaseBadge.vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import BaseInput from "@/components/ui/BaseInput.vue";
 import type { Category, LessonSummary, Section, VideoStatus } from "@/types";
+import { useToastStore } from "@/stores/toast";
 import { describeApiError } from "@/utils/apiError";
 import { pluralRu } from "@/utils/subjectTheme";
 
@@ -200,6 +202,16 @@ async function load() {
   loading.value = false;
 }
 
+/** Re-reads the course without the loading skeleton, so the page keeps its
+ *  scroll position (a delete or undo used to jump back to the top). */
+async function reloadQuietly() {
+  try {
+    sections.value = await listTeacherSections(categoryId);
+  } catch {
+    await load();
+  }
+}
+
 /** Re-reads the lesson chips (video, test, homework) without the loading
  *  state, so an open lesson and its half-filled forms stay on screen. */
 async function refreshLessonSummaries() {
@@ -307,9 +319,38 @@ async function saveSection(sectionId: number) {
   await load();
 }
 
+const toast = useToastStore();
+
+/** After a delete: a notice with «Отменить», which takes it straight back
+ *  out of the trash. */
+function offerUndo(kind: TrashKind, id: number, message: string) {
+  toast.push(message, "info", 10000, {
+    label: "Отменить",
+    run: async () => {
+      try {
+        const result = await restoreFromTrash(kind, id);
+        toast.push(result.message, "success");
+        await reloadQuietly();
+      } catch (e) {
+        toast.push(describeApiError(e, "Не удалось вернуть. Откройте «Корзину»."));
+      }
+    },
+  });
+}
+
 async function handleDeleteSection(sectionId: number) {
-  if (!confirm("Удалить раздел и все его уроки? Это действие необратимо.")) return;
-  if (await guarded("Не удалось удалить раздел", () => deleteSection(sectionId).then(() => undefined))) await load();
+  const section = sections.value.find((s) => s.id === sectionId);
+  const title = section ? `«${section.title}»` : "";
+  if (
+    !confirm(
+      `Удалить раздел ${title} вместе с уроками?\n\nУченики перестанут его видеть. Раздел можно будет восстановить из «Корзины» в течение 30 дней — вместе с видео, тестами и результатами учеников.`,
+    )
+  )
+    return;
+  if (await guarded("Не удалось удалить раздел", () => deleteSection(sectionId).then(() => undefined))) {
+    await reloadQuietly();
+    offerUndo("section", sectionId, `Раздел ${title} перенесён в корзину`);
+  }
 }
 
 async function startEditLesson(lessonId: number) {
@@ -347,8 +388,18 @@ async function saveLesson(lessonId: number) {
 }
 
 async function handleDeleteLesson(lessonId: number) {
-  if (!confirm("Удалить урок вместе с видео, вопросами и домашкой? Это действие необратимо.")) return;
-  if (await guarded("Не удалось удалить урок", () => deleteLesson(lessonId).then(() => undefined))) await load();
+  const lesson = sections.value.flatMap((s) => s.lessons).find((l) => l.id === lessonId);
+  const title = lesson ? `«${lesson.title}»` : "";
+  if (
+    !confirm(
+      `Удалить урок ${title}?\n\nУченики перестанут его видеть. Урок можно будет восстановить из «Корзины» в течение 30 дней — вместе с видео, тестом и результатами.`,
+    )
+  )
+    return;
+  if (await guarded("Не удалось удалить урок", () => deleteLesson(lessonId).then(() => undefined))) {
+    await reloadQuietly();
+    offerUndo("lesson", lessonId, `Урок ${title} перенесён в корзину`);
+  }
 }
 onBeforeUnmount(() => {
   for (const timer of Object.values(pollTimers)) clearTimeout(timer);

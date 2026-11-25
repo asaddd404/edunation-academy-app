@@ -19,6 +19,7 @@ from app.api.v1 import (
     profile,
     teacher_content,
     teacher_today,
+    trash,
     tests,
     video,
 )
@@ -37,6 +38,7 @@ api_router.include_router(my_tests.router)
 api_router.include_router(homework.router)
 api_router.include_router(homework_auto.router)
 api_router.include_router(teacher_today.router)
+api_router.include_router(trash.router)
 api_router.include_router(ent_teacher.router)
 api_router.include_router(ent.public_router)
 api_router.include_router(ent.router)

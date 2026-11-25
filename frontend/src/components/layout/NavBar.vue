@@ -50,6 +50,7 @@ const TEACHER_LINKS: NavLink[] = [
   { to: "/teacher/applications", label: "Заявки" },
   { to: "/teacher/homework", label: "Домашки" },
   { to: "/teacher/ent", label: "Банк ЕНТ" },
+  { to: "/teacher/trash", label: "Корзина" },
 ];
 
 const links = computed<NavLink[]>(() => {
