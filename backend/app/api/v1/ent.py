@@ -505,10 +505,31 @@ async def save_answers(
     return EntAnswersSavedOut(saved=len(payload.answers))
 
 
+def _was_answered(answer_data: dict | None) -> bool:
+    """Whether the student actually attempted the question."""
+    if not answer_data:
+        return False
+    text = answer_data.get("text")
+    return bool(
+        answer_data.get("choice_id") is not None
+        or answer_data.get("choice_ids")
+        or answer_data.get("pairs")
+        or (isinstance(text, str) and text.strip())
+    )
+
+
 def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
     answers = []
     for item in simulation.items:
         question = item.question
+        # The correct answer is shown only for questions the student tried.
+        # Revealing every key unconditionally turned "start, submit blank,
+        # read the results" into a way to copy out the bank a few dozen
+        # questions at a time without studying any of it.
+        revealed = _was_answered(item.answer_data)
+        choices = [EntChoiceTeacherOut.model_validate(c) for c in question.choices]
+        if not revealed:
+            choices = [c.model_copy(update={"is_correct": False}) for c in choices]
         answers.append(
             EntSimulationResultAnswerOut(
                 question_id=question.id,
@@ -522,9 +543,12 @@ def _result_out(simulation: EntSimulation) -> EntSimulationResultOut:
                 score_awarded=item.score_awarded or 0,
                 is_correct=(item.score_awarded or 0) == question.max_score,
                 given_answer=item.answer_data,
-                choices=[EntChoiceTeacherOut.model_validate(c) for c in question.choices],
-                match_pairs=[EntMatchPairTeacherOut.model_validate(p) for p in question.match_pairs],
-                answer_variants=[EntAnswerVariantOut.model_validate(v) for v in question.answer_variants],
+                answer_revealed=revealed,
+                choices=choices,
+                match_pairs=[EntMatchPairTeacherOut.model_validate(p) for p in question.match_pairs] if revealed else [],
+                answer_variants=(
+                    [EntAnswerVariantOut.model_validate(v) for v in question.answer_variants] if revealed else []
+                ),
             )
         )
     return EntSimulationResultOut(

@@ -58,6 +58,21 @@ class FakeRedis:
         self._expire_if_due(key)
         return self.values.get(key)
 
+    async def eval(self, script: str, numkeys: int, *keys_and_args):
+        """Only the scripts the app actually runs, by what they do."""
+        keys, args = keys_and_args[:numkeys], keys_and_args[numkeys:]
+        if "GETDEL" in script and len(keys) == 2:
+            value = await self.getdel(keys[0])
+            if value is not None:
+                await self.set(keys[1], value, ex=int(args[0]))
+            return value
+        raise NotImplementedError("FakeRedis.eval: unknown script")
+
+    async def getdel(self, key: str):
+        self._expire_if_due(key)
+        self.expiry.pop(key, None)
+        return self.values.pop(key, None)
+
     async def set(self, key: str, value: str, ex: int | None = None):
         self.values[key] = str(value)
         if ex is not None:

@@ -759,6 +759,10 @@ function timingLabel(r: EntSimulationResult): string {
             </li>
             <li>Верный ответ: {{ answer.answer_variants.map((v) => v.text).join(", ") }}</li>
           </ul>
+
+          <p v-if="answer.answer_revealed === false" class="rounded-lg bg-paper-2 px-3 py-2 text-sm text-ink-2">
+            Вы не ответили на этот вопрос, поэтому правильный ответ не показывается. Попробуйте ответить в следующий раз.
+          </p>
         </section>
       </div>
     </template>

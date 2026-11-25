@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -309,8 +309,30 @@ async def delete_section(
     )
     for lesson_id in lesson_ids:
         delete_video_assets(lesson_id)
-    for path in images:
+    for path in images - await _still_referenced(db, images):
         delete_upload(path)
+
+
+async def _still_referenced(db: AsyncSession, paths: set[str]) -> set[str]:
+    """Which of these lesson-content images some lesson still shows.
+
+    A teacher copying a lesson's text into another lesson copies the image
+    links with it, so one uploaded picture can sit in several lessons;
+    deleting it with the first lesson broke it in all the others. Called
+    after the commit, so the lesson being deleted or edited no longer
+    counts."""
+    images = {p for p in paths if p.startswith("lesson-content/")}
+    if not images:
+        return set()
+    conditions = []
+    for path in images:
+        conditions.append(Lesson.description.contains(path, autoescape=True))
+        conditions.append(Lesson.homework_assignment.contains(path, autoescape=True))
+    rows = await db.execute(select(Lesson.description, Lesson.homework_assignment).where(or_(*conditions)))
+    used: set[str] = set()
+    for description, homework in rows:
+        used |= extract_image_paths(description) | extract_image_paths(homework)
+    return images & used
 
 
 @router.post("/teacher/sections/{section_id}/lessons", response_model=LessonTeacherOut, status_code=status.HTTP_201_CREATED)
@@ -370,7 +392,7 @@ async def update_lesson(
 
     # Only after the commit -- if the write failed, the rows still reference
     # these files and deleting them would leave broken images behind.
-    for path in dropped_images:
+    for path in dropped_images - await _still_referenced(db, dropped_images):
         delete_upload(path)
 
     return LessonTeacherOut.model_validate(lesson)
@@ -403,7 +425,7 @@ async def delete_lesson(
         lesson_id=lesson_id,
     )
     delete_video_assets(lesson_id)
-    for path in images:
+    for path in images - await _still_referenced(db, images):
         delete_upload(path)
 
 
@@ -544,7 +566,7 @@ async def get_teacher_video_ticket(
     if lesson is None or lesson.video_status != VideoStatusEnum.ready:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Видео ещё не готово")
 
-    set_video_ticket_cookie(response, lesson_id)
+    set_video_ticket_cookie(response, lesson_id, teacher.id)
     return VideoTicketOut(playback_path=f"/video/lessons/{lesson_id}/master.m3u8")
 
 

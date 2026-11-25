@@ -548,6 +548,8 @@ export interface EntSimulationResultAnswer {
   score_awarded: number;
   is_correct: boolean;
   given_answer: EntGivenAnswer | null;
+  /** False when the question was left blank: the key is not shown for it. */
+  answer_revealed?: boolean;
   choices: EntChoiceTeacher[];
   match_pairs: EntMatchPairTeacher[];
   answer_variants: EntAnswerVariant[];

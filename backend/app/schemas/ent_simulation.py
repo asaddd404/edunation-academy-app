@@ -122,6 +122,8 @@ class EntSimulationResultAnswerOut(BaseModel):
     score_awarded: int
     is_correct: bool
     given_answer: dict | None
+    # False for a question left blank: its key is withheld (see ent._result_out).
+    answer_revealed: bool = True
     choices: list[EntChoiceTeacherOut] = []
     match_pairs: list[EntMatchPairTeacherOut] = []
     answer_variants: list[EntAnswerVariantOut] = []

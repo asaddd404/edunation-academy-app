@@ -17,6 +17,21 @@ from app.schemas.pagination import Page
 router = APIRouter(prefix="/categories", tags=["categories"])
 
 
+# Which status the catalog shows when a student has several applications to
+# one course (re-applied after a rejection, say): access granted beats one
+# still waiting, which beats a refusal.
+_STATUS_RANK = {"approved": 3, "pending": 2, "rejected": 1}
+
+
+def _best_status(applications) -> dict[int, str]:
+    best: dict[int, str] = {}
+    for app_ in applications:
+        value = app_.status.value
+        if _STATUS_RANK.get(value, 0) > _STATUS_RANK.get(best.get(app_.category_id, ""), 0):
+            best[app_.category_id] = value
+    return best
+
+
 @router.get("", response_model=Page[CategoryOut])
 async def list_categories(
     db: AsyncSession = Depends(get_db),
@@ -31,10 +46,7 @@ async def list_categories(
         applications = (
             await db.scalars(select(Application).where(Application.student_id == user.id))
         ).all()
-        for app_ in applications:
-            # Keep the most relevant status per category (an approved/rejected
-            # decision takes precedence over an older pending row if re-applied).
-            status_by_category[app_.category_id] = app_.status.value
+        status_by_category = _best_status(applications)
 
     stats = await lesson_stats(db, [c.id for c in categories])
 
@@ -72,18 +84,19 @@ async def get_category(
     user: User = Depends(get_current_user),
 ) -> CategoryOut:
     category = await db.get(Category, category_id)
-    if category is None:
+    # A switched-off course is gone from a student's point of view, the same
+    # as it is gone from the catalog list.
+    if category is None or (user.role == RoleEnum.student and not category.is_active):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
 
     out = CategoryOut.model_validate(category)
     if user.role == RoleEnum.student:
-        application = await db.scalar(
-            select(Application)
-            .where(Application.student_id == user.id, Application.category_id == category_id)
-            .order_by(Application.created_at.desc())
-        )
-        if application is not None:
-            out.my_application_status = application.status.value
+        applications = (
+            await db.scalars(
+                select(Application).where(Application.student_id == user.id, Application.category_id == category_id)
+            )
+        ).all()
+        out.my_application_status = _best_status(applications).get(category_id)
 
     stats = await lesson_stats(db, [category_id])
     out.lesson_count, out.total_duration_seconds = stats.get(category_id, (0, 0))

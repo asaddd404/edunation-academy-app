@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.core.authorization import assert_can_decide_application
 from app.core.notifications import notify
 from app.core.pagination import PageParams, fetch_page, page_params
+from app.core.rate_limit import APPLICATION_BY_USER
 from app.database import get_db
 from app.deps import require_role
 from app.models.application import Application, ApplicationStatusEnum
@@ -46,18 +47,21 @@ async def create_application(
     db: AsyncSession = Depends(get_db),
     student: User = Depends(require_role(RoleEnum.student)),
 ) -> ApplicationOut:
+    await APPLICATION_BY_USER.enforce(str(student.id))
     existing = await db.scalar(
         select(Application).where(
             Application.student_id == student.id,
             Application.category_id == payload.category_id,
-            Application.status == ApplicationStatusEnum.pending,
+            Application.status.in_([ApplicationStatusEnum.pending, ApplicationStatusEnum.approved]),
         )
     )
     if existing is not None:
+        if existing.status == ApplicationStatusEnum.approved:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Вы уже записаны на этот курс")
         raise HTTPException(status.HTTP_409_CONFLICT, "Заявка на эту категорию уже подана и ожидает решения")
 
     category = await db.get(Category, payload.category_id)
-    if category is None:
+    if category is None or not category.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Категория не найдена")
 
     application = Application(student_id=student.id, category_id=payload.category_id)
