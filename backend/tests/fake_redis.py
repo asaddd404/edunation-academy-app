@@ -58,6 +58,11 @@ class FakeRedis:
         self._expire_if_due(key)
         return self.values.get(key)
 
+    async def getdel(self, key: str):
+        self._expire_if_due(key)
+        self.expiry.pop(key, None)
+        return self.values.pop(key, None)
+
     async def set(self, key: str, value: str, ex: int | None = None):
         self.values[key] = str(value)
         if ex is not None:

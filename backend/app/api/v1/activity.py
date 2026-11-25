@@ -1,9 +1,8 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import school_today
 from app.core.rate_limit import ACTIVITY_PING_BY_USER
 from app.database import get_db
 from app.deps import get_current_user
@@ -20,7 +19,7 @@ PING_SECONDS = 60
 
 
 async def _get_or_create_today(db: AsyncSession, user_id: int) -> UserDailyActivity:
-    today = date.today()
+    today = school_today()
     row = await db.scalar(
         select(UserDailyActivity).where(UserDailyActivity.user_id == user_id, UserDailyActivity.date == today)
     )
@@ -51,7 +50,7 @@ async def get_my_today_activity(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> TodayActivityOut:
-    today = date.today()
+    today = school_today()
     total = await db.scalar(
         select(UserDailyActivity.total_seconds).where(
             UserDailyActivity.user_id == user.id, UserDailyActivity.date == today

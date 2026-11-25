@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.application import Application, ApplicationStatusEnum
-from app.models.category import teacher_categories
+from app.models.category import Category, teacher_categories
 from app.models.ent_question import EntQuestion
 from app.models.ent_subject import EntSubject
 from app.models.lesson import Lesson
@@ -95,14 +95,42 @@ async def assert_teacher_owns_question(db: AsyncSession, teacher: User, question
 
 async def assert_student_has_category_access(db: AsyncSession, student: User, category_id: int) -> None:
     approved = await db.scalar(
-        select(Application.id).where(
+        select(Application.id)
+        .join(Category, Category.id == Application.category_id)
+        .where(
             Application.student_id == student.id,
             Application.category_id == category_id,
             Application.status == ApplicationStatusEnum.approved,
+            # A course the admin switched off closes for everyone enrolled.
+            Category.is_active.is_(True),
         )
     )
     if approved is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к этой категории")
+
+
+async def can_watch_lesson_video(db: AsyncSession, user_id: int, lesson_id: int) -> bool:
+    """Whether `user_id` may still stream `lesson_id`'s video -- the rules the
+    ticket endpoints apply when issuing a ticket, re-applied when playback
+    starts, so a deactivated account, a revoked enrollment or a teacher moved
+    off the course stop being able to play it."""
+    from app.core.progress import get_lesson_progress  # progress imports this module's neighbours
+
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        return False
+    if user.role == RoleEnum.admin:
+        return True
+    try:
+        category_id = await get_category_id_for_lesson(db, lesson_id)
+        if user.role == RoleEnum.teacher:
+            await assert_teacher_owns_category(db, user, category_id)
+            return True
+        await assert_student_has_category_access(db, user, category_id)
+    except HTTPException:
+        return False
+    unlocked, _ = await get_lesson_progress(db, user.id, category_id)
+    return lesson_id in unlocked
 
 
 async def assert_student_has_any_course_access(db: AsyncSession, student: User) -> None:

@@ -316,7 +316,7 @@ async function handleSubmitHomework() {
               Работа принята учителем — повторно отправлять её не нужно.
             </p>
             <template v-else>
-            <textarea v-model="homeworkText" rows="4" placeholder="Текст ответа…" class="input" />
+            <textarea v-model="homeworkText" rows="4" maxlength="20000" placeholder="Текст ответа…" class="input" />
             <div class="space-y-1.5">
               <FilePicker
                 :file="homeworkFile"

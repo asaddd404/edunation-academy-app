@@ -97,6 +97,9 @@ ENT_PDF_IMPORT_BY_USER = RateLimit("ent_pdf_import_user", limit=10, window_secon
 BULK_DELETE_BY_USER = RateLimit("ent_bulk_delete_user", limit=20, window_seconds=60 * 60)
 BULK_CREATE_BY_USER = RateLimit("ent_bulk_create_user", limit=60, window_seconds=60 * 60)
 UPLOAD_BY_USER = RateLimit("upload_user", limit=120, window_seconds=60 * 60)
+# Each application notifies every teacher of the course: without a ceiling a
+# script could flood their notifications.
+APPLICATION_BY_USER = RateLimit("application_user", limit=10, window_seconds=60 * 60)
 # Starting an exam draws a random sample per subject per question type -- up
 # to 80 `ORDER BY random()` sorts over the question bank in one request, plus
 # a row written per drawn question. Sitting a mock ЕНТ takes an hour; twenty

@@ -33,6 +33,10 @@ from app.models.section import Section
 from app.models.user import RoleEnum, User
 from app.schemas.homework import HomeworkReviewIn, HomeworkSubmissionOut, file_kind
 
+# About ten pages of text: far more than any real answer, small enough that a
+# pasted novel cannot bloat the table or the teacher's review screen.
+MAX_TEXT_ANSWER = 20_000
+
 router = APIRouter(tags=["homework"])
 
 
@@ -69,6 +73,11 @@ async def submit_homework(
     text_answer = (text_answer or "").strip() or None
     if not text_answer and file is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Добавьте текст ответа или файл")
+    if text_answer is not None and len(text_answer) > MAX_TEXT_ANSWER:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Ответ слишком длинный — не больше {MAX_TEXT_ANSWER:,} символов".replace(",", " "),
+        )
 
     submission = await db.scalar(
         select(HomeworkSubmission).where(
